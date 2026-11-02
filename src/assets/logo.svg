@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 50" fill="none">
+  <!-- Ilm Essentials Logo Placeholder -->
+  <!-- TODO: Replace with official Ilm Essentials logo SVG -->
+  <rect width="200" height="50" rx="4" fill="transparent"/>
+  <!-- Book / Islamic motif icon -->
+  <g transform="translate(5, 5)">
+    <path d="M20 0C9 0 0 9 0 20s9 20 20 20 20-9 20-20S31 0 20 0z" fill="#0A3D2E"/>
+    <path d="M20 8l-8 4v12l8 4 8-4V12l-8-4z" fill="#C8A951" opacity="0.9"/>
+    <path d="M20 8v20M12 12l8 4 8-4" stroke="white" stroke-width="1.5" fill="none"/>
+  </g>
+  <!-- Text -->
+  <text x="50" y="22" font-family="Playfair Display, Georgia, serif" font-size="16" font-weight="700" fill="#0A3D2E">ILM</text>
+  <text x="50" y="38" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="400" fill="#4A4A5A" letter-spacing="2">ESSENTIALS</text>
+</svg>

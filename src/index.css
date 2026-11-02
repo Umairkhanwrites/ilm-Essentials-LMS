@@ -1,0 +1,143 @@
+/* ============================================
+   ILM ESSENTIALS LMS — Global Styles
+   Tailwind CSS directives + custom overrides
+   ============================================ */
+
+@import "tailwindcss";
+
+@theme {
+  /* ---- Primary Brand: Deep Islamic Emerald ---- */
+  --color-primary-50:  #E8F5EE;
+  --color-primary-100: #C6E7D3;
+  --color-primary-200: #9DD6B5;
+  --color-primary-300: #6EC294;
+  --color-primary-400: #47B27A;
+  --color-primary-500: #1A7A4E;
+  --color-primary-600: #186E46;
+  --color-primary-700: #155E3D;
+  --color-primary-800: #114D33;
+  --color-primary-900: #0A3D2E;
+  --color-primary-950: #062A1F;
+
+  /* ---- Accent: Warm Gold ---- */
+  --color-gold-50:  #FDF8EB;
+  --color-gold-100: #FAF0D1;
+  --color-gold-200: #F5E1A3;
+  --color-gold-300: #EFD075;
+  --color-gold-400: #D4B96A;
+  --color-gold-500: #C8A951;
+  --color-gold-600: #B5933B;
+  --color-gold-700: #9A7B2F;
+  --color-gold-800: #7E6424;
+  --color-gold-900: #634E1C;
+
+  /* ---- Background: Warm Sand ---- */
+  --color-sand-50:  #FAF8F5;
+  --color-sand-100: #F3EFE8;
+  --color-sand-200: #E8E0D4;
+  --color-sand-300: #D6CCBC;
+  --color-sand-400: #C0B29E;
+
+  /* ---- Ink: Text Tones ---- */
+  --color-ink-900: #1A1A2E;
+  --color-ink-800: #2D2D3F;
+  --color-ink-700: #3D3D50;
+  --color-ink-600: #4A4A5A;
+  --color-ink-500: #62627A;
+  --color-ink-400: #9CA3AF;
+  --color-ink-300: #C5C9D4;
+
+  /* ---- Fonts (Clean modern Sans-Serif) ---- */
+  --font-heading: "Plus Jakarta Sans", "Inter", system-ui, -apple-system, sans-serif;
+  --font-body:    "Inter", system-ui, -apple-system, sans-serif;
+  --font-arabic:  "Inter", system-ui, sans-serif;
+
+  /* ---- Shadows ---- */
+  --shadow-soft:     0 2px 15px -3px rgba(0,0,0,0.07), 0 10px 20px -2px rgba(0,0,0,0.04);
+  --shadow-card:     0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-elevated: 0 10px 40px -10px rgba(10,61,46,0.15);
+  --shadow-glow:     0 0 20px rgba(200,169,81,0.3);
+
+  /* ---- Animations ---- */
+  --animate-shimmer:        shimmer 2s infinite linear;
+  --animate-fade-in:        fadeIn 0.5s ease-out;
+  --animate-slide-up:       slideUp 0.5s ease-out;
+  --animate-slide-in-right: slideInRight 0.3s ease-out;
+  --animate-pulse-soft:     pulseSoft 2s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+@keyframes fadeIn {
+  0%   { opacity: 0; }
+  100% { opacity: 1; }
+}
+@keyframes slideUp {
+  0%   { opacity: 0; transform: translateY(20px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+@keyframes slideInRight {
+  0%   { opacity: 0; transform: translateX(20px); }
+  100% { opacity: 1; transform: translateX(0); }
+}
+@keyframes pulseSoft {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.7; }
+}
+
+/* ---- Base layer overrides ---- */
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  body {
+    @apply bg-sand-50 text-ink-900 font-body;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-heading;
+  }
+  /* Focus ring for accessibility */
+  *:focus-visible {
+    @apply outline-2 outline-offset-2 outline-primary-500;
+  }
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-sand-100;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-primary-300 rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-primary-500;
+  }
+}
+
+/* ---- Component layer ---- */
+@layer components {
+  /* Clean subtle background texture */
+  .bg-islamic-pattern {
+    background-image: radial-gradient(rgba(10, 61, 46, 0.04) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+
+  /* Skeleton shimmer effect */
+  .skeleton {
+    @apply relative overflow-hidden rounded-lg;
+    background: linear-gradient(90deg, var(--color-sand-100) 25%, var(--color-sand-200) 50%, var(--color-sand-100) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 2s infinite linear;
+  }
+
+  /* Arabic text styling */
+  .arabic-text {
+    @apply font-arabic text-primary-900 leading-relaxed;
+    direction: rtl;
+  }
+}
