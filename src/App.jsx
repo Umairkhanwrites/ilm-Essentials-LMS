@@ -11,7 +11,7 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 
-import { AuthProvider } from './context/AuthContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 
 import Dashboard from './pages/Dashboard';
@@ -24,13 +24,25 @@ import AdminLogin from './pages/AdminLogin';
 import Signup from './pages/Signup';
 import NotFound from './pages/NotFound';
 
+/** Root route router — directs guests to /login, students to /dashboard, admins to /admin */
+function RootRoute() {
+  const { user, isAuthenticated } = useAuth();
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+  if (user?.role === 'admin') {
+    return <Navigate to="/admin" replace />;
+  }
+  return <Navigate to="/dashboard" replace />;
+}
+
 export default function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
         <Routes>
-          {/* Default redirect to student dashboard */}
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          {/* Default entry point: direct to /login if unauthenticated */}
+          <Route path="/" element={<RootRoute />} />
 
           {/* Dedicated Login Endpoints */}
           <Route path="/login" element={<Login />} />

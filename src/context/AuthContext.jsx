@@ -13,7 +13,7 @@ const AuthContext = createContext(null);
 const STORAGE_KEY_USER = 'ilm_lms_user';
 
 export function AuthProvider({ children }) {
-  // Initialize from localStorage or default to a demo student session
+  // Initialize from localStorage or null (unauthenticated by default)
   const [user, setUser] = useState(() => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY_USER);
@@ -23,13 +23,8 @@ export function AuthProvider({ children }) {
     } catch (e) {
       console.error('Failed to parse stored auth user', e);
     }
-    // Default initial mock session as Student for immediate review
-    return {
-      id: 'usr_001',
-      name: demoCredentials.student.name,
-      email: demoCredentials.student.email,
-      role: 'student',
-    };
+    // No automatic session - user must explicitly log in with credentials
+    return null;
   });
 
   // Keep localStorage synchronized
