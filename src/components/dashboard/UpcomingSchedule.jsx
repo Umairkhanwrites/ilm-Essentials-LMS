@@ -13,6 +13,7 @@
  * TODO: Wire up "Join Session" to actual meeting links
  */
 
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
   CalendarDays,
@@ -22,15 +23,18 @@ import {
   PlayCircle,
   ExternalLink,
   User,
+  Layers,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { upcomingSchedule, courseFormats } from '../../data/mockData';
+import { getAllCourses } from '../../services/courseStorage';
 
 /** Map format icon names to Lucide components */
 const formatIconMap = {
   MapPin,
   Video,
   PlayCircle,
+  Layers,
 };
 
 /**
@@ -49,7 +53,33 @@ function formatSessionDate(dateStr) {
 }
 
 export default function UpcomingSchedule() {
-  const sessions = upcomingSchedule.slice(0, 3);
+  const [sessions, setSessions] = useState(upcomingSchedule.slice(0, 3));
+
+  useEffect(() => {
+    try {
+      const allCourses = getAllCourses();
+      // Look for any courses that have specific schedule and meeting link
+      const liveCourses = allCourses.filter(
+        (c) => c.classCategory === 'online' || c.classCategory === 'hybrid' || c.meetingLink
+      );
+      if (liveCourses.length > 0) {
+        const dynamicSessions = liveCourses.slice(0, 3).map((c, idx) => ({
+          id: `dyn_sch_${c.id}_${idx}`,
+          courseTitle: c.title,
+          topic: `Class Session • ${c.schedule || 'Live Interactive Class'}`,
+          date: c.startDate || new Date().toISOString().split('T')[0],
+          time: c.schedule ? c.schedule.split(',')[1] || c.schedule : '6:00 PM – 8:30 PM PKT',
+          format: c.classCategory === 'hybrid' ? 'hybrid' : (c.classCategory === 'onsite' ? 'onsite' : 'online'),
+          instructor: typeof c.instructor === 'object' ? c.instructor.name : (c.instructor || 'Lead Scholar'),
+          meetingLink: c.meetingLink || 'https://meet.google.com/ilm-live-class',
+          venue: c.venue || c.campusLocation,
+        }));
+        setSessions(dynamicSessions);
+      }
+    } catch (err) {
+      console.error('Failed to load dynamic schedule:', err);
+    }
+  }, []);
 
   return (
     <section>
@@ -64,9 +94,12 @@ export default function UpcomingSchedule() {
       {/* Session list */}
       <div className="space-y-3">
         {sessions.map((session, index) => {
-          const fmt = courseFormats[session.format];
+          const fmt = courseFormats[session.format] || courseFormats['online'];
           const FormatIcon = formatIconMap[fmt?.icon] || Video;
-          const isLive = session.format === 'live-online';
+          const isLive = session.format === 'live-online' || session.format === 'online' || session.format === 'hybrid';
+          const isHybrid = session.format === 'hybrid';
+          const isOnsite = session.format === 'onsite' || session.format === 'on-site';
+          const meetingUrl = session.meetingLink || 'https://meet.google.com/ilm-live-class';
 
           return (
             <motion.div
@@ -74,7 +107,7 @@ export default function UpcomingSchedule() {
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: index * 0.1, duration: 0.4 }}
-              className="group rounded-xl bg-white p-4 shadow-card transition-all duration-300 hover:shadow-elevated"
+              className="group rounded-xl bg-white p-4 shadow-card transition-all duration-300 hover:shadow-elevated border border-sand-200"
             >
               <div className="flex gap-3">
                 {/* Calendar icon block */}
@@ -92,11 +125,11 @@ export default function UpcomingSchedule() {
                     <span
                       className={clsx(
                         'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium',
-                        fmt?.color || 'bg-gray-100 text-gray-700'
+                        fmt?.color || 'bg-emerald-100 text-emerald-800'
                       )}
                     >
                       <FormatIcon className="h-3 w-3" />
-                      {fmt?.label || session.format}
+                      {fmt?.label || 'Online'}
                     </span>
                   </div>
 
@@ -122,15 +155,26 @@ export default function UpcomingSchedule() {
                     </span>
                   </div>
 
-                  {/* Join Session button (only for live-online) */}
+                  {/* Onsite Venue info */}
+                  {(isOnsite || isHybrid) && session.venue && (
+                    <div className="mt-2 flex items-center gap-1 text-[11px] text-amber-800 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
+                      <MapPin className="h-3 w-3 shrink-0" />
+                      <span className="truncate">{session.venue}</span>
+                    </div>
+                  )}
+
+                  {/* Join Session link button (for online & hybrid) */}
                   {isLive && (
-                    <button
-                      className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-primary-600 px-3.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 active:bg-primary-800"
+                    <a
+                      href={meetingUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-xs cursor-pointer active:scale-95"
                     >
                       <Video className="h-3.5 w-3.5" />
-                      Join Session
+                      Join Live Class
                       <ExternalLink className="h-3 w-3" />
-                    </button>
+                    </a>
                   )}
                 </div>
               </div>

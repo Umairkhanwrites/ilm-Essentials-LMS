@@ -26,6 +26,8 @@ import {
   Zap,
   LogIn,
   Library,
+  Video,
+  ExternalLink,
 } from 'lucide-react';
 
 import logo from '../../assets/logo.png';
@@ -268,14 +270,28 @@ export default function Navbar() {
                           <li
                             key={n.id}
                             className={clsx(
-                              'px-4 py-3 text-sm transition-colors hover:bg-sand-50 cursor-pointer',
+                              'px-4 py-3 text-sm transition-colors hover:bg-sand-50',
                               !n.read && 'bg-primary-50/40'
                             )}
                           >
                             <p className={clsx('text-ink-800 text-xs leading-relaxed', !n.read && 'font-medium')}>
                               {n.message}
                             </p>
-                            <span className="text-[11px] text-ink-400 mt-1 block">{n.time}</span>
+                            <div className="flex items-center justify-between mt-1.5">
+                              <span className="text-[11px] text-ink-400">{n.time}</span>
+                              {n.meetingLink && (
+                                <a
+                                  href={n.meetingLink}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold shadow-xs transition-colors"
+                                >
+                                  <Video size={11} />
+                                  Join Class
+                                  <ExternalLink size={10} />
+                                </a>
+                              )}
+                            </div>
                           </li>
                         ))}
                       </ul>

@@ -24,6 +24,8 @@ import {
   Sparkles,
   Info,
   CheckCircle,
+  Video,
+  ExternalLink,
 } from 'lucide-react';
 
 import Layout from '../components/layout/Layout';
@@ -274,6 +276,46 @@ export default function CourseView() {
                 </div>
               )}
 
+              {/* Live Meeting Alert for Online & Hybrid courses */}
+              {(course.classCategory === 'online' || course.classCategory === 'hybrid' || course.format === 'live-online' || course.format === 'online') && (
+                <div className="bg-primary-950 text-white rounded-2xl p-4 sm:p-5 border border-primary-900 shadow-elevated flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex items-center gap-3.5">
+                    <div className="h-11 w-11 rounded-xl bg-gold-400/20 text-gold-400 flex items-center justify-center shrink-0 ring-1 ring-gold-400/30">
+                      <Video className="w-5 h-5 animate-pulse" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-bold uppercase tracking-wider bg-gold-400 text-primary-950 px-2 py-0.5 rounded-full">
+                          Live Interactive Class
+                        </span>
+                        <span className="text-xs text-primary-200">
+                          {course.schedule || 'Scheduled Live Sessions'}
+                        </span>
+                      </div>
+                      <h3 className="font-heading font-bold text-white text-sm sm:text-base mt-1">
+                        {currentLesson?.meetingLink ? `${currentLesson.title} — Session Meeting Link` : 'Join Scheduled Class Session'}
+                      </h3>
+                      {course.venue && (
+                        <p className="text-[11px] text-primary-300 mt-0.5">
+                          {course.venue}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  <a
+                    href={currentLesson?.meetingLink || course.meetingLink || 'https://meet.google.com/ilm-live-class'}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-gold-400 hover:bg-gold-300 text-primary-950 text-xs font-bold shadow-md transition-all shrink-0 cursor-pointer"
+                  >
+                    <Video size={15} />
+                    <span>Join Live Class ({course.meetingPlatform || 'Google Meet'})</span>
+                    <ExternalLink size={13} />
+                  </a>
+                </div>
+              )}
+
               {/* Media Player */}
               <div className="bg-black rounded-2xl overflow-hidden shadow-elevated">
                 <MediaPlayer
@@ -387,6 +429,8 @@ export default function CourseView() {
                   {/* Tab 3: Community & Q&A */}
                   <div className="pt-2">
                     <CommunityTab
+                      courseId={course.id}
+                      instructorName={typeof course.instructor === 'object' ? course.instructor?.name : course.instructor}
                       discussions={course.discussions}
                       onAddDiscussion={handleAddDiscussion}
                     />

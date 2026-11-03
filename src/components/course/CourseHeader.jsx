@@ -20,6 +20,10 @@ import {
   Video,
   PlayCircle,
   GraduationCap,
+  Layers,
+  Calendar,
+  Clock,
+  ExternalLink,
 } from 'lucide-react';
 import Badge from '../../components/ui/Badge';
 import ProgressBar from '../../components/ui/ProgressBar';
@@ -27,13 +31,36 @@ import Avatar from '../../components/ui/Avatar';
 
 /** Map format keys → icon components */
 const FORMAT_ICONS = {
+  online: Video,
+  onsite: MapPin,
+  hybrid: Layers,
   'on-site': MapPin,
   'live-online': Video,
   'self-paced': PlayCircle,
 };
 
 export default function CourseHeader({ course, formatMeta, onBack }) {
-  const FormatIcon = FORMAT_ICONS[course.format] || GraduationCap;
+  const isOnline = course.classCategory === 'online' || course.format === 'live-online' || course.format === 'online';
+  const isOnsite = course.classCategory === 'onsite' || course.format === 'on-site' || course.format === 'onsite';
+  const isHybrid = course.classCategory === 'hybrid' || course.format === 'hybrid';
+
+  const FormatIcon = FORMAT_ICONS[course.classCategory] || FORMAT_ICONS[course.format] || GraduationCap;
+
+  const meetingUrl = course.meetingLink || (isOnline || isHybrid ? 'https://meet.google.com/ilm-live-class' : null);
+  const campusVenue = course.campusLocation || course.venue || (isOnsite || isHybrid ? 'Ilm Essentials Campus, DHA Phase 6, Lahore' : null);
+
+  const formatDate = (dateStr) => {
+    if (!dateStr) return null;
+    try {
+      const d = new Date(dateStr + (dateStr.includes('T') ? '' : 'T00:00:00'));
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    } catch {
+      return dateStr;
+    }
+  };
+
+  const formattedStart = formatDate(course.startDate);
+  const formattedEnd = formatDate(course.endDate);
 
   return (
     <motion.header
@@ -70,18 +97,24 @@ export default function CourseHeader({ course, formatMeta, onBack }) {
               {course.title}
             </h1>
 
-            {/* Format badge */}
-            {formatMeta && (
-              <Badge
-                className={clsx(
-                  'inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full',
-                  formatMeta.color
-                )}
-              >
-                <FormatIcon size={13} />
-                {formatMeta.label}
-              </Badge>
-            )}
+            {/* Delivery Category Badge */}
+            <Badge
+              className={clsx(
+                'inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full',
+                isHybrid
+                  ? 'bg-purple-100 text-purple-900 border border-purple-200'
+                  : isOnsite
+                  ? 'bg-amber-100 text-amber-900 border border-amber-200'
+                  : 'bg-emerald-100 text-emerald-900 border border-emerald-200'
+              )}
+            >
+              <FormatIcon size={13} />
+              {isHybrid
+                ? 'Online & Onsite'
+                : isOnsite
+                ? 'Onsite Campus'
+                : 'Live Online'}
+            </Badge>
           </div>
 
           {/* Subtitle */}
@@ -89,21 +122,66 @@ export default function CourseHeader({ course, formatMeta, onBack }) {
             {course.subtitle}
           </p>
 
-          {/* Instructor */}
-          <div className="flex items-center gap-3">
-            <Avatar
-              name={course.instructor.name}
-              src={course.instructor.avatar}
-              size="sm"
-            />
-            <div>
-              <p className="text-sm font-semibold text-ink-800">
-                {course.instructor.name}
-              </p>
-              <p className="text-xs text-ink-500">
-                {course.instructor.title}
-              </p>
+          {/* Course Specific Duration & Starting/Ending Dates */}
+          {(formattedStart || course.duration) && (
+            <div className="flex flex-wrap items-center gap-3 text-xs text-ink-600 pt-1">
+              {formattedStart && (
+                <div className="flex items-center gap-1.5 bg-sand-100/80 px-2.5 py-1 rounded-lg border border-sand-200">
+                  <Calendar size={13} className="text-primary-700" />
+                  <span>
+                    <strong>Course Duration:</strong> {formattedStart} {formattedEnd ? `– ${formattedEnd}` : ''}
+                    {course.duration ? ` (${course.duration})` : ''}
+                  </span>
+                </div>
+              )}
+              {course.schedule && (
+                <div className="flex items-center gap-1.5 bg-sand-100/80 px-2.5 py-1 rounded-lg border border-sand-200">
+                  <Clock size={13} className="text-primary-700" />
+                  <span>{course.schedule}</span>
+                </div>
+              )}
             </div>
+          )}
+
+          {/* Instructor & Live Meeting Join Actions */}
+          <div className="flex flex-wrap items-center justify-between gap-4 pt-1">
+            <div className="flex items-center gap-3">
+              <Avatar
+                name={course.instructor?.name || 'Instructor'}
+                src={course.instructor?.avatar}
+                size="sm"
+              />
+              <div>
+                <p className="text-sm font-semibold text-ink-800">
+                  {course.instructor?.name || 'Lead Scholar'}
+                </p>
+                <p className="text-xs text-ink-500">
+                  {course.instructor?.title || 'Faculty of Islamic Sciences'}
+                </p>
+              </div>
+            </div>
+
+            {/* Live Class Meeting Link Button (for Online & Hybrid) */}
+            {(isOnline || isHybrid) && meetingUrl && (
+              <a
+                href={meetingUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition-all active:scale-95"
+              >
+                <Video size={14} className="animate-pulse" />
+                Join Live Class (Google Meet)
+                <ExternalLink size={13} />
+              </a>
+            )}
+
+            {/* Onsite Venue info */}
+            {isOnsite && campusVenue && (
+              <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs font-semibold">
+                <MapPin size={13} className="text-amber-700" />
+                <span>{campusVenue}</span>
+              </div>
+            )}
           </div>
         </div>
 

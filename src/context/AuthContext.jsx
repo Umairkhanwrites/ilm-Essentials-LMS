@@ -7,6 +7,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { demoCredentials } from '../data/mockData';
+import { getAllStudents, getAllInstructors, updateStudentPassword } from '../services/courseStorage';
 
 const AuthContext = createContext(null);
 
@@ -51,19 +52,82 @@ export function AuthProvider({ children }) {
     const cleanEmail = email.trim().toLowerCase();
     const cleanPass = password.trim();
 
+    // Instructor Authentication Check
+    if (expectedRole === 'instructor' || cleanEmail.includes('instructor')) {
+      const isDemoInstructor =
+        (cleanEmail === demoCredentials.instructor?.email?.toLowerCase() ||
+          cleanEmail === demoCredentials.instructor?.alternateEmail?.toLowerCase()) &&
+        (cleanPass === demoCredentials.instructor?.password || cleanPass === 'instructor123' || cleanPass === 'password123');
+
+      if (isDemoInstructor) {
+        const instUser = {
+          id: 'inst_demo',
+          name: demoCredentials.instructor.name,
+          email: demoCredentials.instructor.email,
+          role: 'instructor',
+          title: 'Senior Scholar & Course Instructor',
+          avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=200&q=80',
+        };
+        setUser(instUser);
+        return { success: true, user: instUser };
+      }
+
+      // Check registered instructors list
+      const allInstructors = getAllInstructors();
+      const matchInst = allInstructors.find(
+        (i) => i.email.toLowerCase() === cleanEmail
+      );
+      if (matchInst && (cleanPass === 'instructor123' || cleanPass === 'password123' || cleanPass === matchInst.password)) {
+        const instUser = {
+          id: matchInst.id,
+          name: matchInst.name,
+          email: matchInst.email,
+          role: 'instructor',
+          title: matchInst.title,
+          avatar: matchInst.avatar,
+        };
+        setUser(instUser);
+        return { success: true, user: instUser };
+      }
+
+      if (expectedRole === 'instructor') {
+        return {
+          success: false,
+          error: 'Invalid instructor credentials. Use instructor@ilmessentials.pk / instructor123',
+        };
+      }
+    }
+
     // Student Authentication Check
     if (expectedRole === 'student') {
-      const isValidStudent =
+      const isDemoStudent =
         (cleanEmail === demoCredentials.student.email.toLowerCase() ||
           cleanEmail === demoCredentials.student.alternateEmail?.toLowerCase()) &&
         (cleanPass === demoCredentials.student.password || cleanPass === 'password123');
 
-      if (isValidStudent) {
+      if (isDemoStudent) {
         const studentUser = {
           id: 'usr_001',
           name: demoCredentials.student.name,
           email: demoCredentials.student.email,
           role: 'student',
+        };
+        setUser(studentUser);
+        return { success: true, user: studentUser };
+      }
+
+      // Dynamic check across all registered students
+      const allStudents = getAllStudents();
+      const matchStudent = allStudents.find(
+        (s) => s.email.toLowerCase() === cleanEmail
+      );
+      if (matchStudent && (cleanPass === matchStudent.password || cleanPass === 'student123' || cleanPass === 'password123')) {
+        const studentUser = {
+          id: matchStudent.id,
+          name: matchStudent.name,
+          email: matchStudent.email,
+          role: 'student',
+          mustChangePassword: Boolean(matchStudent.mustChangePassword),
         };
         setUser(studentUser);
         return { success: true, user: studentUser };
@@ -79,7 +143,7 @@ export function AuthProvider({ children }) {
     if (expectedRole === 'admin') {
       const isValidAdmin =
         cleanEmail === demoCredentials.admin.email.toLowerCase() &&
-        (cleanPass === demoCredentials.admin.password || cleanPass === 'adminpassword');
+        (cleanPass === demoCredentials.admin.password || cleanPass === 'adminpassword' || cleanPass === 'admin123');
 
       if (isValidAdmin) {
         const adminUser = {
@@ -113,14 +177,34 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
+  /**
+   * Set new permanent password and clear mustChangePassword
+   */
+  const changePassword = useCallback((newPassword) => {
+    if (!user || !user.id) return;
+    updateStudentPassword(user.id, newPassword);
+    const updated = {
+      ...user,
+      mustChangePassword: false,
+    };
+    setUser(updated);
+    try {
+      localStorage.setItem(STORAGE_KEY_USER, JSON.stringify(updated));
+    } catch (e) {
+      console.error(e);
+    }
+  }, [user]);
+
   const isAuthenticated = Boolean(user && user.role);
 
   const value = {
     user,
     role: user?.role || null,
     isAuthenticated,
+    mustChangePassword: Boolean(user?.mustChangePassword),
     login,
     logout,
+    changePassword,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

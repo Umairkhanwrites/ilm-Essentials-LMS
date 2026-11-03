@@ -17,10 +17,14 @@
 import clsx from 'clsx';
 import Navbar from './Navbar';
 import Footer from './Footer';
+import ChangePasswordModal from '../auth/ChangePasswordModal';
 
 export default function Layout({ children, hideNav = false, hideFooter = false, fullWidth = false }) {
   return (
     <div className="flex min-h-screen flex-col bg-sand-50">
+      {/* ── First-time Password Activation Modal ── */}
+      <ChangePasswordModal />
+
       {/* ── Navbar ── */}
       {!hideNav && <Navbar />}
 

@@ -19,6 +19,7 @@ import CourseView from './pages/CourseView';
 import MyCourses from './pages/MyCourses';
 import ELibrary from './pages/ELibrary';
 import AdminDashboard from './pages/AdminDashboard';
+import CreateCourse from './pages/CreateCourse';
 import Login from './pages/Login';
 import AdminLogin from './pages/AdminLogin';
 import Signup from './pages/Signup';
@@ -84,12 +85,28 @@ export default function App() {
             }
           />
 
-          {/* Protected Administrator Route */}
+          {/* Protected Administrator Routes */}
           <Route
             path="/admin"
             element={
               <ProtectedRoute requiredRole="admin">
                 <AdminDashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/courses/new"
+            element={
+              <ProtectedRoute requiredRole="admin">
+                <CreateCourse />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/courses/edit/:id"
+            element={
+              <ProtectedRoute requiredRole="admin">
+                <CreateCourse />
               </ProtectedRoute>
             }
           />
