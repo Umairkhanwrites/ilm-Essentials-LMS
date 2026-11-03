@@ -38,31 +38,16 @@ import Card from '../components/ui/Card';
 import Avatar from '../components/ui/Avatar';
 
 import { courseDetail as defaultCourseDetail, courseFormats, enrolledCourses } from '../data/mockData';
+import { getCourseDetailById } from '../services/courseStorage';
 
 export default function CourseView() {
   const { id } = useParams();
   const navigate = useNavigate();
 
-  // In real app, fetch courseDetail by id; here we fallback gracefully
+  // Fetch course details by id from storage or fallback
   const initialCourse = useMemo(() => {
-    if (id && id !== defaultCourseDetail.id) {
-      const match = enrolledCourses.find((c) => c.id === id);
-      if (match) {
-        return {
-          ...defaultCourseDetail,
-          id: match.id,
-          title: match.title,
-          instructor: {
-            ...defaultCourseDetail.instructor,
-            name: match.instructor,
-          },
-          progress: match.progress,
-          totalLessons: match.totalLessons,
-          completedLessons: match.completedLessons,
-          format: match.format,
-          description: match.description,
-        };
-      }
+    if (id) {
+      return getCourseDetailById(id);
     }
     return defaultCourseDetail;
   }, [id]);

@@ -39,6 +39,9 @@ import {
   Calendar,
   X,
   LogOut,
+  Trash2,
+  Eye,
+  Check,
 } from 'lucide-react';
 
 import Layout from '../components/layout/Layout';
@@ -47,9 +50,15 @@ import logoWhite from '../assets/logo-white.png';
 import {
   adminOverviewStats,
   adminStudentsList,
-  adminAllCourses,
   courseFormats,
 } from '../data/mockData';
+import CreateCourseModal from '../components/admin/CreateCourseModal';
+import {
+  getAllCourses,
+  saveCourse,
+  deleteCourse,
+  updateCourseStatus,
+} from '../services/courseStorage';
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -62,21 +71,12 @@ export default function AdminDashboard() {
   const [studentSearch, setStudentSearch] = useState('');
   const [students, setStudents] = useState(adminStudentsList);
 
-  // Courses filter & state
+  // Courses filter & persistent state
   const [courseCategoryFilter, setCourseCategoryFilter] = useState('all');
-  const [courses, setCourses] = useState(adminAllCourses);
+  const [courses, setCourses] = useState(() => getAllCourses());
 
   // New Course Modal state
   const [isNewCourseModalOpen, setIsNewCourseModalOpen] = useState(false);
-  const [newCourseForm, setNewCourseForm] = useState({
-    title: '',
-    category: 'foundations',
-    instructor: '',
-    format: 'live-online',
-    capacity: 100,
-    fee: 'PKR 30,000',
-    startDate: '',
-  });
 
   // Filter students
   const filteredStudents = useMemo(() => {
@@ -97,6 +97,40 @@ export default function AdminDashboard() {
     });
   }, [courses, courseCategoryFilter]);
 
+  // Dynamic KPI stats reflecting active courses and student records
+  const dynamicStats = useMemo(() => {
+    const activeCount = courses.filter((c) => c.status === 'Active').length;
+    const foundationsCount = courses.filter((c) => c.category === 'foundations').length;
+    const intensivesCount = courses.filter((c) => c.category === 'intensives').length;
+
+    return [
+      {
+        label: 'Total Enrolled Students',
+        value: '1,248',
+        icon: 'Users',
+        change: '+12% this semester',
+      },
+      {
+        label: 'Active Courses',
+        value: activeCount,
+        icon: 'BookOpen',
+        change: `${foundationsCount} Foundations, ${intensivesCount} Intensives`,
+      },
+      {
+        label: 'Pending Applications',
+        value: '38',
+        icon: 'FileCheck',
+        change: 'Requires review',
+      },
+      {
+        label: 'Tuition Revenue',
+        value: 'PKR 3.4M',
+        icon: 'CreditCard',
+        change: '+18% vs last cycle',
+      },
+    ];
+  }, [courses]);
+
   // Handle fee status toggle
   const toggleFeeStatus = (studentId) => {
     setStudents((prev) =>
@@ -112,36 +146,26 @@ export default function AdminDashboard() {
     );
   };
 
-  // Handle new course submit
-  const handleCreateCourse = (e) => {
-    e.preventDefault();
-    if (!newCourseForm.title || !newCourseForm.instructor) {
-      alert('Please fill out all required fields.');
-      return;
-    }
-    const created = {
-      id: `crs_adm_${Date.now()}`,
-      title: newCourseForm.title,
-      category: newCourseForm.category,
-      instructor: newCourseForm.instructor,
-      format: newCourseForm.format,
-      enrolledCount: 0,
-      capacity: Number(newCourseForm.capacity) || 100,
-      fee: newCourseForm.fee,
-      status: 'Active',
-      startDate: newCourseForm.startDate || '2026-04-01',
-    };
-    setCourses([created, ...courses]);
+  // Handle new course created from wizard modal
+  const handleCourseCreated = (courseData) => {
+    saveCourse(courseData);
+    setCourses(getAllCourses());
     setIsNewCourseModalOpen(false);
-    setNewCourseForm({
-      title: '',
-      category: 'foundations',
-      instructor: '',
-      format: 'live-online',
-      capacity: 100,
-      fee: 'PKR 30,000',
-      startDate: '',
-    });
+  };
+
+  // Handle course deletion
+  const handleDeleteCourse = (courseId, courseTitle) => {
+    if (window.confirm(`Are you sure you want to remove "${courseTitle}" from the course catalog?`)) {
+      const updated = deleteCourse(courseId);
+      setCourses(updated);
+    }
+  };
+
+  // Handle course status toggle
+  const handleToggleStatus = (courseId, currentStatus) => {
+    const nextStatus = currentStatus === 'Active' ? 'Upcoming' : currentStatus === 'Upcoming' ? 'Draft' : 'Active';
+    const updated = updateCourseStatus(courseId, nextStatus);
+    setCourses(updated);
   };
 
   const getFormatIcon = (fmt) => {
@@ -220,7 +244,7 @@ export default function AdminDashboard() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8 space-y-8">
           {/* Key Metric Overview Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {adminOverviewStats.map((stat, idx) => {
+            {dynamicStats.map((stat, idx) => {
               const iconMap = {
                 Users,
                 BookOpen,
@@ -356,23 +380,40 @@ export default function AdminDashboard() {
                           </td>
                           <td className="py-4 px-4 font-medium text-ink-900">{c.fee}</td>
                           <td className="py-4 px-4">
-                            <span
-                              className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
+                            <button
+                              type="button"
+                              onClick={() => handleToggleStatus(c.id, c.status)}
+                              title="Click to cycle status: Active / Upcoming / Draft"
+                              className={`text-xs px-2.5 py-1 rounded-full font-semibold transition-all cursor-pointer ${
                                 c.status === 'Active'
-                                  ? 'bg-emerald-100 text-emerald-800'
-                                  : 'bg-gold-100 text-gold-800'
+                                  ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
+                                  : c.status === 'Upcoming'
+                                  ? 'bg-gold-100 text-gold-800 hover:bg-gold-200'
+                                  : 'bg-sand-200 text-ink-600 hover:bg-sand-300'
                               }`}
                             >
                               {c.status}
-                            </span>
+                            </button>
                           </td>
-                          <td className="py-4 px-4 text-right space-x-2">
-                            <Link
-                              to={`/course/${c.id}`}
-                              className="text-xs text-primary-700 hover:text-primary-900 font-semibold underline"
-                            >
-                              Preview
-                            </Link>
+                          <td className="py-4 px-4 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <Link
+                                to={`/course/${c.id}`}
+                                className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg bg-sand-100 hover:bg-primary-50 text-primary-800 font-semibold transition-colors"
+                                title="Preview course room as student"
+                              >
+                                <Eye size={12} />
+                                Preview
+                              </Link>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteCourse(c.id, c.title)}
+                                className="p-1 rounded-lg text-ink-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
+                                title="Remove course from catalog"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -629,158 +670,14 @@ export default function AdminDashboard() {
           )}
         </div>
 
-        {/* Modal: Create New Course */}
+        {/* Complete Multi-Step Course & Curriculum Creation Modal */}
         <AnimatePresence>
           {isNewCourseModalOpen && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                onClick={() => setIsNewCourseModalOpen(false)}
-                className="fixed inset-0 bg-black/50 backdrop-blur-xs"
-              />
-
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95, y: 10 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.95, y: 10 }}
-                className="relative bg-white rounded-2xl shadow-elevated border border-sand-200 w-full max-w-lg p-6 z-10 space-y-5"
-              >
-                <div className="flex items-center justify-between border-b border-sand-200 pb-3">
-                  <div>
-                    <h3 className="font-heading text-lg font-bold text-ink-900">
-                      Create New Program Course
-                    </h3>
-                    <p className="text-xs text-ink-500">
-                      Add a new certificate track or intensive masterclass.
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => setIsNewCourseModalOpen(false)}
-                    className="p-1 rounded-lg text-ink-400 hover:text-ink-700 hover:bg-sand-100"
-                  >
-                    <X size={18} />
-                  </button>
-                </div>
-
-                <form onSubmit={handleCreateCourse} className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-ink-700 mb-1">
-                      Course Title *
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={newCourseForm.title}
-                      onChange={(e) =>
-                        setNewCourseForm({ ...newCourseForm, title: e.target.value })
-                      }
-                      placeholder="e.g. Usul al-Fiqh: Principles of Jurisprudence"
-                      className="w-full px-3 py-2 border border-sand-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-semibold text-ink-700 mb-1">
-                        Program Pathway
-                      </label>
-                      <select
-                        value={newCourseForm.category}
-                        onChange={(e) =>
-                          setNewCourseForm({ ...newCourseForm, category: e.target.value })
-                        }
-                        className="w-full px-3 py-2 border border-sand-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
-                      >
-                        <option value="foundations">Ilm Foundations (8-Month)</option>
-                        <option value="intensives">Ilm Intensives (Masterclass)</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-semibold text-ink-700 mb-1">
-                        Format
-                      </label>
-                      <select
-                        value={newCourseForm.format}
-                        onChange={(e) =>
-                          setNewCourseForm({ ...newCourseForm, format: e.target.value })
-                        }
-                        className="w-full px-3 py-2 border border-sand-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
-                      >
-                        <option value="live-online">Live Online (Google Meet)</option>
-                        <option value="on-site">On-Site (Lahore DHA Phase 6)</option>
-                        <option value="self-paced">Self-Paced (Recorded)</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-ink-700 mb-1">
-                      Instructor Name *
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={newCourseForm.instructor}
-                      onChange={(e) =>
-                        setNewCourseForm({ ...newCourseForm, instructor: e.target.value })
-                      }
-                      placeholder="e.g. Sheikh Abdullah Nasir"
-                      className="w-full px-3 py-2 border border-sand-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-semibold text-ink-700 mb-1">
-                        Tuition Fee
-                      </label>
-                      <input
-                        type="text"
-                        value={newCourseForm.fee}
-                        onChange={(e) =>
-                          setNewCourseForm({ ...newCourseForm, fee: e.target.value })
-                        }
-                        placeholder="PKR 30,000"
-                        className="w-full px-3 py-2 border border-sand-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-semibold text-ink-700 mb-1">
-                        Capacity
-                      </label>
-                      <input
-                        type="number"
-                        value={newCourseForm.capacity}
-                        onChange={(e) =>
-                          setNewCourseForm({ ...newCourseForm, capacity: e.target.value })
-                        }
-                        className="w-full px-3 py-2 border border-sand-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-end gap-3 pt-4 border-t border-sand-200">
-                    <button
-                      type="button"
-                      onClick={() => setIsNewCourseModalOpen(false)}
-                      className="px-4 py-2 rounded-xl text-xs font-semibold text-ink-600 hover:bg-sand-100"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="submit"
-                      className="px-5 py-2 rounded-xl text-xs font-bold bg-primary-900 text-white hover:bg-primary-800 transition-colors cursor-pointer"
-                    >
-                      Create & Publish Course
-                    </button>
-                  </div>
-                </form>
-              </motion.div>
-            </div>
+            <CreateCourseModal
+              isOpen={isNewCourseModalOpen}
+              onClose={() => setIsNewCourseModalOpen(false)}
+              onCourseCreated={handleCourseCreated}
+            />
           )}
         </AnimatePresence>
       </div>
