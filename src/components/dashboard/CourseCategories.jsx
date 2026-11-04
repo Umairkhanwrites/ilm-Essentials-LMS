@@ -16,6 +16,7 @@
  */
 
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   GraduationCap,
@@ -148,18 +149,15 @@ export default function CourseCategories() {
                     {/* Course info */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className="font-heading text-base font-semibold text-ink-900 truncate">
-                          {course.title}
-                        </h3>
-                        <span
-                          className={clsx(
-                            'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium',
-                            fmt?.color || 'bg-gray-100 text-gray-700'
-                          )}
+                        <Link
+                          to={`/course/${course.id}`}
+                          className="group/courseTitle block truncate"
+                          title={course.title}
                         >
-                          <FormatIcon className="h-3 w-3" />
-                          {fmt?.label || course.format}
-                        </span>
+                          <h3 className="font-heading text-base font-semibold text-ink-900 group-hover/courseTitle:text-primary-800 transition-colors truncate cursor-pointer">
+                            {course.title}
+                          </h3>
+                        </Link>
                       </div>
                       <p className="mt-0.5 text-sm text-ink-500">
                         {course.instructor}
@@ -172,7 +170,7 @@ export default function CourseCategories() {
                     {/* Progress */}
                     <div className="w-full sm:w-40 flex items-center gap-3">
                       <div className="flex-1">
-                        <ProgressBar value={course.progress} />
+                        <ProgressBar value={course.progress} showLabel={false} />
                       </div>
                       <span className="text-sm font-semibold text-primary-700 tabular-nums w-10 text-right">
                         {course.progress}%

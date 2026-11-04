@@ -12,6 +12,8 @@ import {
   adminStudentsList,
   adminInstructorsList,
   adminFeeRecords,
+  initialScheduleSlots,
+  initialScheduleNotifications,
 } from '../data/mockData';
 
 const STORAGE_KEY_COURSES = 'ilm_admin_courses';
@@ -21,6 +23,9 @@ const STORAGE_KEY_ENROLLMENTS = 'ilm_course_enrollments_map';
 const STORAGE_KEY_INSTRUCTORS = 'ilm_admin_instructors';
 const STORAGE_KEY_FEES = 'ilm_student_fees';
 const STORAGE_KEY_DISCUSSIONS = 'ilm_course_discussions_map';
+const STORAGE_KEY_PATHWAYS = 'ilm_academic_pathways';
+const STORAGE_KEY_SCHEDULE_SLOTS = 'ilm_schedule_slots';
+const STORAGE_KEY_SCHEDULE_NOTIFS = 'ilm_schedule_notifications';
 
 /**
  * Generate a memorable, secure temporary password for students
@@ -195,13 +200,62 @@ export function getFeeRecords() {
     if (stored) {
       const parsed = JSON.parse(stored);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
+        // Ensure newly added mock records (such as multi-course student records) are included
+        const existingIds = new Set(parsed.map((p) => p.id));
+        const missingFromStorage = adminFeeRecords.filter((rec) => !existingIds.has(rec.id));
+        const combined = [...parsed, ...missingFromStorage];
+
+        return combined.map((f) => {
+          const baseFee = Number(f.baseFee) || Number(f.totalAmount) || 30000;
+          const discountAmount = Number(f.discountAmount) || 0;
+          const netPayable = Number(f.netPayable) || Math.max(0, baseFee - discountAmount);
+          const paidAmount = Number(f.paidAmount) || 0;
+          const balance = Math.max(0, netPayable - paidAmount);
+          return {
+            ...f,
+            baseFee,
+            discountType: f.discountType || 'none',
+            discountValue: Number(f.discountValue) || 0,
+            discountAmount,
+            discountReason: f.discountReason || '',
+            discountApprovedBy: f.discountApprovedBy || '',
+            netPayable,
+            totalAmount: netPayable,
+            paidAmount,
+            balance,
+            paymentPlan: f.paymentPlan || (Array.isArray(f.installments) && f.installments.length > 1 ? `installments_${f.installments.length}` : 'lump_sum'),
+            installments: Array.isArray(f.installments) ? f.installments : [],
+            paymentHistory: Array.isArray(f.paymentHistory) ? f.paymentHistory : [],
+          };
+        });
       }
     }
   } catch (err) {
     console.error('Failed to load fee records from localStorage:', err);
   }
-  return adminFeeRecords;
+  return adminFeeRecords.map((f) => {
+    const baseFee = Number(f.baseFee) || Number(f.totalAmount) || 30000;
+    const discountAmount = Number(f.discountAmount) || 0;
+    const netPayable = Number(f.netPayable) || Math.max(0, baseFee - discountAmount);
+    const paidAmount = Number(f.paidAmount) || 0;
+    const balance = Math.max(0, netPayable - paidAmount);
+    return {
+      ...f,
+      baseFee,
+      discountType: f.discountType || 'none',
+      discountValue: Number(f.discountValue) || 0,
+      discountAmount,
+      discountReason: f.discountReason || '',
+      discountApprovedBy: f.discountApprovedBy || '',
+      netPayable,
+      totalAmount: netPayable,
+      paidAmount,
+      balance,
+      paymentPlan: f.paymentPlan || 'lump_sum',
+      installments: Array.isArray(f.installments) ? f.installments : [],
+      paymentHistory: Array.isArray(f.paymentHistory) ? f.paymentHistory : [],
+    };
+  });
 }
 
 /**
@@ -212,13 +266,26 @@ export function saveFeeRecord(feeData) {
   const id = feeData.id || `fee_${Date.now()}`;
   const existing = current.find((f) => f.id === id);
 
-  const totalAmount = Number(feeData.totalAmount) || 30000;
-  const paidAmount = Number(feeData.paidAmount) || 0;
-  const balance = Math.max(0, totalAmount - paidAmount);
+  const baseFee = Number(feeData.baseFee) || Number(existing?.baseFee) || Number(feeData.totalAmount) || 30000;
+  const discountType = feeData.discountType || existing?.discountType || 'none';
+  const discountValue = Number(feeData.discountValue ?? existing?.discountValue ?? 0);
+  let discountAmount = Number(feeData.discountAmount ?? existing?.discountAmount ?? 0);
 
-  let calculatedStatus = feeData.status;
-  if (!calculatedStatus) {
-    if (balance === 0) calculatedStatus = 'Paid';
+  if (discountType === 'fixed') {
+    discountAmount = Math.min(baseFee, discountValue);
+  } else if (discountType === 'percentage') {
+    discountAmount = Math.round((baseFee * Math.min(100, Math.max(0, discountValue))) / 100);
+  } else if (discountType === 'waiver') {
+    discountAmount = baseFee;
+  }
+
+  const netPayable = Math.max(0, baseFee - discountAmount);
+  const paidAmount = Number(feeData.paidAmount ?? existing?.paidAmount ?? 0);
+  const balance = Math.max(0, netPayable - paidAmount);
+
+  let calculatedStatus = feeData.status || existing?.status;
+  if (!calculatedStatus || calculatedStatus === 'Pending' || calculatedStatus === 'Paid' || calculatedStatus === 'Partial') {
+    if (discountType === 'waiver' || balance === 0) calculatedStatus = discountType === 'waiver' ? 'Waived' : 'Paid';
     else if (paidAmount > 0) calculatedStatus = 'Partial';
     else calculatedStatus = 'Pending';
   }
@@ -228,17 +295,33 @@ export function saveFeeRecord(feeData) {
     ...feeData,
     id,
     invoiceNo: feeData.invoiceNo || (existing?.invoiceNo ?? `INV-2026-${Math.floor(1000 + Math.random() * 9000)}`),
-    totalAmount,
+    baseFee,
+    discountType,
+    discountValue,
+    discountAmount,
+    discountReason: feeData.discountReason || existing?.discountReason || '',
+    discountApprovedBy: feeData.discountApprovedBy || existing?.discountApprovedBy || '',
+    netPayable,
+    totalAmount: netPayable,
     paidAmount,
     balance,
     status: calculatedStatus,
     dueDate: feeData.dueDate || (existing?.dueDate ?? '2026-03-31'),
+    paymentPlan: feeData.paymentPlan || existing?.paymentPlan || 'lump_sum',
+    installments: Array.isArray(feeData.installments) ? feeData.installments : (existing?.installments || []),
+    paymentHistory: Array.isArray(feeData.paymentHistory) ? feeData.paymentHistory : (existing?.paymentHistory || []),
   };
 
   const exists = Boolean(existing);
   const updated = exists ? current.map((f) => (f.id === id ? record : f)) : [record, ...current];
   try {
     localStorage.setItem(STORAGE_KEY_FEES, JSON.stringify(updated));
+    if (record.studentId) {
+      saveStudent({
+        id: record.studentId,
+        feeStatus: calculatedStatus === 'Waived' ? 'Paid' : calculatedStatus,
+      });
+    }
   } catch (err) {
     console.error('Failed to save fee record to localStorage:', err);
   }
@@ -246,7 +329,151 @@ export function saveFeeRecord(feeData) {
 }
 
 /**
- * Record a payment against a fee record
+ * Apply a Discount or Scholarship to a Student's Fee
+ */
+export function applyFeeDiscount(feeId, discountData) {
+  const current = getFeeRecords();
+  const record = current.find((f) => f.id === feeId);
+  if (!record) return null;
+
+  const baseFee = Number(record.baseFee) || Number(record.totalAmount) || 30000;
+  const discountType = discountData.discountType || 'none';
+  const discountValue = Number(discountData.discountValue) || 0;
+  let discountAmount = 0;
+
+  if (discountType === 'fixed') {
+    discountAmount = Math.min(baseFee, discountValue);
+  } else if (discountType === 'percentage') {
+    discountAmount = Math.round((baseFee * Math.min(100, Math.max(0, discountValue))) / 100);
+  } else if (discountType === 'waiver') {
+    discountAmount = baseFee;
+  }
+
+  const netPayable = Math.max(0, baseFee - discountAmount);
+  const paidAmount = Number(record.paidAmount) || 0;
+  const newBalance = Math.max(0, netPayable - paidAmount);
+
+  let newStatus = record.status;
+  if (discountType === 'waiver' || newBalance === 0) {
+    newStatus = discountType === 'waiver' ? 'Waived' : 'Paid';
+  } else if (paidAmount > 0) {
+    newStatus = 'Partial';
+  } else {
+    newStatus = 'Pending';
+  }
+
+  // If installments exist, proportionally recalculate remaining amounts
+  let updatedInstallments = record.installments || [];
+  if (Array.isArray(updatedInstallments) && updatedInstallments.length > 0) {
+    const count = updatedInstallments.length;
+    const perPart = Math.floor(netPayable / count);
+    const remainder = netPayable - perPart * count;
+    let runningPaid = paidAmount;
+
+    updatedInstallments = updatedInstallments.map((inst, idx) => {
+      const partAmt = idx === count - 1 ? perPart + remainder : perPart;
+      const isInstPaid = runningPaid >= partAmt;
+      if (isInstPaid) {
+        runningPaid -= partAmt;
+      }
+      return {
+        ...inst,
+        amount: partAmt,
+        status: isInstPaid ? 'Paid' : inst.status === 'Paid' ? 'Paid' : 'Pending',
+      };
+    });
+  }
+
+  const updatedRecord = {
+    ...record,
+    baseFee,
+    discountType,
+    discountValue,
+    discountAmount,
+    discountReason: discountData.discountReason || '',
+    discountApprovedBy: discountData.approvedBy || 'Administrator',
+    netPayable,
+    totalAmount: netPayable,
+    balance: newBalance,
+    status: newStatus,
+    installments: updatedInstallments,
+  };
+
+  const updated = current.map((f) => (f.id === feeId ? updatedRecord : f));
+  try {
+    localStorage.setItem(STORAGE_KEY_FEES, JSON.stringify(updated));
+    if (record.studentId) {
+      saveStudent({ id: record.studentId, feeStatus: newStatus === 'Waived' ? 'Paid' : newStatus });
+    }
+  } catch (err) {
+    console.error('Failed to apply fee discount:', err);
+  }
+  return updatedRecord;
+}
+
+/**
+ * Configure Installment Plan for a Semester Fee Record (supports 2 to 6+ installments)
+ */
+export function configureInstallmentPlan(feeId, planData) {
+  const current = getFeeRecords();
+  const record = current.find((f) => f.id === feeId);
+  if (!record) return null;
+
+  const netPayable = Number(record.netPayable) || Number(record.totalAmount) || 30000;
+  const count = Number(planData.installmentCount) || 1;
+  const paymentPlan = count > 1 ? `installments_${count}` : 'lump_sum';
+
+  let installments = [];
+  if (count <= 1 || paymentPlan === 'lump_sum') {
+    installments = [];
+  } else if (Array.isArray(planData.customInstallments) && planData.customInstallments.length === count) {
+    installments = planData.customInstallments;
+  } else {
+    // Generate equal parts spaced by ~30 days
+    const basePart = Math.floor(netPayable / count);
+    const remainder = netPayable - basePart * count;
+    const today = new Date();
+    let runningPaid = Number(record.paidAmount) || 0;
+
+    installments = Array.from({ length: count }, (_, idx) => {
+      const partAmt = idx === count - 1 ? basePart + remainder : basePart;
+      const dueDateObj = new Date(today.getTime() + idx * 30 * 24 * 60 * 60 * 1000);
+      const isPaid = runningPaid >= partAmt;
+      if (isPaid) {
+        runningPaid -= partAmt;
+      }
+
+      return {
+        id: `inst_${idx + 1}_${Date.now()}`,
+        installmentNumber: idx + 1,
+        title: `Installment ${idx + 1} of ${count} (${idx === 0 ? 'Admission' : `Month ${idx + 1}`})`,
+        amount: partAmt,
+        dueDate: dueDateObj.toISOString().split('T')[0],
+        status: isPaid ? 'Paid' : 'Pending',
+        paidDate: isPaid ? (record.paidDate || today.toISOString().split('T')[0]) : null,
+        paymentMethod: isPaid ? record.paymentMethod : null,
+        transactionRef: isPaid ? record.transactionRef : null,
+      };
+    });
+  }
+
+  const updatedRecord = {
+    ...record,
+    paymentPlan,
+    installments,
+  };
+
+  const updated = current.map((f) => (f.id === feeId ? updatedRecord : f));
+  try {
+    localStorage.setItem(STORAGE_KEY_FEES, JSON.stringify(updated));
+  } catch (err) {
+    console.error('Failed to configure installment plan:', err);
+  }
+  return updatedRecord;
+}
+
+/**
+ * Record a payment against a fee record (supports paying installments)
  */
 export function recordFeePayment(feeId, paymentData) {
   const current = getFeeRecords();
@@ -254,19 +481,73 @@ export function recordFeePayment(feeId, paymentData) {
   if (!record) return null;
 
   const newPayment = Number(paymentData.amount) || 0;
-  const newPaidAmount = record.paidAmount + newPayment;
-  const newBalance = Math.max(0, record.totalAmount - newPaidAmount);
+  const currentPaid = Number(record.paidAmount) || 0;
+  const netPayable = Number(record.netPayable) || Number(record.totalAmount) || 30000;
+  const newPaidAmount = currentPaid + newPayment;
+  const newBalance = Math.max(0, netPayable - newPaidAmount);
 
   const newStatus = newBalance === 0 ? 'Paid' : 'Partial';
+  const paymentDate = paymentData.paidDate || new Date().toISOString().split('T')[0];
+  const paymentMethod = paymentData.paymentMethod || 'Bank Transfer (Meezan Bank)';
+  const transactionRef = paymentData.transactionRef || `TRX-${Date.now().toString().slice(-6)}`;
+
+  // Update installments if plan is active
+  let updatedInstallments = record.installments || [];
+  if (Array.isArray(updatedInstallments) && updatedInstallments.length > 0) {
+    if (paymentData.installmentId) {
+      // Mark specific target installment as paid
+      updatedInstallments = updatedInstallments.map((inst) =>
+        inst.id === paymentData.installmentId
+          ? {
+              ...inst,
+              status: 'Paid',
+              paidDate: paymentDate,
+              paidAmount: inst.amount,
+              paymentMethod,
+              transactionRef,
+            }
+          : inst
+      );
+    } else {
+      // Distribute payment sequentially across pending installments
+      let remainingToApply = newPayment;
+      updatedInstallments = updatedInstallments.map((inst) => {
+        if (inst.status !== 'Paid' && remainingToApply >= inst.amount) {
+          remainingToApply -= inst.amount;
+          return {
+            ...inst,
+            status: 'Paid',
+            paidDate: paymentDate,
+            paidAmount: inst.amount,
+            paymentMethod,
+            transactionRef,
+          };
+        }
+        return inst;
+      });
+    }
+  }
+
+  const paymentEntry = {
+    id: `pay_${Date.now()}`,
+    date: paymentDate,
+    amount: newPayment,
+    method: paymentMethod,
+    transactionRef,
+    notes: paymentData.notes || '',
+    installmentId: paymentData.installmentId || null,
+  };
 
   const updatedRecord = {
     ...record,
     paidAmount: newPaidAmount,
     balance: newBalance,
     status: newStatus,
-    paidDate: paymentData.paidDate || new Date().toISOString().split('T')[0],
-    paymentMethod: paymentData.paymentMethod || 'Bank Transfer',
-    transactionRef: paymentData.transactionRef || `TRX-${Date.now().toString().slice(-6)}`,
+    paidDate: paymentDate,
+    paymentMethod,
+    transactionRef,
+    installments: updatedInstallments,
+    paymentHistory: [paymentEntry, ...(record.paymentHistory || [])],
     notes: paymentData.notes
       ? `${record.notes ? record.notes + ' | ' : ''}${paymentData.notes}`
       : record.notes,
@@ -285,6 +566,87 @@ export function recordFeePayment(feeId, paymentData) {
     }
   } catch (err) {
     console.error('Failed to record fee payment:', err);
+  }
+  return updatedRecord;
+}
+
+/**
+ * Record a combined payment across multiple student fee records (same transaction ID)
+ */
+export function recordMultiFeePayment(paymentsArray) {
+  if (!Array.isArray(paymentsArray)) return [];
+  const results = [];
+  for (const item of paymentsArray) {
+    if (item.feeId && Number(item.amount) > 0) {
+      const res = recordFeePayment(item.feeId, item);
+      if (res) results.push(res);
+    }
+  }
+  return results;
+}
+
+/**
+ * Void or reverse a previously recorded fee payment entry
+ */
+export function voidFeePayment(feeId, paymentEntryId) {
+  const current = getFeeRecords();
+  const record = current.find((f) => f.id === feeId);
+  if (!record) return null;
+
+  const history = Array.isArray(record.paymentHistory) ? record.paymentHistory : [];
+  const entryToVoid = history.find((p) => p.id === paymentEntryId);
+  if (!entryToVoid) return record;
+
+  const voidedAmount = Number(entryToVoid.amount) || 0;
+  const currentPaid = Number(record.paidAmount) || 0;
+  const newPaidAmount = Math.max(0, currentPaid - voidedAmount);
+  const netPayable = Number(record.netPayable) || Number(record.totalAmount) || 30000;
+  const newBalance = Math.max(0, netPayable - newPaidAmount);
+
+  let newStatus = 'Pending';
+  if (newBalance === 0 && netPayable > 0) newStatus = 'Paid';
+  else if (newPaidAmount > 0) newStatus = 'Partial';
+
+  // Revert targeted installment if applicable
+  let updatedInstallments = record.installments || [];
+  if (entryToVoid.installmentId && Array.isArray(updatedInstallments)) {
+    updatedInstallments = updatedInstallments.map((inst) => {
+      if (inst.id === entryToVoid.installmentId) {
+        return {
+          ...inst,
+          status: 'Pending',
+          paidDate: null,
+          paidAmount: 0,
+          paymentMethod: null,
+          transactionRef: null,
+        };
+      }
+      return inst;
+    });
+  }
+
+  const updatedHistory = history.filter((p) => p.id !== paymentEntryId);
+
+  const updatedRecord = {
+    ...record,
+    paidAmount: newPaidAmount,
+    balance: newBalance,
+    status: newStatus,
+    installments: updatedInstallments,
+    paymentHistory: updatedHistory,
+  };
+
+  const updated = current.map((f) => (f.id === feeId ? updatedRecord : f));
+  try {
+    localStorage.setItem(STORAGE_KEY_FEES, JSON.stringify(updated));
+    if (record.studentId) {
+      saveStudent({
+        id: record.studentId,
+        feeStatus: newStatus,
+      });
+    }
+  } catch (err) {
+    console.error('Failed to void fee payment:', err);
   }
   return updatedRecord;
 }
@@ -707,3 +1069,370 @@ export function updateCourseStatus(id, newStatus) {
   }
   return updated;
 }
+
+
+/**
+ * Default Seed Academic Pathways
+ */
+export const DEFAULT_ACADEMIC_PATHWAYS = [
+  {
+    id: 'foundations',
+    slug: 'foundations',
+    name: 'Ilm Foundations',
+    subtitle: '8-Month Flagship Certificate Programme',
+    description: 'Flagship foundational curriculum across 2 structured semesters covering Tafsir, Hadith, Fiqh, and Arabic. Individual courses maintain their own schedule duration and tuition fees.',
+    programStructure: 'multi_semester', // 'multi_semester' | 'course_group' | 'single_course'
+    type: 'cohort',
+    duration: '2 Semesters (Duration varies by course)',
+    semesters: 2,
+    semesterNames: ['Semester 1', 'Semester 2'],
+    tuitionModel: 'varies_by_course',
+    defaultTuitionFee: 30000,
+    color: 'emerald',
+    icon: 'GraduationCap',
+    status: 'Active',
+    createdAt: '2026-01-01',
+  },
+  {
+    id: 'intensives',
+    slug: 'intensives',
+    name: 'Ilm Intensives',
+    subtitle: 'Weekend Masterclasses & Short Courses Collection',
+    description: 'Non-semester modular program. Houses multiple individual standalone courses and masterclasses on Tazkiyah, Seerah, and Contemporary Fiqh where fees and durations vary per course.',
+    programStructure: 'course_group',
+    type: 'modular',
+    duration: 'Duration varies by course',
+    semesters: 0,
+    semesterNames: [],
+    tuitionModel: 'varies_by_course',
+    defaultTuitionFee: 12000,
+    color: 'gold',
+    icon: 'Zap',
+    status: 'Active',
+    createdAt: '2026-01-01',
+  },
+  {
+    id: 'electives',
+    slug: 'electives',
+    name: 'Electives & Classical Languages',
+    subtitle: 'Specialized Grammar, Nahw & Sarf Electives',
+    description: 'Non-semester language collection exploring classical Arabic morphology, syntax, and literary rhetoric with course-specific durations and fees.',
+    programStructure: 'course_group',
+    type: 'modular',
+    duration: 'Duration varies by course',
+    semesters: 0,
+    semesterNames: [],
+    tuitionModel: 'varies_by_course',
+    defaultTuitionFee: 15000,
+    color: 'purple',
+    icon: 'BookOpen',
+    status: 'Active',
+    createdAt: '2026-01-01',
+  },
+];
+
+/**
+ * Get all Academic Pathways from storage (with default seed fallback)
+ */
+export function getAllPathways() {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY_PATHWAYS);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed;
+      }
+    }
+  } catch (err) {
+    console.error('Failed to load pathways from localStorage:', err);
+  }
+  return DEFAULT_ACADEMIC_PATHWAYS;
+}
+
+/**
+ * Save or Add an Academic Pathway
+ */
+export function savePathway(pathwayData) {
+  const current = getAllPathways();
+  const slug = pathwayData.slug || pathwayData.name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-');
+  const id = pathwayData.id || slug || `pathway_${Date.now()}`;
+  const existing = current.find((p) => p.id === id || p.slug === slug);
+
+  const programStructure = pathwayData.programStructure || (pathwayData.type === 'cohort' ? 'multi_semester' : 'course_group');
+  const semesters = programStructure === 'multi_semester' ? (Number(pathwayData.semesters) || 2) : 0;
+  const semesterNames = programStructure === 'multi_semester'
+    ? (Array.isArray(pathwayData.semesterNames) && pathwayData.semesterNames.length > 0
+        ? pathwayData.semesterNames
+        : Array.from({ length: semesters }, (_, i) => `Semester ${i + 1}`))
+    : [];
+
+  const record = {
+    ...existing,
+    ...pathwayData,
+    id,
+    slug,
+    name: pathwayData.name,
+    subtitle: pathwayData.subtitle || '',
+    description: pathwayData.description || '',
+    programStructure,
+    type: programStructure === 'multi_semester' ? 'cohort' : 'modular',
+    duration: pathwayData.duration || (programStructure === 'multi_semester' ? '8 Months (2 Semesters)' : '4 Weeks'),
+    semesters,
+    semesterNames,
+    tuitionModel: pathwayData.tuitionModel || (programStructure === 'multi_semester' ? 'bundled' : 'per_course'),
+    defaultTuitionFee: Number(pathwayData.defaultTuitionFee) || 0,
+    color: pathwayData.color || 'emerald',
+    icon: pathwayData.icon || 'GraduationCap',
+    status: pathwayData.status || 'Active',
+    createdAt: existing?.createdAt || new Date().toISOString().split('T')[0],
+  };
+
+  const exists = Boolean(existing);
+  const updated = exists ? current.map((p) => (p.id === id || p.slug === slug ? record : p)) : [record, ...current];
+
+  try {
+    localStorage.setItem(STORAGE_KEY_PATHWAYS, JSON.stringify(updated));
+  } catch (err) {
+    console.error('Failed to save pathway to localStorage:', err);
+  }
+  return record;
+}
+
+/**
+ * Delete an Academic Pathway
+ */
+export function deletePathway(id) {
+  const current = getAllPathways();
+  const updated = current.filter((p) => p.id !== id && p.slug !== id);
+  try {
+    localStorage.setItem(STORAGE_KEY_PATHWAYS, JSON.stringify(updated));
+  } catch (err) {
+    console.error('Failed to delete pathway from localStorage:', err);
+  }
+  return updated;
+}
+
+/**
+ * ==========================================
+ * CLASS SCHEDULE & TIMETABLE PLANNER SERVICE
+ * ==========================================
+ */
+
+/**
+ * Convert time string "HH:MM" (e.g. "18:30") to minutes from midnight
+ */
+export function timeToMinutes(timeStr) {
+  if (!timeStr) return 0;
+  const [h, m] = timeStr.split(':').map(Number);
+  return (h || 0) * 60 + (m || 0);
+}
+
+/**
+ * Format minutes or "HH:MM" to friendly 12h display (e.g. "6:00 PM")
+ */
+export function formatTime12h(timeStr) {
+  if (!timeStr) return '';
+  const [hStr, mStr] = timeStr.split(':');
+  const h = parseInt(hStr, 10);
+  const m = parseInt(mStr || '0', 10);
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 || 12;
+  const mFmt = m < 10 ? `0${m}` : `${m}`;
+  return `${h12}:${mFmt} ${ampm}`;
+}
+
+/**
+ * Format time range "18:00" to "20:30" => "6:00 PM – 8:30 PM"
+ */
+export function formatSlotTimeRange(startTime, endTime) {
+  return `${formatTime12h(startTime)} – ${formatTime12h(endTime)}`;
+}
+
+/**
+ * Retrieve all scheduled lecture slots
+ */
+export function getScheduleSlots() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_SCHEDULE_SLOTS);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+    localStorage.setItem(STORAGE_KEY_SCHEDULE_SLOTS, JSON.stringify(initialScheduleSlots));
+    return initialScheduleSlots;
+  } catch (err) {
+    console.error('Failed to load schedule slots:', err);
+    return initialScheduleSlots;
+  }
+}
+
+/**
+ * Real-time conflict detection between proposed slot and existing schedule
+ * Checks:
+ * 1. Instructor clash on the same day during overlapping time
+ * 2. DHA Campus Room clash on the same day during overlapping time
+ * 3. Cohort clash (same student cohort booked twice simultaneously)
+ */
+export function checkScheduleConflict(proposedSlot, existingSlots = null, excludeSlotId = null) {
+  const allSlots = existingSlots || getScheduleSlots();
+  const day = proposedSlot.dayOfWeek;
+  const pStart = timeToMinutes(proposedSlot.startTime);
+  const pEnd = timeToMinutes(proposedSlot.endTime);
+
+  if (!day || pStart >= pEnd) {
+    return { hasConflict: false, conflicts: [] };
+  }
+
+  const conflicts = [];
+
+  for (const slot of allSlots) {
+    if (excludeSlotId && slot.id === excludeSlotId) continue;
+    if (slot.status === 'cancelled') continue;
+    if (slot.dayOfWeek !== day) continue;
+
+    const sStart = timeToMinutes(slot.startTime);
+    const sEnd = timeToMinutes(slot.endTime);
+
+    // Overlap condition: max(startA, startB) < min(endA, endB)
+    const isOverlapping = Math.max(pStart, sStart) < Math.min(pEnd, sEnd);
+    if (!isOverlapping) continue;
+
+    const timeRangeStr = `${formatTime12h(slot.startTime)} – ${formatTime12h(slot.endTime)}`;
+
+    // 1. Instructor Conflict
+    if (
+      proposedSlot.instructorName &&
+      slot.instructorName &&
+      proposedSlot.instructorName.trim().toLowerCase() === slot.instructorName.trim().toLowerCase()
+    ) {
+      conflicts.push({
+        type: 'instructor',
+        title: 'Instructor Double-Booking',
+        message: `${slot.instructorName} is already assigned to "${slot.courseTitle}" on ${day} (${timeRangeStr}).`,
+        conflictingSlot: slot,
+      });
+    }
+
+    // 2. Room Conflict (Only for on-site slots)
+    if (
+      proposedSlot.modality === 'onsite_campus' &&
+      slot.modality === 'onsite_campus' &&
+      proposedSlot.campusRoom &&
+      slot.campusRoom &&
+      proposedSlot.campusRoom.trim().toLowerCase() === slot.campusRoom.trim().toLowerCase()
+    ) {
+      conflicts.push({
+        type: 'room',
+        title: 'Room Double-Booking',
+        message: `"${slot.campusRoom}" is already booked for "${slot.courseTitle}" on ${day} (${timeRangeStr}).`,
+        conflictingSlot: slot,
+      });
+    }
+
+    // 3. Cohort Conflict (Same cohort has two mandatory lectures simultaneously)
+    if (
+      proposedSlot.cohortId &&
+      slot.cohortId &&
+      proposedSlot.cohortId === slot.cohortId
+    ) {
+      conflicts.push({
+        type: 'cohort',
+        title: 'Cohort Schedule Overlap',
+        message: `Students in "${slot.cohortName}" already have "${slot.courseTitle}" scheduled on ${day} (${timeRangeStr}).`,
+        conflictingSlot: slot,
+      });
+    }
+  }
+
+  return {
+    hasConflict: conflicts.length > 0,
+    conflicts,
+  };
+}
+
+/**
+ * Save or update a lecture slot
+ */
+export function saveScheduleSlot(slotData) {
+  const current = getScheduleSlots();
+  const id = slotData.id || `slot_${Date.now()}`;
+  const existing = current.find((s) => s.id === id);
+
+  const pStart = timeToMinutes(slotData.startTime || '18:00');
+  const pEnd = timeToMinutes(slotData.endTime || '20:30');
+  const durationMinutes = Math.max(0, pEnd - pStart);
+
+  const record = {
+    ...existing,
+    ...slotData,
+    id,
+    durationMinutes,
+    updatedAt: new Date().toISOString().split('T')[0],
+    createdAt: existing?.createdAt || new Date().toISOString().split('T')[0],
+  };
+
+  const exists = Boolean(existing);
+  const updated = exists
+    ? current.map((s) => (s.id === id ? record : s))
+    : [record, ...current];
+
+  try {
+    localStorage.setItem(STORAGE_KEY_SCHEDULE_SLOTS, JSON.stringify(updated));
+  } catch (err) {
+    console.error('Failed to save schedule slot to localStorage:', err);
+  }
+  return { record, updatedSlots: updated };
+}
+
+/**
+ * Delete a lecture slot
+ */
+export function deleteScheduleSlot(slotId) {
+  const current = getScheduleSlots();
+  const updated = current.filter((s) => s.id !== slotId);
+  try {
+    localStorage.setItem(STORAGE_KEY_SCHEDULE_SLOTS, JSON.stringify(updated));
+  } catch (err) {
+    console.error('Failed to delete schedule slot:', err);
+  }
+  return updated;
+}
+
+/**
+ * Get all schedule broadcast notifications
+ */
+export function getScheduleNotifications() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_SCHEDULE_NOTIFS);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+    localStorage.setItem(STORAGE_KEY_SCHEDULE_NOTIFS, JSON.stringify(initialScheduleNotifications));
+    return initialScheduleNotifications;
+  } catch (err) {
+    console.error('Failed to load schedule notifications:', err);
+    return initialScheduleNotifications;
+  }
+}
+
+/**
+ * Record a student notification broadcast for timetable events
+ */
+export function recordScheduleNotification(broadcastData) {
+  const current = getScheduleNotifications();
+  const newRecord = {
+    id: broadcastData.id || `notif_sch_${Date.now()}`,
+    sentAt: new Date().toISOString(),
+    senderAdmin: broadcastData.senderAdmin || 'Accounts & Academic Operations',
+    ...broadcastData,
+  };
+  const updated = [newRecord, ...current];
+  try {
+    localStorage.setItem(STORAGE_KEY_SCHEDULE_NOTIFS, JSON.stringify(updated));
+  } catch (err) {
+    console.error('Failed to save schedule notification:', err);
+  }
+  return { newRecord, updatedNotifs: updated };
+}
+

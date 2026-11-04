@@ -28,11 +28,13 @@ import {
   Library,
   Video,
   ExternalLink,
+  Calendar,
 } from 'lucide-react';
 
 import logo from '../../assets/logo.png';
-import { notifications } from '../../data/mockData';
+import { notifications as defaultNotifications } from '../../data/mockData';
 import { useAuth } from '../../context/AuthContext';
+import { getScheduleNotifications } from '../../services/courseStorage';
 
 /** Returns user initials from full name */
 function getInitials(name) {
@@ -99,7 +101,22 @@ export default function Navbar() {
   const notifRef = useRef(null);
   const userRef = useRef(null);
 
-  const unreadCount = notifications.filter((n) => !n.read).length;
+  const [notificationList, setNotificationList] = useState(() => {
+    const broadcasts = getScheduleNotifications();
+    const formattedBroadcasts = broadcasts.map((b) => ({
+      id: b.id,
+      message: `📢 [${b.courseName}] ${b.message}`,
+      time: 'Broadcast',
+      read: false,
+    }));
+    return [...formattedBroadcasts, ...defaultNotifications];
+  });
+
+  const unreadCount = notificationList.filter((n) => !n.read).length;
+
+  const handleMarkAllRead = () => {
+    setNotificationList((prev) => prev.map((n) => ({ ...n, read: true })));
+  };
 
   // Handle scroll shadow
   useEffect(() => {
@@ -232,6 +249,10 @@ export default function Navbar() {
                 </AnimatePresence>
               </div>
 
+              <NavLink to="/schedule" className={navLinkClass}>
+                Timetable
+              </NavLink>
+
               <NavLink to="/library" className={navLinkClass}>
                 e-Library
               </NavLink>
@@ -263,10 +284,16 @@ export default function Navbar() {
                     >
                       <div className="px-4 py-3 border-b border-sand-200 flex items-center justify-between">
                         <h3 className="text-sm font-semibold text-ink-900">Notifications</h3>
-                        <span className="text-xs text-primary-700 font-medium">Mark all read</span>
+                        <button
+                          type="button"
+                          onClick={handleMarkAllRead}
+                          className="text-xs text-primary-700 hover:text-primary-900 font-medium cursor-pointer"
+                        >
+                          Mark all read
+                        </button>
                       </div>
                       <ul className="max-h-72 overflow-y-auto divide-y divide-sand-100">
-                        {notifications.map((n) => (
+                        {notificationList.map((n) => (
                           <li
                             key={n.id}
                             className={clsx(
@@ -461,6 +488,20 @@ export default function Navbar() {
                   >
                     <GraduationCap size={16} />
                     My Courses
+                  </NavLink>
+
+                  <NavLink
+                    to="/schedule"
+                    onClick={() => setMobileOpen(false)}
+                    className={({ isActive }) =>
+                      clsx(
+                        'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
+                        isActive ? 'bg-primary-50 text-primary-900 font-semibold' : 'text-ink-700 hover:bg-sand-100'
+                      )
+                    }
+                  >
+                    <Calendar size={16} />
+                    Timetable
                   </NavLink>
 
                   <NavLink

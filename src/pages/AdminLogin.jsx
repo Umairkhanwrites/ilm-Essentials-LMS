@@ -100,7 +100,7 @@ export default function AdminLogin() {
                 {copied ? 'Copied' : 'Copy'}
               </button>
             </div>
-            <p className="font-mono text-[11px] text-white/90">
+            <p className="text-xs font-semibold text-white/90">
               admin@ilmessentials.pk / admin123
             </p>
           </div>

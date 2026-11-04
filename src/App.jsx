@@ -18,6 +18,7 @@ import Dashboard from './pages/Dashboard';
 import CourseView from './pages/CourseView';
 import MyCourses from './pages/MyCourses';
 import ELibrary from './pages/ELibrary';
+import AcademicSchedule from './pages/AcademicSchedule';
 import AdminDashboard from './pages/AdminDashboard';
 import CreateCourse from './pages/CreateCourse';
 import Login from './pages/Login';
@@ -81,6 +82,14 @@ export default function App() {
             element={
               <ProtectedRoute requiredRole="student">
                 <ELibrary />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/schedule"
+            element={
+              <ProtectedRoute requiredRole="student">
+                <AcademicSchedule />
               </ProtectedRoute>
             }
           />

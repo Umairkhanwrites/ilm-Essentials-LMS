@@ -25,6 +25,7 @@ import QuickStats from '../components/dashboard/QuickStats';
 import ProgressOverview from '../components/dashboard/ProgressOverview';
 import CourseCategories from '../components/dashboard/CourseCategories';
 import UpcomingSchedule from '../components/dashboard/UpcomingSchedule';
+import PendingAssignments from '../components/dashboard/PendingAssignments';
 
 /** Loading skeleton for the WelcomeSection */
 function WelcomeSkeleton() {

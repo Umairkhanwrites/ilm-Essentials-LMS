@@ -56,6 +56,7 @@ import {
   Key,
   Eye,
   EyeOff,
+  Compass,
 } from 'lucide-react';
 
 import Layout from '../components/layout/Layout';
@@ -68,6 +69,8 @@ import {
   saveStudent,
   getCourseEnrolledStudentIds,
   generateTemporaryPassword,
+  getAllPathways,
+  savePathway,
 } from '../services/courseStorage';
 import logoWhite from '../assets/logo-white.png';
 
@@ -250,6 +253,58 @@ export default function CreateCourse() {
     description: '',
   });
 
+  // Dynamic Academic Pathways State
+  const [pathways, setPathways] = useState(() => getAllPathways());
+  const [isPathwayModalOpen, setIsPathwayModalOpen] = useState(false);
+  const [pathwayForm, setPathwayForm] = useState({
+    name: '',
+    subtitle: '',
+    description: '',
+    programStructure: 'multi_semester', // 'multi_semester' | 'course_group' | 'single_course'
+    type: 'cohort',
+    duration: '8 Months (2 Semesters)',
+    semesters: 2,
+    tuitionModel: 'bundled',
+    defaultTuitionFee: 30000,
+    color: 'emerald',
+    icon: 'GraduationCap',
+  });
+  const [pathwayFormError, setPathwayFormError] = useState('');
+
+  const handleCreatePathway = (e) => {
+    e.preventDefault();
+    if (!pathwayForm.name.trim()) {
+      setPathwayFormError('Pathway name is required.');
+      return;
+    }
+    const created = savePathway({
+      ...pathwayForm,
+      slug: pathwayForm.name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-'),
+    });
+    const refreshed = getAllPathways();
+    setPathways(refreshed);
+    setFormData((prev) => ({
+      ...prev,
+      category: created.slug || created.id,
+      semester: created.programStructure === 'multi_semester' ? 'Semester 1' : '',
+    }));
+    setIsPathwayModalOpen(false);
+    setPathwayForm({
+      name: '',
+      subtitle: '',
+      description: '',
+      programStructure: 'multi_semester',
+      type: 'cohort',
+      duration: '8 Months (2 Semesters)',
+      semesters: 2,
+      tuitionModel: 'bundled',
+      defaultTuitionFee: 30000,
+      color: 'emerald',
+      icon: 'GraduationCap',
+    });
+    setPathwayFormError('');
+  };
+
   // Default dates: Today and 8 weeks out
   const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
   const defaultEndStr = useMemo(() => {
@@ -263,6 +318,7 @@ export default function CreateCourse() {
     title: '',
     subtitle: '',
     category: 'foundations',
+    semester: 'Semester 1',
     format: 'live-online',
     classCategory: 'online', // 'online' | 'onsite' | 'hybrid'
     level: 'Beginner',
@@ -376,6 +432,7 @@ export default function CreateCourse() {
           title: existing.title || '',
           subtitle: existing.subtitle || '',
           category: existing.category || 'foundations',
+          semester: existing.semester ? (typeof existing.semester === 'number' ? `Semester ${existing.semester}` : existing.semester) : 'Semester 1',
           format: existing.format || (existingClassCat === 'onsite' ? 'on-site' : (existingClassCat === 'hybrid' ? 'hybrid' : 'live-online')),
           classCategory: existingClassCat,
           level: existing.level || 'Beginner',
@@ -419,23 +476,31 @@ export default function CreateCourse() {
 
   // Adjust tuition & capacity automatically based on Pathway
   useEffect(() => {
-    if (formData.category === 'foundations') {
-      setFormData((prev) => ({
+    const selectedPathway = pathways.find((p) => (p.slug || p.id) === formData.category);
+    if (!selectedPathway) return;
+
+    // Preserve custom fee or supply sensible default
+    setFormData((prev) => {
+      const cleanFee = prev.fee && !prev.fee.startsWith('Included in')
+        ? prev.fee
+        : (selectedPathway.defaultTuitionFee ? `PKR ${selectedPathway.defaultTuitionFee.toLocaleString()}` : 'PKR 30,000');
+      return {
         ...prev,
-        fee: 'Included in Ilm Foundations Program',
-        capacity: prev.capacity || 150,
-      }));
-      // Auto-select foundations students if list is currently empty
-      const fIds = allStudents.filter((s) => s.program.includes('Foundations')).map((s) => s.id);
-      setSelectedStudentIds((prev) => (prev.length === 0 ? fIds : prev));
-    } else if (formData.fee === 'Included in Ilm Foundations Program') {
-      setFormData((prev) => ({
-        ...prev,
-        fee: '30,000',
-        capacity: 100,
-      }));
+        fee: cleanFee,
+        capacity: prev.capacity || (selectedPathway.slug === 'foundations' ? 150 : 100),
+      };
+    });
+
+    // Auto-select students matching this pathway's program name
+    if (selectedPathway.slug === 'foundations' || selectedPathway.type === 'cohort') {
+      const matchingIds = allStudents
+        .filter((s) => s.program.toLowerCase().includes(selectedPathway.name.toLowerCase()) || (selectedPathway.slug === 'foundations' && s.program.includes('Foundations')))
+        .map((s) => s.id);
+      if (matchingIds.length > 0) {
+        setSelectedStudentIds((prev) => (prev.length === 0 ? matchingIds : prev));
+      }
     }
-  }, [formData.category, allStudents]);
+  }, [formData.category, pathways, allStudents]);
 
   // Warn on browser tab close when dirty
   useEffect(() => {
@@ -938,6 +1003,7 @@ export default function CreateCourse() {
       title: formData.title,
       subtitle: formData.subtitle || `${isFoundations ? 'Ilm Foundations' : 'Ilm Intensives'} Certificate`,
       category: formData.category,
+      semester: formData.semester || '',
       format: isOnline ? 'live-online' : (isOnsite ? 'on-site' : 'hybrid'),
       classCategory: formData.classCategory,
       level: formData.level,
@@ -1211,20 +1277,81 @@ export default function CreateCourse() {
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-xs font-bold uppercase tracking-wider text-ink-700 mb-1.5">
-                        Academic Pathway
-                      </label>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="block text-xs font-bold uppercase tracking-wider text-ink-700">
+                          Academic Program / Pathway
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => setIsPathwayModalOpen(true)}
+                          className="inline-flex items-center gap-1 text-[11px] font-bold text-primary-800 hover:text-primary-950 hover:underline cursor-pointer"
+                        >
+                          <Plus size={12} />
+                          <span>+ New Program</span>
+                        </button>
+                      </div>
                       <select
                         value={formData.category}
                         onChange={(e) => updateFormField('category', e.target.value)}
-                        className="w-full px-3.5 py-3 border border-sand-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-600"
+                        className="w-full px-3.5 py-3 border border-sand-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-600 bg-white"
                       >
-                        <option value="foundations">Ilm Foundations (8-Month Certificate)</option>
-                        <option value="intensives">Ilm Intensives (Weekend Masterclass)</option>
-                        <option value="electives">Electives &amp; Classical Languages</option>
+                        {pathways.map((p) => (
+                          <option key={p.id || p.slug} value={p.slug || p.id}>
+                            {p.name} {p.subtitle ? `(${p.subtitle})` : ''}
+                          </option>
+                        ))}
                       </select>
                     </div>
 
+                    {/* Program Semester (if multi-semester like Ilm Foundations) or Program Type display */}
+                    {(() => {
+                      const currentSelected = pathways.find((p) => (p.slug || p.id) === formData.category);
+                      const isMultiSemester = currentSelected?.programStructure === 'multi_semester' || currentSelected?.type === 'cohort';
+
+                      if (isMultiSemester) {
+                        return (
+                          <div>
+                            <div className="flex items-center justify-between mb-1.5">
+                              <label className="block text-xs font-bold uppercase tracking-wider text-ink-700">
+                                Program Semester *
+                              </label>
+                              <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100/70 px-2 py-0.5 rounded-full">
+                                Flagship Cohort
+                              </span>
+                            </div>
+                            <select
+                              value={formData.semester || 'Semester 1'}
+                              onChange={(e) => updateFormField('semester', e.target.value)}
+                              className="w-full px-3.5 py-3 border border-emerald-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 bg-emerald-50/20 font-bold text-ink-900"
+                            >
+                              {(currentSelected?.semesterNames && currentSelected.semesterNames.length > 0
+                                ? currentSelected.semesterNames
+                                : ['Semester 1', 'Semester 2']
+                              ).map((sem) => (
+                                <option key={sem} value={sem}>{sem}</option>
+                              ))}
+                            </select>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div>
+                          <label className="block text-xs font-bold uppercase tracking-wider text-ink-700 mb-1.5">
+                            Program Structure
+                          </label>
+                          <div className="px-3.5 py-3 border border-sand-200 rounded-xl text-sm bg-sand-50/80 text-ink-700 flex items-center justify-between">
+                            <span className="font-semibold text-xs text-amber-900">
+                              {currentSelected?.programStructure === 'single_course' ? '📖 Single Standalone Course' : '⚡ Non-Semester Masterclasses'}
+                            </span>
+                            <span className="text-[11px] text-ink-500">Individual Course Offering</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-xs font-bold uppercase tracking-wider text-ink-700 mb-1.5">
                         Academic Level
@@ -1232,23 +1359,40 @@ export default function CreateCourse() {
                       <select
                         value={formData.level}
                         onChange={(e) => updateFormField('level', e.target.value)}
-                        className="w-full px-3.5 py-3 border border-sand-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-600"
+                        className="w-full px-3.5 py-3 border border-sand-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-600 bg-white"
                       >
                         <option value="Beginner">Beginner / Introductory</option>
                         <option value="Intermediate">Intermediate</option>
                         <option value="Advanced">Advanced / Scholarly Track</option>
                       </select>
                     </div>
-                  </div>
 
-                  {formData.category === 'foundations' && (
-                    <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-950 flex items-start gap-2.5">
-                      <Sparkles size={16} className="text-emerald-700 shrink-0 mt-0.5" />
-                      <div>
-                        <strong>Ilm Foundations Pathway Notice:</strong> Courses created under this category are integral components of the flagship 8-Month Certificate. Students are charged for the overall program (not per course), and existing Foundations students will be automatically enrolled.
-                      </div>
-                    </div>
-                  )}
+                    {(() => {
+                      const currentSelected = pathways.find((p) => (p.slug || p.id) === formData.category);
+                      if (!currentSelected) return null;
+                      const isMultiSemester = currentSelected.programStructure === 'multi_semester' || currentSelected.type === 'cohort';
+
+                      return (
+                        <div className={`p-3.5 rounded-xl border text-xs flex items-start gap-2.5 ${
+                          isMultiSemester ? 'bg-emerald-50 border-emerald-200 text-emerald-950' : 'bg-amber-50/80 border-amber-200 text-amber-950'
+                        }`}>
+                          <Sparkles size={16} className={`${isMultiSemester ? 'text-emerald-700' : 'text-amber-700'} shrink-0 mt-0.5`} />
+                          <div>
+                            <strong>{currentSelected.name}</strong> {isMultiSemester ? `• ${formData.semester || 'Semester 1'}` : '• Non-Semester Collection'}
+                            {isMultiSemester ? (
+                              <span className="block mt-0.5 text-[11px] font-medium text-emerald-800">
+                                Main Cohort Program: Students enrolled in {formData.semester || 'this semester'} are automatically enrolled. Tuition is included in the program fee.
+                              </span>
+                            ) : (
+                              <span className="block mt-0.5 text-[11px] font-medium text-amber-800">
+                                Non-semester collection of individual courses (e.g. Ilm Intensives). Students enroll and pay specifically for this course.
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
 
                   <div>
                     <label className="block text-xs font-bold uppercase tracking-wider text-ink-700 mb-1.5">
@@ -1704,44 +1848,37 @@ export default function CreateCourse() {
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
                 <div className="border-b border-sand-100 pb-4">
                   <h2 className="text-lg font-heading font-bold text-ink-900">3. Tuition &amp; Enrollment Settings</h2>
-                  <p className="text-xs text-ink-500">Configure program tuition fee, seat quotas, and initial publication state.</p>
+                  <p className="text-xs text-ink-500">
+                    Configure individual course tuition fee, student capacity, and publication status. (Fees vary course-by-course across all programs).
+                  </p>
                 </div>
 
-                {formData.category === 'foundations' ? (
-                  <div className="p-5 rounded-2xl bg-emerald-50 border border-emerald-300 space-y-3">
-                    <div className="flex items-center gap-2 text-emerald-900 font-bold text-sm">
-                      <Shield size={18} className="text-emerald-700" />
-                      <span>Bundled Programme Tuition Policy (Ilm Foundations)</span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-ink-700 mb-1.5">
+                      {formData.category === 'foundations'
+                        ? 'Semester Tuition Fee (PKR) *'
+                        : 'Course Tuition Fee (PKR) *'}
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-4 top-1/2 -translate-y-1/2 text-xs font-bold text-ink-500">
+                        PKR
+                      </span>
+                      <input
+                        type="text"
+                        value={formData.fee}
+                        onChange={(e) => updateFormField('fee', e.target.value.replace(/[^0-9,]/g, ''))}
+                        placeholder="30,000"
+                        className="w-full pl-14 pr-4 py-3 border border-sand-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                      />
                     </div>
-                    <p className="text-xs text-emerald-800 leading-relaxed">
-                      Students enrolling in the <strong>Ilm Foundations 8-Month Certificate</strong> pay for the overall programme. 
-                      Individual courses inside Foundations are <strong>not charged separately</strong>.
+                    <p className="text-[11px] text-ink-400 mt-1">
+                      {formData.category === 'foundations'
+                        ? 'PKR 30,000 is the tuition fee for the whole semester, covering all courses in this cohort.'
+                        : 'Tuition fee for this individual standalone course.'}
                     </p>
-                    <div className="p-3 bg-white rounded-xl border border-emerald-200 flex items-center justify-between text-xs">
-                      <span className="font-medium text-ink-700">Course Individual Fee:</span>
-                      <span className="font-bold text-emerald-800 text-sm">PKR 0 (Included in Master Programme)</span>
-                    </div>
+                    {formErrors.fee && <p className="text-red-500 text-xs mt-1">{formErrors.fee}</p>}
                   </div>
-                ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-bold uppercase tracking-wider text-ink-700 mb-1.5">
-                        Tuition Fee (PKR) *
-                      </label>
-                      <div className="relative">
-                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-xs font-bold text-ink-500">
-                          PKR
-                        </span>
-                        <input
-                          type="text"
-                          value={formData.fee}
-                          onChange={(e) => updateFormField('fee', e.target.value.replace(/[^0-9,]/g, ''))}
-                          placeholder="30,000"
-                          className="w-full pl-14 pr-4 py-3 border border-sand-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-primary-500/20"
-                        />
-                      </div>
-                      {formErrors.fee && <p className="text-red-500 text-xs mt-1">{formErrors.fee}</p>}
-                    </div>
 
                     <div>
                       <label className="block text-xs font-bold uppercase tracking-wider text-ink-700 mb-1.5">
@@ -1762,7 +1899,6 @@ export default function CreateCourse() {
                       {formErrors.capacity && <p className="text-red-500 text-xs mt-1">{formErrors.capacity}</p>}
                     </div>
                   </div>
-                )}
 
                 {/* INTERACTIVE STUDENT ROSTER ENROLLMENT (Requirement 1 & 2) */}
                 <div className="p-5 rounded-2xl bg-white border border-sand-300 space-y-4 shadow-xs">
@@ -2048,7 +2184,7 @@ export default function CreateCourse() {
                                           handleLessonFieldChange(modIdx, lesIdx, 'duration', e.target.value)
                                         }
                                         placeholder="Duration"
-                                        className="w-20 px-2.5 py-1.5 rounded-lg border border-sand-200 bg-sand-50 text-xs font-mono text-center focus:outline-none"
+                                        className="w-20 px-2.5 py-1.5 rounded-lg border border-sand-200 bg-sand-50 text-xs font-semibold text-center focus:outline-none"
                                       />
 
                                       {/* Content Drawer Toggle */}
@@ -2422,7 +2558,7 @@ export default function CreateCourse() {
                                   <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase ${typeColor}`}>
                                     {res.type?.toUpperCase() || 'FILE'}
                                   </span>
-                                  <span className="text-[11px] font-mono text-ink-400">
+                                  <span className="text-[11px] text-ink-400">
                                     {res.size || '1.0 MB'}
                                   </span>
                                 </div>
@@ -2558,7 +2694,7 @@ export default function CreateCourse() {
                       <div>
                         <span className="text-[10px] text-ink-400 block font-bold uppercase">TUITION</span>
                         <span className="font-bold text-primary-900 text-sm">
-                          {formData.category === 'foundations' ? 'Included in Program' : `PKR ${formData.fee}`}
+                          PKR {formData.fee ? formData.fee.replace(/^PKR\s*/i, '') : '0'}
                         </span>
                       </div>
                       <div>
@@ -2584,7 +2720,7 @@ export default function CreateCourse() {
                           Auto Student Notifications
                         </span>
                       </div>
-                      <div className="font-mono text-emerald-950 truncate text-xs font-semibold bg-white p-2 rounded-lg border border-emerald-200">
+                      <div className="text-primary-950 truncate text-xs font-semibold bg-white p-2 rounded-lg border border-primary-200">
                         {formData.meetingLink || 'No link configured'}
                       </div>
                       {formData.meetingInstructions && (
@@ -2628,7 +2764,7 @@ export default function CreateCourse() {
                             </span>
                             <span className="font-medium text-ink-900 truncate">{r.title}</span>
                           </div>
-                          <span className="text-[11px] font-mono text-ink-400 shrink-0">{r.size}</span>
+                          <span className="text-[11px] text-ink-400 shrink-0">{r.size}</span>
                         </div>
                       ))}
                     </div>
@@ -2830,7 +2966,7 @@ export default function CreateCourse() {
                       value={newStudentData.password || ''}
                       onChange={(e) => setNewStudentData({ ...newStudentData, password: e.target.value })}
                       placeholder="e.g. Ilm#2026!9a"
-                      className="w-full px-3.5 py-2 border border-sand-300 rounded-xl text-xs font-mono font-bold text-ink-900 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                      className="w-full px-3.5 py-2 border border-sand-300 rounded-xl text-xs font-bold text-ink-900 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
                     />
                   </div>
 
@@ -3047,6 +3183,264 @@ export default function CreateCourse() {
                       className="px-5 py-2.5 rounded-xl bg-primary-900 hover:bg-primary-800 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
                     >
                       {editingResourceId ? 'Save Changes' : 'Add Handout / Material'}
+                    </button>
+                  </div>
+                </form>
+              </motion.div>
+            </div>
+          )}
+
+          {/* Quick Create Academic Pathway Modal */}
+          {isPathwayModalOpen && (
+            <div className="fixed inset-0 bg-primary-950/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-sand-200"
+              >
+                <div className="px-6 py-5 bg-sand-50/80 border-b border-sand-200 flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="h-8 w-8 rounded-xl bg-primary-100 flex items-center justify-center text-primary-900">
+                      <Compass size={18} />
+                    </div>
+                    <div>
+                      <h3 className="font-heading font-bold text-ink-900 text-base">
+                        Create New Academic Pathway
+                      </h3>
+                      <p className="text-xs text-ink-500">
+                        Define a new diploma track or masterclass pathway
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsPathwayModalOpen(false)}
+                    className="p-1.5 rounded-lg text-ink-400 hover:text-ink-700 hover:bg-sand-200/50 transition-colors cursor-pointer"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+
+                <form onSubmit={handleCreatePathway} className="p-6 space-y-4">
+                  {pathwayFormError && (
+                    <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 font-medium">
+                      {pathwayFormError}
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-ink-700 mb-1">
+                      Pathway Name *
+                    </label>
+                    <input
+                      type="text"
+                      value={pathwayForm.name}
+                      onChange={(e) => setPathwayForm({ ...pathwayForm, name: e.target.value })}
+                      placeholder="e.g. Classical Arabic & Sarf Immersion"
+                      required
+                      className="w-full px-3.5 py-2.5 text-xs sm:text-sm border border-sand-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-600"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-ink-700 mb-1">
+                      Subtitle / Tagline
+                    </label>
+                    <input
+                      type="text"
+                      value={pathwayForm.subtitle}
+                      onChange={(e) => setPathwayForm({ ...pathwayForm, subtitle: e.target.value })}
+                      placeholder="e.g. 1-Year Diploma in Sacred Grammar & Rhetoric"
+                      className="w-full px-3.5 py-2.5 text-xs sm:text-sm border border-sand-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-600"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-ink-700 mb-1.5">
+                      Program Structure *
+                    </label>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setPathwayForm({
+                            ...pathwayForm,
+                            programStructure: 'multi_semester',
+                            type: 'cohort',
+                            tuitionModel: 'varies_by_course',
+                            semesters: pathwayForm.semesters || 2,
+                            duration: '2 Semesters (Duration varies by course)',
+                          })
+                        }
+                        className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all ${
+                          pathwayForm.programStructure === 'multi_semester'
+                            ? 'border-primary-900 bg-primary-50/70 ring-2 ring-primary-500/20'
+                            : 'border-sand-200 bg-white hover:bg-sand-50/60'
+                        }`}
+                      >
+                        <div className="font-bold text-xs text-ink-900 flex items-center gap-1">
+                          🎓 Multi-Semester
+                        </div>
+                        <p className="text-[10px] text-ink-500 mt-0.5 leading-snug">
+                          Cohort program with semesters (e.g. Ilm Foundations)
+                        </p>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setPathwayForm({
+                            ...pathwayForm,
+                            programStructure: 'course_group',
+                            type: 'modular',
+                            tuitionModel: 'varies_by_course',
+                            semesters: 0,
+                            duration: 'Duration varies by course',
+                          })
+                        }
+                        className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all ${
+                          pathwayForm.programStructure === 'course_group'
+                            ? 'border-amber-600 bg-amber-50/70 ring-2 ring-amber-500/20'
+                            : 'border-sand-200 bg-white hover:bg-sand-50/60'
+                        }`}
+                      >
+                        <div className="font-bold text-xs text-ink-900 flex items-center gap-1">
+                          ⚡ Course Group
+                        </div>
+                        <p className="text-[10px] text-ink-500 mt-0.5 leading-snug">
+                          Non-semester masterclass collection (e.g. Ilm Intensives)
+                        </p>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setPathwayForm({
+                            ...pathwayForm,
+                            programStructure: 'single_course',
+                            type: 'modular',
+                            tuitionModel: 'varies_by_course',
+                            semesters: 0,
+                            duration: 'Duration varies by course',
+                          })
+                        }
+                        className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all ${
+                          pathwayForm.programStructure === 'single_course'
+                            ? 'border-purple-600 bg-purple-50/70 ring-2 ring-purple-500/20'
+                            : 'border-sand-200 bg-white hover:bg-sand-50/60'
+                        }`}
+                      >
+                        <div className="font-bold text-xs text-ink-900 flex items-center gap-1">
+                          📖 Single Course
+                        </div>
+                        <p className="text-[10px] text-ink-500 mt-0.5 leading-snug">
+                          Independent one-off course or workshop
+                        </p>
+                      </button>
+                    </div>
+                  </div>
+
+                  {pathwayForm.programStructure === 'multi_semester' && (
+                    <div className="p-3 bg-emerald-50/60 border border-emerald-200/60 rounded-xl space-y-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-bold uppercase tracking-wider text-emerald-950 mb-1">
+                            Number of Semesters
+                          </label>
+                          <input
+                            type="number"
+                            min="1"
+                            max="8"
+                            value={pathwayForm.semesters}
+                            onChange={(e) =>
+                              setPathwayForm({ ...pathwayForm, semesters: Number(e.target.value) || 2 })
+                            }
+                            className="w-full px-3 py-1.5 text-xs border border-emerald-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold uppercase tracking-wider text-emerald-950 mb-1">
+                            Generated Structure
+                          </label>
+                          <div className="text-xs font-bold text-emerald-900 py-1.5">
+                            {Array.from({ length: pathwayForm.semesters || 2 }, (_, i) => `Semester ${i + 1}`).join(' • ')}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-ink-700 mb-1">
+                        Tuition Pricing Structure
+                      </label>
+                      <select
+                        value={pathwayForm.tuitionModel}
+                        onChange={(e) => setPathwayForm({ ...pathwayForm, tuitionModel: e.target.value })}
+                        className="w-full px-3 py-2 text-xs border border-sand-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 bg-white"
+                      >
+                        <option value="varies_by_course">Course-Specific Pricing (Varies Course to Course)</option>
+                        <option value="per_course">Standard Baseline Per Course</option>
+                        <option value="bundled">Bundled Overall Track</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-ink-700 mb-1">
+                        Guideline Base Fee (PKR)
+                      </label>
+                      <input
+                        type="number"
+                        value={pathwayForm.defaultTuitionFee}
+                        onChange={(e) => setPathwayForm({ ...pathwayForm, defaultTuitionFee: Number(e.target.value) || 0 })}
+                        placeholder="30000"
+                        className="w-full px-3.5 py-2 text-xs border border-sand-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-ink-700 mb-1">
+                      Duration Notes
+                    </label>
+                    <input
+                      type="text"
+                      value={pathwayForm.duration}
+                      onChange={(e) => setPathwayForm({ ...pathwayForm, duration: e.target.value })}
+                      placeholder="e.g. Duration varies by course (4-12 Weeks)"
+                      className="w-full px-3.5 py-2 text-xs border border-sand-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                    />
+                    <p className="text-[11px] text-ink-400 mt-1">Each individual course defines its own duration and dates.</p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-ink-700 mb-1">
+                      Pathway Description & Scope
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={pathwayForm.description}
+                      onChange={(e) => setPathwayForm({ ...pathwayForm, description: e.target.value })}
+                      placeholder="Outline the core objective, academic rigor, and targeted student body..."
+                      className="w-full px-3.5 py-2 text-xs border border-sand-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 resize-none"
+                    />
+                  </div>
+
+                  <div className="pt-3 flex items-center justify-end gap-2 border-t border-sand-200">
+                    <button
+                      type="button"
+                      onClick={() => setIsPathwayModalOpen(false)}
+                      className="px-4 py-2 rounded-xl text-xs font-bold text-ink-600 hover:bg-sand-100 transition-colors cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-5 py-2 rounded-xl bg-primary-900 hover:bg-primary-800 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
+                    >
+                      Create &amp; Select Pathway
                     </button>
                   </div>
                 </form>

@@ -82,7 +82,7 @@ export default function QuickStats() {
             key={stat.label}
             variants={cardVariants}
             whileHover={{ y: -4, transition: { duration: 0.2 } }}
-            className="group relative rounded-xl bg-white p-5 shadow-card transition-shadow duration-300 hover:shadow-elevated cursor-default"
+            className="group relative rounded-xl bg-white p-5 shadow-card transition-all duration-300 hover:shadow-elevated cursor-default"
           >
             <div className="flex items-start justify-between">
               {/* Icon circle */}

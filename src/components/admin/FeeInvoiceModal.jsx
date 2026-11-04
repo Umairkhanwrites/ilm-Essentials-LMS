@@ -48,7 +48,7 @@ export default function FeeInvoiceModal({ feeRecord, onClose }) {
               <h3 className="text-sm font-bold text-ink-900">
                 Official Tuition Fee Receipt
               </h3>
-              <p className="text-[11px] text-ink-500 font-mono">
+              <p className="text-[11px] text-ink-500 ">
                 {feeRecord.invoiceNo}
               </p>
             </div>
@@ -102,7 +102,7 @@ export default function FeeInvoiceModal({ feeRecord, onClose }) {
               <span className="text-[11px] uppercase tracking-wider font-bold text-primary-800 block">
                 TUITION INVOICE &amp; RECEIPT
               </span>
-              <h2 className="text-xl font-heading font-black text-ink-900 font-mono">
+              <h2 className="text-xl font-heading font-black text-ink-900 ">
                 {feeRecord.invoiceNo}
               </h2>
               <div className="text-xs text-ink-600">
@@ -123,7 +123,7 @@ export default function FeeInvoiceModal({ feeRecord, onClose }) {
               </span>
               <div className="text-sm font-bold text-ink-900">{feeRecord.studentName}</div>
               <div className="text-ink-600">{feeRecord.studentEmail}</div>
-              <div className="text-ink-500 font-mono text-[11px]">
+              <div className="text-ink-500 text-[11px]">
                 Student ID: {feeRecord.studentId || 'STD-2026-REG'}
               </div>
             </div>
@@ -144,27 +144,119 @@ export default function FeeInvoiceModal({ feeRecord, onClose }) {
               <thead className="bg-sand-100 text-ink-700 font-bold uppercase tracking-wider border-b border-sand-200">
                 <tr>
                   <th className="py-3 px-4">Description / Curriculum Track</th>
-                  <th className="py-3 px-4 text-center">Semester</th>
+                  <th className="py-3 px-4 text-center">Semester / Type</th>
                   <th className="py-3 px-4 text-right">Tuition Amount</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-sand-100">
                 <tr>
-                  <td className="py-4 px-4">
+                  <td className="py-3.5 px-4">
                     <div className="font-bold text-ink-900">{feeRecord.program}</div>
                     <div className="text-[11px] text-ink-500 mt-0.5">
                       Full classical curriculum, lecture recordings, faculty Q&amp;A, and campus facility access.
                     </div>
                   </td>
-                  <td className="py-4 px-4 text-center text-ink-700 font-medium">
-                    Semester 1
+                  <td className="py-3.5 px-4 text-center text-ink-700 font-medium">
+                    {feeRecord.semester || 'Semester 1'}
                   </td>
-                  <td className="py-4 px-4 text-right font-mono font-bold text-ink-900 text-sm">
-                    PKR {feeRecord.totalAmount?.toLocaleString()}
+                  <td className="py-3.5 px-4 text-right font-bold text-ink-900 text-sm">
+                    PKR {(feeRecord.baseFee || feeRecord.totalAmount || 30000).toLocaleString()}
                   </td>
                 </tr>
+
+                {Number(feeRecord.discountAmount) > 0 && (
+                  <tr className="bg-emerald-50/50">
+                    <td className="py-2.5 px-4">
+                      <div className="font-bold text-emerald-900 flex items-center gap-1.5">
+                        <span>Scholarship / Tuition Concession</span>
+                      </div>
+                      <div className="text-[11px] text-emerald-700">
+                        {feeRecord.discountReason || 'Need-Based Financial Aid'} &bull; Approved by: {feeRecord.discountApprovedBy || 'Faculty Administration'}
+                      </div>
+                    </td>
+                    <td className="py-2.5 px-4 text-center text-primary-900 font-semibold">
+                      {feeRecord.discountType === 'waiver' ? '100% Waiver' : feeRecord.discountType === 'percentage' ? `${feeRecord.discountValue}% Off` : 'Special Aid'}
+                    </td>
+                    <td className="py-2.5 px-4 text-right font-bold text-primary-900 text-sm">
+                      - PKR {Number(feeRecord.discountAmount).toLocaleString()}
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
+          </div>
+
+          {/* Installment Plan Schedule Table (If Active) */}
+          {Array.isArray(feeRecord.installments) && feeRecord.installments.length > 0 && (
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-ink-700">
+                <span>Semester Installment Schedule</span>
+                <span className="text-[10px] text-primary-800 font-normal">
+                  Plan: {feeRecord.installments.length}-Part Installment Schedule
+                </span>
+              </div>
+              <div className="border border-sand-200 rounded-xl overflow-hidden">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-sand-50 text-ink-600 font-semibold text-[11px] uppercase border-b border-sand-200">
+                    <tr>
+                      <th className="py-2 px-3">Part #</th>
+                      <th className="py-2 px-3">Schedule Description</th>
+                      <th className="py-2 px-3">Due Date</th>
+                      <th className="py-2 px-3 text-right">Amount</th>
+                      <th className="py-2 px-3 text-center">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-sand-100">
+                    {feeRecord.installments.map((inst, idx) => (
+                      <tr key={idx} className="hover:bg-sand-50/50">
+                        <td className="py-2 px-3 font-bold text-ink-700">{idx + 1}</td>
+                        <td className="py-2 px-3 text-ink-900 font-medium">{inst.title}</td>
+                        <td className="py-2 px-3 text-ink-600 text-[11px]">{inst.dueDate}</td>
+                        <td className="py-2 px-3 text-right font-bold text-ink-900">
+                          PKR {Number(inst.amount).toLocaleString()}
+                        </td>
+                        <td className="py-2 px-3 text-center">
+                          <span
+                            className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                              inst.status === 'Paid'
+                                ? 'bg-primary-50 text-primary-900 border border-primary-200'
+                                : 'bg-amber-100 text-amber-800'
+                            }`}
+                          >
+                            {inst.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Official Bank Wire & Challan Details Box */}
+          <div className="p-3.5 bg-sand-50 rounded-xl border border-sand-200 text-xs space-y-1">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-ink-500 block">
+              Official Bank Wire Account for Online / Counter Deposit:
+            </span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+              <div>
+                <span className="text-ink-400">Bank Name:</span>{' '}
+                <strong className="text-ink-900">Meezan Bank Limited (Islamic Banking)</strong>
+              </div>
+              <div>
+                <span className="text-ink-400">Account Title:</span>{' '}
+                <strong className="text-ink-900">Ilm Essentials Education Foundation</strong>
+              </div>
+              <div>
+                <span className="text-ink-400">IBAN:</span>{' '}
+                <strong className="text-ink-900 ">PK42 MEZN 0001 0293 8472 9101</strong>
+              </div>
+              <div>
+                <span className="text-ink-400">Branch:</span>{' '}
+                <strong className="text-ink-900">DHA Phase 6 Commercial, Lahore</strong>
+              </div>
+            </div>
           </div>
 
           {/* Totals & Official Stamp */}
@@ -186,7 +278,7 @@ export default function FeeInvoiceModal({ feeRecord, onClose }) {
                 <span className="text-base font-black uppercase tracking-wider block">
                   {isPaid ? 'PAID' : isPartial ? 'PARTIAL' : isOverdue ? 'OVERDUE' : 'PENDING'}
                 </span>
-                <span className="text-[8px] font-mono font-bold block">
+                <span className="text-[8px] font-bold block">
                   {feeRecord.paidDate || feeRecord.dueDate}
                 </span>
               </div>
@@ -199,7 +291,7 @@ export default function FeeInvoiceModal({ feeRecord, onClose }) {
                 <div className="text-[11px] text-ink-500">
                   Method: <strong className="text-ink-700">{feeRecord.paymentMethod || 'Bank Transfer'}</strong>
                 </div>
-                <div className="text-[11px] text-ink-500 font-mono">
+                <div className="text-[11px] text-ink-500 ">
                   Ref: {feeRecord.transactionRef || 'N/A'}
                 </div>
               </div>
@@ -209,20 +301,20 @@ export default function FeeInvoiceModal({ feeRecord, onClose }) {
             <div className="w-full sm:w-64 space-y-2 text-xs">
               <div className="flex justify-between text-ink-600">
                 <span>Total Billed Tuition:</span>
-                <span className="font-mono font-semibold">
+                <span className="font-semibold">
                   PKR {feeRecord.totalAmount?.toLocaleString()}
                 </span>
               </div>
-              <div className="flex justify-between text-emerald-800 font-bold">
+              <div className="flex justify-between text-primary-900 font-bold">
                 <span>Amount Paid:</span>
-                <span className="font-mono">
+                <span className="">
                   PKR {feeRecord.paidAmount?.toLocaleString()}
                 </span>
               </div>
               <div className="h-px bg-sand-200" />
               <div className="flex justify-between text-ink-900 text-sm font-black">
                 <span>Balance Due:</span>
-                <span className={`font-mono ${feeRecord.balance > 0 ? 'text-red-600' : 'text-emerald-700'}`}>
+                <span className={`${feeRecord.balance > 0 ? 'text-red-600' : 'text-emerald-700'}`}>
                   PKR {feeRecord.balance?.toLocaleString()}
                 </span>
               </div>
