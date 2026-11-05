@@ -35,6 +35,23 @@ export default function LoginForm() {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleQuickStudentLogin = async () => {
+    setErrorMessage('');
+    setIsLoading(true);
+    try {
+      const res = await login(demoCredentials.student.email, demoCredentials.student.password, 'student');
+      if (res.success) {
+        navigate('/dashboard');
+      } else {
+        setErrorMessage(res.error || 'Failed to sign in.');
+      }
+    } catch (err) {
+      setErrorMessage('An unexpected error occurred.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setErrorMessage('');
@@ -43,7 +60,11 @@ export default function LoginForm() {
     try {
       const res = await login(formData.email, formData.password, 'student');
       if (res.success) {
-        navigate('/dashboard');
+        if (res.user?.role === 'admin') {
+          navigate('/admin');
+        } else {
+          navigate('/dashboard');
+        }
       } else {
         setErrorMessage(res.error || 'Failed to sign in.');
       }
@@ -57,32 +78,44 @@ export default function LoginForm() {
   return (
     <div className="space-y-5">
       {/* ── Demo Credentials Helper Box ── */}
-      <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3.5 space-y-2 text-xs">
+      <div className="rounded-xl border border-sand-300 bg-sand-50/90 p-3.5 space-y-2.5 text-xs">
         <div className="flex items-center justify-between">
-          <span className="font-bold text-emerald-950 flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-emerald-600 animate-pulse" />
+          <span className="font-bold text-ink-900 flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-full bg-primary-700 animate-pulse" />
             Student Demo Credentials
           </span>
-          <button
-            type="button"
-            onClick={handleCopyCredentials}
-            className="text-[11px] font-semibold text-emerald-800 hover:text-emerald-950 flex items-center gap-1 cursor-pointer"
-          >
-            {copied ? <Check size={12} className="text-emerald-700" /> : <Copy size={12} />}
-            {copied ? 'Copied' : 'Copy'}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleCopyCredentials}
+              className="text-[11px] font-semibold text-primary-800 hover:text-primary-950 flex items-center gap-1 cursor-pointer"
+            >
+              {copied ? <Check size={12} className="text-emerald-700" /> : <Copy size={12} />}
+              {copied ? 'Copied' : 'Copy'}
+            </button>
+          </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-2 font-mono text-[11px] text-ink-800">
-          <div className="p-1.5 rounded-lg bg-white/80 border border-emerald-100">
-            <span className="text-[10px] text-ink-400 font-sans block">Email</span>
-            <span className="truncate block font-medium">{demoCredentials.student.email}</span>
+        <div className="grid grid-cols-2 gap-2 text-[11px] text-ink-800">
+          <div className="p-2 rounded-lg bg-white border border-sand-200">
+            <span className="text-[10px] text-ink-400 block font-medium">Email</span>
+            <span className="truncate block font-semibold">{demoCredentials.student.email}</span>
           </div>
-          <div className="p-1.5 rounded-lg bg-white/80 border border-emerald-100">
-            <span className="text-[10px] text-ink-400 font-sans block">Password</span>
-            <span className="block font-medium">{demoCredentials.student.password}</span>
+          <div className="p-2 rounded-lg bg-white border border-sand-200">
+            <span className="text-[10px] text-ink-400 block font-medium">Password</span>
+            <span className="block font-semibold">{demoCredentials.student.password}</span>
           </div>
         </div>
+
+        <button
+          type="button"
+          onClick={handleQuickStudentLogin}
+          disabled={isLoading}
+          className="w-full py-1.5 px-3 rounded-lg bg-primary-50 hover:bg-primary-100 text-primary-900 border border-primary-200 text-xs font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+        >
+          <span>1-Click Sign In with Demo Student</span>
+          <ArrowRight size={12} />
+        </button>
       </div>
 
       {/* ── Error Banner ── */}
@@ -182,6 +215,16 @@ export default function LoginForm() {
             Create an account
           </Link>
         </p>
+
+        <div className="pt-3 border-t border-sand-200 text-center">
+          <Link
+            to="/admin/login"
+            className="text-xs font-semibold text-ink-600 hover:text-primary-800 transition-colors inline-flex items-center gap-1.5"
+          >
+            <span>Faculty or staff member? Go to Admin Portal</span>
+            <ArrowRight size={12} />
+          </Link>
+        </div>
       </form>
     </div>
   );

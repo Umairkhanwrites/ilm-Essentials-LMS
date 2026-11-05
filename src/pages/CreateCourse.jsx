@@ -72,6 +72,7 @@ import {
   getAllPathways,
   savePathway,
 } from '../services/courseStorage';
+import { DEFAULT_BUNNY_VIDEO_URL } from '../data/mockData';
 import logoWhite from '../assets/logo-white.png';
 
 const PRESET_INSTRUCTORS = [
@@ -689,7 +690,7 @@ export default function CreateCourse() {
           title: 'Lesson 1: Introduction to Topic',
           type: 'video',
           duration: '40 min',
-          videoUrl: '',
+          videoUrl: DEFAULT_BUNNY_VIDEO_URL,
           content: '',
           quizQuestions: [],
         },
@@ -730,7 +731,7 @@ export default function CreateCourse() {
       title: 'New Lesson',
       type: 'video',
       duration: '45 min',
-      videoUrl: '',
+      videoUrl: DEFAULT_BUNNY_VIDEO_URL,
       lectureNotes: '',
       content: '',
       passingScore: '70%',
@@ -769,6 +770,14 @@ export default function CreateCourse() {
 
   const handleLessonFieldChange = (moduleIndex, lessonIndex, field, value) => {
     setIsDirty(true);
+    let finalValue = value;
+    if (field === 'videoUrl' && typeof value === 'string' && value.includes('<iframe')) {
+      const match = value.match(/<iframe[^>]*\ssrc=["']([^"']+)["']/i);
+      if (match) {
+        finalValue = match[1];
+      }
+    }
+
     setFormData((prev) => ({
       ...prev,
       modules: prev.modules.map((mod, mIdx) => {
@@ -777,7 +786,7 @@ export default function CreateCourse() {
             ...mod,
             lessons: mod.lessons.map((les, lIdx) => {
               if (lIdx === lessonIndex) {
-                return { ...les, [field]: value };
+                return { ...les, [field]: finalValue };
               }
               return les;
             }),
@@ -2271,7 +2280,7 @@ export default function CreateCourse() {
                                           </div>
                                           <div>
                                             <label className="block text-[11px] font-semibold text-ink-600 mb-1">
-                                              Video Stream / Embed URL (YouTube, Vimeo, or MP4)
+                                              Video Stream / Embed URL (Bunny.net Stream, YouTube, Vimeo, or MP4)
                                             </label>
                                             <input
                                               type="text"
@@ -2279,9 +2288,27 @@ export default function CreateCourse() {
                                               onChange={(e) =>
                                                 handleLessonFieldChange(modIdx, lesIdx, 'videoUrl', e.target.value)
                                               }
-                                              placeholder="e.g. https://www.youtube.com/watch?v=... or https://vimeo.com/..."
+                                              placeholder="Paste Bunny.net iframe code or https://player.mediadelivery.net/play/800132/..."
                                               className="w-full px-3 py-2 border border-sand-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20"
                                             />
+                                            <div className="flex items-center justify-between text-[11px] text-ink-500 mt-1">
+                                              <span>Paste either the full <strong>&lt;iframe&gt;</strong> code or the direct video link.</span>
+                                              {lesson.videoUrl?.includes('mediadelivery.net') && (
+                                                <span className="text-primary-800 font-semibold bg-primary-50 px-2 py-0.5 rounded border border-primary-200">
+                                                  ✓ Bunny.net Stream
+                                                </span>
+                                              )}
+                                              {lesson.videoUrl?.includes('youtu') && (
+                                                <span className="text-red-700 font-semibold bg-red-50 px-2 py-0.5 rounded border border-red-200">
+                                                  ✓ YouTube Video
+                                                </span>
+                                              )}
+                                              {lesson.videoUrl?.includes('vimeo') && (
+                                                <span className="text-blue-700 font-semibold bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                                                  ✓ Vimeo Video
+                                                </span>
+                                              )}
+                                            </div>
                                           </div>
                                           <div>
                                             <label className="block text-[11px] font-semibold text-ink-600 mb-1">

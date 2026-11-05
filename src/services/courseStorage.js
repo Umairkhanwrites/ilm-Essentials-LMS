@@ -14,6 +14,7 @@ import {
   adminFeeRecords,
   initialScheduleSlots,
   initialScheduleNotifications,
+  DEFAULT_BUNNY_VIDEO_URL,
 } from '../data/mockData';
 
 const STORAGE_KEY_COURSES = 'ilm_admin_courses';
@@ -931,7 +932,7 @@ export function saveCourse(courseData) {
             title: 'Welcome & Course Orientation',
             type: 'video',
             duration: '35 min',
-            videoUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+            videoUrl: DEFAULT_BUNNY_VIDEO_URL,
             completed: false,
           },
           {
@@ -984,6 +985,69 @@ export function saveCourseDetail(id, details) {
 }
 
 /**
+ * Normalizes video URLs (Bunny.net Stream, YouTube, Vimeo, direct MP4) into proper embed URLs.
+ * Handles:
+ *  - Full HTML iframe snippets: <iframe src="..."></iframe>
+ *  - Bunny.net direct player links: https://player.mediadelivery.net/play/800132/...
+ *  - Bunny.net embed links: https://player.mediadelivery.net/embed/800132/...
+ *  - YouTube & Vimeo URLs
+ */
+export function getEmbedVideoUrl(url) {
+  if (!url) return '';
+  let trimmed = url.trim();
+
+  // If user pasted a full HTML <iframe> snippet (like from Bunny.net dashboard embed tab)
+  const iframeMatch = trimmed.match(/<iframe[^>]*\ssrc=["']([^"']+)["']/i);
+  if (iframeMatch) {
+    trimmed = iframeMatch[1];
+  }
+
+  // Bunny.net Stream (mediadelivery.net): supports /play/ or /embed/ with player.mediadelivery.net or iframe.mediadelivery.net
+  const bunnyMatch = trimmed.match(/(?:player|iframe)\.mediadelivery\.net\/(?:play|embed)\/([0-9]+)\/([a-zA-Z0-9-]+)(\?[^"'\s]*)?/i);
+  if (bunnyMatch) {
+    const libId = bunnyMatch[1];
+    const vidId = bunnyMatch[2];
+    const query = bunnyMatch[3] || '?autoplay=true&loop=false&muted=true&preload=true&responsive=true';
+    return `https://player.mediadelivery.net/embed/${libId}/${vidId}${query}`;
+  }
+
+  // YouTube
+  const ytMatch = trimmed.match(/(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]+)/i);
+  if (ytMatch) {
+    return `https://www.youtube-nocookie.com/embed/${ytMatch[1]}?rel=0&modestbranding=1`;
+  }
+
+  // Vimeo
+  const vimeoMatch = trimmed.match(/vimeo\.com\/(?:video\/)?([0-9]+)/i);
+  if (vimeoMatch) {
+    return `https://player.vimeo.com/video/${vimeoMatch[1]}`;
+  }
+
+  return trimmed;
+}
+
+/**
+ * Ensures any lesson with type 'video' has an active streaming URL (falls back to Bunny.net default)
+ */
+function ensureLessonVideoUrls(course) {
+  if (!course || !Array.isArray(course.modules)) return course;
+  return {
+    ...course,
+    modules: course.modules.map((mod) => ({
+      ...mod,
+      lessons: Array.isArray(mod.lessons)
+        ? mod.lessons.map((les) => {
+            if (les.type === 'video' && !les.videoUrl) {
+              return { ...les, videoUrl: DEFAULT_BUNNY_VIDEO_URL };
+            }
+            return les;
+          })
+        : [],
+    })),
+  };
+}
+
+/**
  * Retrieve comprehensive course details for /course/:id
  */
 export function getCourseDetailById(id) {
@@ -992,7 +1056,7 @@ export function getCourseDetailById(id) {
     if (rawMap) {
       const map = JSON.parse(rawMap);
       if (map[id]) {
-        return map[id];
+        return ensureLessonVideoUrls(map[id]);
       }
     }
   } catch (err) {
@@ -1001,13 +1065,13 @@ export function getCourseDetailById(id) {
 
   // If matches default courseDetail
   if (id === courseDetail.id) {
-    return courseDetail;
+    return ensureLessonVideoUrls(courseDetail);
   }
 
   // Look in enrolledCourses or adminAllCourses
   const match = getAllCourses().find((c) => c.id === id);
   if (match) {
-    return {
+    return ensureLessonVideoUrls({
       ...courseDetail,
       ...match,
       id: match.id,
@@ -1030,10 +1094,10 @@ export function getCourseDetailById(id) {
       fee: match.fee,
       progress: 0,
       completedLessons: 0,
-    };
+    });
   }
 
-  return courseDetail;
+  return ensureLessonVideoUrls(courseDetail);
 }
 
 /**

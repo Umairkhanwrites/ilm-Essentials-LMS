@@ -52,117 +52,102 @@ export function AuthProvider({ children }) {
     const cleanEmail = email.trim().toLowerCase();
     const cleanPass = password.trim();
 
-    // Instructor Authentication Check
-    if (expectedRole === 'instructor' || cleanEmail.includes('instructor')) {
-      const isDemoInstructor =
-        (cleanEmail === demoCredentials.instructor?.email?.toLowerCase() ||
-          cleanEmail === demoCredentials.instructor?.alternateEmail?.toLowerCase()) &&
-        (cleanPass === demoCredentials.instructor?.password || cleanPass === 'instructor123' || cleanPass === 'password123');
+    // 1. Student Check
+    const isDemoStudent =
+      (cleanEmail === demoCredentials.student.email.toLowerCase() ||
+        cleanEmail === demoCredentials.student.alternateEmail?.toLowerCase()) &&
+      (cleanPass === demoCredentials.student.password || cleanPass === 'password123');
 
-      if (isDemoInstructor) {
-        const instUser = {
-          id: 'inst_demo',
-          name: demoCredentials.instructor.name,
-          email: demoCredentials.instructor.email,
-          role: 'instructor',
-          title: 'Senior Scholar & Course Instructor',
-          avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=200&q=80',
-        };
-        setUser(instUser);
-        return { success: true, user: instUser };
-      }
-
-      // Check registered instructors list
-      const allInstructors = getAllInstructors();
-      const matchInst = allInstructors.find(
-        (i) => i.email.toLowerCase() === cleanEmail
-      );
-      if (matchInst && (cleanPass === 'instructor123' || cleanPass === 'password123' || cleanPass === matchInst.password)) {
-        const instUser = {
-          id: matchInst.id,
-          name: matchInst.name,
-          email: matchInst.email,
-          role: 'instructor',
-          title: matchInst.title,
-          avatar: matchInst.avatar,
-        };
-        setUser(instUser);
-        return { success: true, user: instUser };
-      }
-
-      if (expectedRole === 'instructor') {
-        return {
-          success: false,
-          error: 'Invalid instructor credentials. Use instructor@ilmessentials.pk / instructor123',
-        };
-      }
-    }
-
-    // Student Authentication Check
-    if (expectedRole === 'student') {
-      const isDemoStudent =
-        (cleanEmail === demoCredentials.student.email.toLowerCase() ||
-          cleanEmail === demoCredentials.student.alternateEmail?.toLowerCase()) &&
-        (cleanPass === demoCredentials.student.password || cleanPass === 'password123');
-
-      if (isDemoStudent) {
-        const studentUser = {
-          id: 'usr_001',
-          name: demoCredentials.student.name,
-          email: demoCredentials.student.email,
-          role: 'student',
-        };
-        setUser(studentUser);
-        return { success: true, user: studentUser };
-      }
-
-      // Dynamic check across all registered students
-      const allStudents = getAllStudents();
-      const matchStudent = allStudents.find(
-        (s) => s.email.toLowerCase() === cleanEmail
-      );
-      if (matchStudent && (cleanPass === matchStudent.password || cleanPass === 'student123' || cleanPass === 'password123')) {
-        const studentUser = {
-          id: matchStudent.id,
-          name: matchStudent.name,
-          email: matchStudent.email,
-          role: 'student',
-          mustChangePassword: Boolean(matchStudent.mustChangePassword),
-        };
-        setUser(studentUser);
-        return { success: true, user: studentUser };
-      }
-
-      return {
-        success: false,
-        error: 'Invalid student credentials. Use student@ilmessentials.pk / student123',
+    if (isDemoStudent) {
+      const studentUser = {
+        id: 'usr_001',
+        name: demoCredentials.student.name,
+        email: demoCredentials.student.email,
+        role: 'student',
       };
+      setUser(studentUser);
+      return { success: true, user: studentUser };
     }
 
-    // Admin Authentication Check
+    const allStudents = getAllStudents();
+    const matchStudent = allStudents.find(
+      (s) => s.email.toLowerCase() === cleanEmail
+    );
+    if (matchStudent && (cleanPass === matchStudent.password || cleanPass === 'student123' || cleanPass === 'password123')) {
+      const studentUser = {
+        id: matchStudent.id,
+        name: matchStudent.name,
+        email: matchStudent.email,
+        role: 'student',
+        mustChangePassword: Boolean(matchStudent.mustChangePassword),
+      };
+      setUser(studentUser);
+      return { success: true, user: studentUser };
+    }
+
+    // 2. Admin Check (also allowed on general login)
+    const isValidAdmin =
+      cleanEmail === demoCredentials.admin.email.toLowerCase() &&
+      (cleanPass === demoCredentials.admin.password || cleanPass === 'adminpassword' || cleanPass === 'admin123');
+
+    if (isValidAdmin) {
+      const adminUser = {
+        id: 'adm_001',
+        name: demoCredentials.admin.name,
+        email: demoCredentials.admin.email,
+        role: 'admin',
+      };
+      setUser(adminUser);
+      return { success: true, user: adminUser };
+    }
+
+    // 3. Instructor Check
+    const isDemoInstructor =
+      (cleanEmail === demoCredentials.instructor?.email?.toLowerCase() ||
+        cleanEmail === demoCredentials.instructor?.alternateEmail?.toLowerCase()) &&
+      (cleanPass === demoCredentials.instructor?.password || cleanPass === 'instructor123' || cleanPass === 'password123');
+
+    if (isDemoInstructor) {
+      const instUser = {
+        id: 'inst_demo',
+        name: demoCredentials.instructor.name,
+        email: demoCredentials.instructor.email,
+        role: 'instructor',
+        title: 'Senior Scholar & Course Instructor',
+        avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=200&q=80',
+      };
+      setUser(instUser);
+      return { success: true, user: instUser };
+    }
+
+    const allInstructors = getAllInstructors();
+    const matchInst = allInstructors.find(
+      (i) => i.email.toLowerCase() === cleanEmail
+    );
+    if (matchInst && (cleanPass === 'instructor123' || cleanPass === 'password123' || cleanPass === matchInst.password)) {
+      const instUser = {
+        id: matchInst.id,
+        name: matchInst.name,
+        email: matchInst.email,
+        role: 'instructor',
+        title: matchInst.title,
+        avatar: matchInst.avatar,
+      };
+      setUser(instUser);
+      return { success: true, user: instUser };
+    }
+
     if (expectedRole === 'admin') {
-      const isValidAdmin =
-        cleanEmail === demoCredentials.admin.email.toLowerCase() &&
-        (cleanPass === demoCredentials.admin.password || cleanPass === 'adminpassword' || cleanPass === 'admin123');
-
-      if (isValidAdmin) {
-        const adminUser = {
-          id: 'adm_001',
-          name: demoCredentials.admin.name,
-          email: demoCredentials.admin.email,
-          role: 'admin',
-        };
-        setUser(adminUser);
-        return { success: true, user: adminUser };
-      }
-
       return {
         success: false,
         error: 'Invalid staff credentials. Use admin@ilmessentials.pk / admin123',
       };
     }
 
-    return { success: false, error: 'Unknown role specified.' };
+    return {
+      success: false,
+      error: 'Invalid credentials. Please use student@ilmessentials.pk / student123 or check your password.',
+    };
   }, []);
 
   /**

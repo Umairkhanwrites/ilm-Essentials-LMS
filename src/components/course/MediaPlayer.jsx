@@ -1,34 +1,31 @@
 /**
- * MediaPlayer — Simulated video player for the course interface.
+ * MediaPlayer — Real Video Player & Learning Canvas for Course Interface.
  *
- * Renders a 16:9 dark container with play overlay, faux progress bar,
- * player controls (play/pause, volume, speed, fullscreen, theater mode),
- * current-lesson title overlay, and an optional LIVE badge.
+ * Supports:
+ * 1. Bunny.net Stream Video Embeds (player.mediadelivery.net / iframe.mediadelivery.net)
+ * 2. YouTube & Vimeo embeds
+ * 3. Reading Module Canvas (for text-based lessons)
+ * 4. Assessment Module Canvas (for interactive quizzes)
+ * 5. Full-width Theater Mode toggle & Live class indicator
  *
- * @param {object}   currentLesson       - Active lesson object { id, title, type, duration, … }
+ * @param {object}   currentLesson       - Active lesson object { id, title, type, duration, videoUrl, … }
  * @param {boolean}  isLive              - Whether this is a live session
  * @param {boolean}  theaterMode         - Current theater-mode state
  * @param {function} onTheaterToggle     - Callback to toggle theater mode
- *
- * TODO: Integrate actual video / HLS player (e.g. video.js or hls.js)
- * TODO: Connect to streaming backend for live sessions
  */
-import React, { useState, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import React, { useState } from 'react';
 import clsx from 'clsx';
 import {
-  Play,
-  Pause,
-  Volume2,
-  VolumeX,
-  Maximize,
-  Minimize,
   MonitorPlay,
-  SkipForward,
+  BookOpen,
+  FileCheck,
+  Video,
+  Clock,
+  Sparkles,
+  ExternalLink,
 } from 'lucide-react';
-
-/** Speed options */
-const SPEED_OPTIONS = ['1x', '1.5x', '2x'];
+import { DEFAULT_BUNNY_VIDEO_URL } from '../../data/mockData';
+import { getEmbedVideoUrl } from '../../services/courseStorage';
 
 export default function MediaPlayer({
   currentLesson,
@@ -36,200 +33,196 @@ export default function MediaPlayer({
   theaterMode = false,
   onTheaterToggle,
 }) {
-  const [playing, setPlaying] = useState(false);
-  const [muted, setMuted] = useState(false);
-  const [speedIdx, setSpeedIdx] = useState(0);
-  const [fakeProgress, setFakeProgress] = useState(35);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [showOverlay, setShowOverlay] = useState(true);
+  const [iframeLoaded, setIframeLoaded] = useState(false);
 
-  const cycleSpeed = useCallback(() => {
-    setSpeedIdx((prev) => (prev + 1) % SPEED_OPTIONS.length);
-  }, []);
+  const lessonType = currentLesson?.type || 'video';
+  const rawVideoUrl = currentLesson?.videoUrl || DEFAULT_BUNNY_VIDEO_URL;
+  const embedUrl = getEmbedVideoUrl(rawVideoUrl);
 
-  const handlePlayPause = useCallback(() => {
-    setPlaying((prev) => !prev);
-    setShowOverlay(false);
-  }, []);
-
-  const handleFullscreen = useCallback(() => {
-    setIsFullscreen((prev) => !prev);
-  }, []);
-
-  return (
-    <div
-      className={clsx(
-        'relative w-full bg-ink-900 rounded-xl overflow-hidden shadow-elevated select-none group',
-        theaterMode ? 'rounded-none' : ''
-      )}
-    >
-      {/* ---- 16:9 Aspect Ratio Container ---- */}
-      <div className="relative w-full" style={{ paddingBottom: '56.25%' }}>
-        {/* Dark canvas placeholder */}
-        <div className="absolute inset-0 bg-gradient-to-br from-ink-900 via-ink-800 to-primary-950 flex items-center justify-center">
-          {/* Subtle geometric pattern overlay */}
-          <div className="absolute inset-0 opacity-5 bg-islamic-pattern" />
-
-          {/* ---- Current lesson title overlay (top-left) ---- */}
-          <div className="absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-black/60 to-transparent z-10">
-            <div className="flex items-center gap-3">
-              {/* LIVE badge */}
-              {isLive && (
-                <span className="inline-flex items-center gap-1.5 bg-red-600 text-white text-[11px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full">
-                  <span className="w-2 h-2 bg-white rounded-full animate-pulse-soft" />
-                  Live
+  // ---- 1. READING LESSON CANVAS ----
+  if (lessonType === 'reading') {
+    return (
+      <div
+        className={clsx(
+          'relative w-full bg-gradient-to-br from-[#0B3324] via-[#0F422F] to-[#072318] rounded-xl overflow-hidden shadow-elevated select-none text-white',
+          theaterMode ? 'rounded-none' : ''
+        )}
+      >
+        <div className="relative w-full" style={{ paddingBottom: '45%' }}>
+          <div className="absolute inset-0 p-6 sm:p-10 flex flex-col justify-between">
+            {/* Top Bar */}
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 bg-gold-400 text-primary-950 text-xs font-bold uppercase tracking-wider px-3 py-1 rounded-full">
+                  <BookOpen size={13} />
+                  <span>Reading Assignment</span>
                 </span>
+                <span className="text-xs text-sand-200">
+                  • {currentLesson?.duration || '20 min read'}
+                </span>
+              </div>
+
+              {onTheaterToggle && (
+                <button
+                  type="button"
+                  onClick={onTheaterToggle}
+                  className="flex items-center gap-1.5 text-xs text-sand-200 hover:text-white bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
+                  title="Toggle Theater Mode"
+                >
+                  <MonitorPlay size={14} />
+                  <span>{theaterMode ? 'Exit Theater' : 'Theater Mode'}</span>
+                </button>
               )}
-              <p className="text-white/90 text-sm font-medium truncate">
-                {currentLesson?.title || 'Select a lesson to begin'}
+            </div>
+
+            {/* Center Content */}
+            <div className="max-w-2xl my-auto space-y-3">
+              <h2 className="font-heading text-xl sm:text-2xl font-bold text-white leading-snug">
+                {currentLesson?.title || 'Classical Syllabus Reading'}
+              </h2>
+              <p className="text-sm text-sand-200 leading-relaxed line-clamp-3">
+                {currentLesson?.content ||
+                  'Delve into selected excerpts, scholarly commentaries, and classical Arabic linguistic analysis curated for this module. Read carefully before proceeding to assessments.'}
               </p>
             </div>
-          </div>
 
-          {/* ---- Large center play button ---- */}
-          <AnimatePresence>
-            {(showOverlay || !playing) && (
-              <motion.button
-                key="play-overlay"
-                initial={{ scale: 0.8, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                exit={{ scale: 1.2, opacity: 0 }}
-                transition={{ duration: 0.25 }}
-                onClick={handlePlayPause}
-                className="relative z-20 flex items-center justify-center w-20 h-20 rounded-full
-                           bg-gold-500/90 hover:bg-gold-400 text-white shadow-glow
-                           transition-colors cursor-pointer focus:outline-none"
-                aria-label={playing ? 'Pause' : 'Play'}
-              >
-                {playing ? (
-                  <Pause size={32} className="ml-0" />
-                ) : (
-                  <Play size={32} className="ml-1" />
-                )}
-              </motion.button>
-            )}
-          </AnimatePresence>
-
-          {/* ---- Bottom controls ---- */}
-          <div
-            className={clsx(
-              'absolute bottom-0 left-0 right-0 z-20 transition-opacity duration-300',
-              'bg-gradient-to-t from-black/80 via-black/40 to-transparent',
-              'opacity-0 group-hover:opacity-100 focus-within:opacity-100'
-            )}
-          >
-            {/* Fake progress bar */}
-            <div className="px-4 pt-4">
-              <div
-                className="relative w-full h-1 bg-white/20 rounded-full cursor-pointer group/bar"
-                onClick={(e) => {
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  const pct = Math.round(
-                    ((e.clientX - rect.left) / rect.width) * 100
-                  );
-                  setFakeProgress(Math.max(0, Math.min(100, pct)));
-                }}
-                role="slider"
-                aria-label="Seek"
-                aria-valuenow={fakeProgress}
-                aria-valuemin={0}
-                aria-valuemax={100}
-                tabIndex={0}
-              >
-                <div
-                  className="absolute left-0 top-0 h-full bg-gold-500 rounded-full transition-all"
-                  style={{ width: `${fakeProgress}%` }}
-                />
-                <div
-                  className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-gold-400 rounded-full
-                             opacity-0 group-hover/bar:opacity-100 transition-opacity shadow-md"
-                  style={{ left: `${fakeProgress}%`, marginLeft: '-6px' }}
-                />
-              </div>
-            </div>
-
-            {/* Controls row */}
-            <div className="flex items-center justify-between px-4 py-3 text-white">
-              {/* Left controls */}
-              <div className="flex items-center gap-3">
-                {/* Play / Pause */}
-                <button
-                  onClick={handlePlayPause}
-                  className="hover:text-gold-400 transition-colors cursor-pointer"
-                  aria-label={playing ? 'Pause' : 'Play'}
-                >
-                  {playing ? <Pause size={20} /> : <Play size={20} />}
-                </button>
-
-                {/* Skip forward */}
-                <button
-                  className="hover:text-gold-400 transition-colors cursor-pointer"
-                  aria-label="Skip forward"
-                >
-                  <SkipForward size={18} />
-                </button>
-
-                {/* Volume */}
-                <button
-                  onClick={() => setMuted((m) => !m)}
-                  className="hover:text-gold-400 transition-colors cursor-pointer"
-                  aria-label={muted ? 'Unmute' : 'Mute'}
-                >
-                  {muted ? <VolumeX size={20} /> : <Volume2 size={20} />}
-                </button>
-
-                {/* Duration label */}
-                <span className="text-xs text-white/60 font-mono">
-                  14:32 / {currentLesson?.duration || '45:00'}
-                </span>
-              </div>
-
-              {/* Right controls */}
-              <div className="flex items-center gap-3">
-                {/* Speed */}
-                <button
-                  onClick={cycleSpeed}
-                  className="text-xs font-bold px-2 py-0.5 rounded bg-white/10 hover:bg-white/20
-                             transition-colors cursor-pointer"
-                  aria-label={`Playback speed ${SPEED_OPTIONS[speedIdx]}`}
-                >
-                  {SPEED_OPTIONS[speedIdx]}
-                </button>
-
-                {/* Theater mode */}
-                <button
-                  onClick={onTheaterToggle}
-                  className={clsx(
-                    'hover:text-gold-400 transition-colors cursor-pointer',
-                    theaterMode && 'text-gold-400'
-                  )}
-                  aria-label={
-                    theaterMode
-                      ? 'Exit theater mode'
-                      : 'Enter theater mode'
-                  }
-                >
-                  <MonitorPlay size={20} />
-                </button>
-
-                {/* Fullscreen */}
-                <button
-                  onClick={handleFullscreen}
-                  className="hover:text-gold-400 transition-colors cursor-pointer"
-                  aria-label={
-                    isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'
-                  }
-                >
-                  {isFullscreen ? (
-                    <Minimize size={20} />
-                  ) : (
-                    <Maximize size={20} />
-                  )}
-                </button>
-              </div>
+            {/* Bottom Meta */}
+            <div className="flex items-center justify-between border-t border-white/10 pt-4 text-xs text-sand-300">
+              <span className="flex items-center gap-1.5">
+                <Sparkles size={14} className="text-gold-400" />
+                Textbook &amp; Notes available in Resources tab below
+              </span>
             </div>
           </div>
         </div>
+      </div>
+    );
+  }
+
+  // ---- 2. ASSESSMENT / QUIZ LESSON CANVAS ----
+  if (lessonType === 'assessment') {
+    return (
+      <div
+        className={clsx(
+          'relative w-full bg-gradient-to-br from-[#122B20] via-[#0B3324] to-[#071C14] rounded-xl overflow-hidden shadow-elevated select-none text-white',
+          theaterMode ? 'rounded-none' : ''
+        )}
+      >
+        <div className="relative w-full" style={{ paddingBottom: '45%' }}>
+          <div className="absolute inset-0 p-6 sm:p-10 flex flex-col justify-between">
+            {/* Top Bar */}
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 bg-amber-400 text-ink-900 text-xs font-bold uppercase tracking-wider px-3 py-1 rounded-full">
+                  <FileCheck size={13} />
+                  <span>Interactive Assessment</span>
+                </span>
+                <span className="text-xs text-sand-200">
+                  • {currentLesson?.duration || '25 min'}
+                </span>
+              </div>
+
+              {onTheaterToggle && (
+                <button
+                  type="button"
+                  onClick={onTheaterToggle}
+                  className="flex items-center gap-1.5 text-xs text-sand-200 hover:text-white bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
+                  title="Toggle Theater Mode"
+                >
+                  <MonitorPlay size={14} />
+                  <span>{theaterMode ? 'Exit Theater' : 'Theater Mode'}</span>
+                </button>
+              )}
+            </div>
+
+            {/* Center Content */}
+            <div className="max-w-2xl my-auto space-y-3">
+              <h2 className="font-heading text-xl sm:text-2xl font-bold text-white leading-snug">
+                {currentLesson?.title || 'Module Comprehension Assessment'}
+              </h2>
+              <p className="text-sm text-sand-200 leading-relaxed">
+                Test your understanding of the core concepts, vocabulary, and rulings covered in this section. Passing requirement is 70% to mark this module completed.
+              </p>
+            </div>
+
+            {/* Bottom Meta */}
+            <div className="flex items-center justify-between border-t border-white/10 pt-4 text-xs text-sand-300">
+              <span className="flex items-center gap-1.5">
+                <Clock size={14} className="text-amber-400" />
+                Timed quiz • Instant grading &amp; feedback
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ---- 3. VIDEO LECTURE PLAYER (BUNNY.NET STREAM / YOUTUBE / VIMEO) ----
+  return (
+    <div
+      className={clsx(
+        'relative w-full bg-black rounded-xl overflow-hidden shadow-elevated select-none group',
+        theaterMode ? 'rounded-none' : ''
+      )}
+    >
+      {/* 16:9 Aspect Ratio Container */}
+      <div className="relative w-full" style={{ paddingBottom: '56.25%' }}>
+        {/* Top Control Overlay (Hover Visible) */}
+        <div className="absolute top-0 left-0 right-0 p-3 sm:p-4 bg-gradient-to-b from-black/80 via-black/40 to-transparent z-20 pointer-events-none flex items-center justify-between transition-opacity duration-300 opacity-0 group-hover:opacity-100">
+          <div className="flex items-center gap-2.5 pointer-events-auto min-w-0 pr-2">
+            <p className="text-white text-xs sm:text-sm font-semibold truncate drop-shadow-sm">
+              {currentLesson?.title || 'Lesson Video'}
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 pointer-events-auto shrink-0">
+            {onTheaterToggle && (
+              <button
+                type="button"
+                onClick={onTheaterToggle}
+                className={clsx(
+                  'flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg transition-all cursor-pointer shadow-xs',
+                  theaterMode
+                    ? 'bg-gold-400 text-primary-950 font-bold'
+                    : 'bg-black/60 hover:bg-black/90 text-white/90 border border-white/20'
+                )}
+                title="Toggle Theater Mode"
+              >
+                <MonitorPlay size={13} />
+                <span className="hidden sm:inline">
+                  {theaterMode ? 'Exit Theater' : 'Theater'}
+                </span>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Real Embedded Bunny.net Stream Video Iframe */}
+        {embedUrl ? (
+          <iframe
+            src={embedUrl}
+            loading="lazy"
+            title={currentLesson?.title || 'Lesson Video Player'}
+            className="absolute inset-0 w-full h-full border-0 z-10"
+            allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture; fullscreen"
+            allowFullScreen
+            onLoad={() => setIframeLoaded(true)}
+          />
+        ) : (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-ink-950 text-white p-6 text-center z-10">
+            <Video size={36} className="text-primary-400 mb-2" />
+            <p className="text-sm font-medium">No video stream configured for this lesson.</p>
+          </div>
+        )}
+
+        {/* Loading Spinner Skeleton before Iframe finishes initialization */}
+        {!iframeLoaded && embedUrl && (
+          <div className="absolute inset-0 bg-ink-950 flex flex-col items-center justify-center text-white/60 z-0">
+            <div className="w-8 h-8 border-2 border-primary-500 border-t-transparent rounded-full animate-spin mb-3" />
+            <span className="text-xs font-medium">Loading high-definition stream...</span>
+          </div>
+        )}
       </div>
     </div>
   );

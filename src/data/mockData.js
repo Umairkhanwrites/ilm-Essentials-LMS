@@ -286,6 +286,9 @@ export const upcomingSchedule = [
   },
 ];
 
+// --- Global Default Video Stream URL (Bunny.net Stream) ---
+export const DEFAULT_BUNNY_VIDEO_URL = "https://player.mediadelivery.net/embed/800132/a958d9df-cdaf-4316-9ef1-d61fd774bb11?autoplay=true&loop=false&muted=true&preload=true&responsive=true";
+
 // --- Individual Course Data (for Course Interface page) ---
 export const courseDetail = {
   id: "crs_101",
@@ -315,6 +318,7 @@ export const courseDetail = {
           title: "What is Tafsir? History & Methodology",
           type: "video",
           duration: "45 min",
+          videoUrl: DEFAULT_BUNNY_VIDEO_URL,
           completed: true,
         },
         {
@@ -322,6 +326,7 @@ export const courseDetail = {
           title: "Categories of Tafsir: Bil-Ma'thur vs. Bil-Ra'y",
           type: "video",
           duration: "38 min",
+          videoUrl: DEFAULT_BUNNY_VIDEO_URL,
           completed: true,
         },
         {
@@ -350,6 +355,7 @@ export const courseDetail = {
           title: "Virtues & Position of Al-Fatiha",
           type: "video",
           duration: "42 min",
+          videoUrl: DEFAULT_BUNNY_VIDEO_URL,
           completed: true,
         },
         {
@@ -357,6 +363,7 @@ export const courseDetail = {
           title: "Word-by-Word Analysis (Verses 1–4)",
           type: "video",
           duration: "50 min",
+          videoUrl: DEFAULT_BUNNY_VIDEO_URL,
           completed: true,
         },
         {
@@ -364,6 +371,7 @@ export const courseDetail = {
           title: "Word-by-Word Analysis (Verses 5–7)",
           type: "video",
           duration: "48 min",
+          videoUrl: DEFAULT_BUNNY_VIDEO_URL,
           completed: true,
         },
         {
@@ -392,6 +400,7 @@ export const courseDetail = {
           title: "Introduction & Context of Surah Al-Baqarah",
           type: "video",
           duration: "55 min",
+          videoUrl: DEFAULT_BUNNY_VIDEO_URL,
           completed: true,
         },
         {
@@ -399,6 +408,7 @@ export const courseDetail = {
           title: "The Qualities of the Believers (Verses 1–5)",
           type: "video",
           duration: "48 min",
+          videoUrl: DEFAULT_BUNNY_VIDEO_URL,
           completed: true,
         },
         {
@@ -406,6 +416,7 @@ export const courseDetail = {
           title: "The Story of Adam عليه السلام (Verses 30–39)",
           type: "video",
           duration: "52 min",
+          videoUrl: DEFAULT_BUNNY_VIDEO_URL,
           completed: true,
         },
         {
@@ -413,6 +424,7 @@ export const courseDetail = {
           title: "Lessons from Bani Isra'il (Verses 40–123)",
           type: "video",
           duration: "60 min",
+          videoUrl: DEFAULT_BUNNY_VIDEO_URL,
           completed: false,
           current: true,
         },
@@ -428,6 +440,7 @@ export const courseDetail = {
           title: "The Legacy of Ibrahim عليه السلام (Verses 124–141)",
           type: "video",
           duration: "50 min",
+          videoUrl: DEFAULT_BUNNY_VIDEO_URL,
           completed: false,
         },
         {
@@ -449,6 +462,7 @@ export const courseDetail = {
           title: "Change of Qiblah & Its Significance (Verses 142–152)",
           type: "video",
           duration: "45 min",
+          videoUrl: DEFAULT_BUNNY_VIDEO_URL,
           completed: false,
         },
         {
@@ -456,6 +470,7 @@ export const courseDetail = {
           title: "Laws of Inheritance & Fasting (Verses 153–187)",
           type: "video",
           duration: "55 min",
+          videoUrl: DEFAULT_BUNNY_VIDEO_URL,
           completed: false,
         },
         {
@@ -463,6 +478,7 @@ export const courseDetail = {
           title: "Ayat-ul-Kursi — The Throne Verse (Verse 255)",
           type: "video",
           duration: "40 min",
+          videoUrl: DEFAULT_BUNNY_VIDEO_URL,
           completed: false,
         },
         {
@@ -470,6 +486,7 @@ export const courseDetail = {
           title: "Financial Ethics in Islam (Verses 261–283)",
           type: "video",
           duration: "48 min",
+          videoUrl: DEFAULT_BUNNY_VIDEO_URL,
           completed: false,
         },
         {

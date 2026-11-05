@@ -113,7 +113,7 @@ export default function CourseHeader({ course, formatMeta, onBack }) {
                 ? 'Online & Onsite'
                 : isOnsite
                 ? 'Onsite Campus'
-                : 'Live Online'}
+                : 'Online Lectures'}
             </Badge>
           </div>
 
@@ -160,20 +160,6 @@ export default function CourseHeader({ course, formatMeta, onBack }) {
                 </p>
               </div>
             </div>
-
-            {/* Live Class Meeting Link Button (for Online & Hybrid) */}
-            {(isOnline || isHybrid) && meetingUrl && (
-              <a
-                href={meetingUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition-all active:scale-95"
-              >
-                <Video size={14} className="animate-pulse" />
-                Join Live Class (Google Meet)
-                <ExternalLink size={13} />
-              </a>
-            )}
 
             {/* Onsite Venue info */}
             {isOnsite && campusVenue && (
