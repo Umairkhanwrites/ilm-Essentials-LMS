@@ -17,6 +17,7 @@ import {
   initialScheduleNotifications,
   notifications as defaultNotifications,
   DEFAULT_BUNNY_VIDEO_URL,
+  dailyQuotes as defaultDailyQuotes,
 } from '../data/mockData';
 
 const STORAGE_KEY_COURSES = 'ilm_admin_courses';
@@ -32,6 +33,7 @@ const STORAGE_KEY_SCHEDULE_NOTIFS = 'ilm_schedule_notifications';
 const STORAGE_KEY_ENROLLED_COURSES = 'ilm_enrolled_courses';
 const STORAGE_KEY_STUDENT_NOTIFICATIONS = 'ilm_student_notifications';
 const STORAGE_KEY_LIBRARY = 'ilm_elibrary_catalog';
+const STORAGE_KEY_DAILY_QUOTES = 'ilm_daily_quotes';
 
 /**
  * Retrieve current student enrolled courses synchronized with live lesson progress
@@ -2314,6 +2316,215 @@ export function toggleLibraryItemFeatured(id) {
     throw err;
   }
 }
+
+// ==========================================
+// DAILY REFLECTIONS & QUOTES SERVICES
+// ==========================================
+
+export const defaultQuotesList = (defaultDailyQuotes || []).map((q, idx) => ({
+  id: `quo_${idx + 1}`,
+  text: q.text,
+  source: q.source,
+  type: q.type || 'hadith',
+  active: true,
+  pinned: idx === 1, // Default pinned to "The seeking of knowledge is obligatory for every Muslim."
+  createdAt: new Date().toISOString(),
+}));
+
+/**
+ * Helper to count words in a string
+ */
+export function countWords(str) {
+  if (!str || typeof str !== 'string') return 0;
+  const words = str.trim().split(/\s+/).filter(Boolean);
+  return words.length;
+}
+
+/**
+ * Retrieve all quotes from storage (fallback to seeded default list)
+ */
+export function getDailyQuotes() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_DAILY_QUOTES);
+    if (!raw) {
+      localStorage.setItem(STORAGE_KEY_DAILY_QUOTES, JSON.stringify(defaultQuotesList));
+      return defaultQuotesList;
+    }
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) && parsed.length > 0 ? parsed : defaultQuotesList;
+  } catch (err) {
+    console.error('Failed to get daily quotes:', err);
+    return defaultQuotesList;
+  }
+}
+
+/**
+ * Retrieves today's active quote for the student dashboard.
+ * Priority:
+ * 1. Pinned quote (if set by admin)
+ * 2. Deterministic day-of-year rotation through active quotes
+ */
+export function getTodaysQuote() {
+  const allQuotes = getDailyQuotes();
+  const activeQuotes = allQuotes.filter((q) => q.active !== false);
+  if (activeQuotes.length === 0) {
+    return defaultQuotesList[0];
+  }
+
+  // 1. Check if an admin pinned a specific quote
+  const pinnedQuote = activeQuotes.find((q) => q.pinned);
+  if (pinnedQuote) {
+    return pinnedQuote;
+  }
+
+  // 2. Deterministic rotation based on day of year
+  const today = new Date();
+  const dayOfYear = Math.floor(
+    (today - new Date(today.getFullYear(), 0, 0)) / (1000 * 60 * 60 * 24)
+  );
+  return activeQuotes[dayOfYear % activeQuotes.length];
+}
+
+/**
+ * Save or update a quote with strict word-count validation
+ * - Quote Text: Max 40 words
+ * - Source: Max 8 words
+ */
+export function saveDailyQuote(quoteData) {
+  const text = (quoteData.text || '').trim();
+  const source = (quoteData.source || '').trim();
+
+  if (!text) {
+    throw new Error('Quote text cannot be empty.');
+  }
+
+  const textWordCount = countWords(text);
+  if (textWordCount > 40) {
+    throw new Error(`Quote text exceeds maximum allowed limit of 40 words (current: ${textWordCount} words).`);
+  }
+
+  if (!source) {
+    throw new Error('Citation reference (source) cannot be empty.');
+  }
+
+  const sourceWordCount = countWords(source);
+  if (sourceWordCount > 8) {
+    throw new Error(`Citation reference exceeds maximum allowed limit of 8 words (current: ${sourceWordCount} words).`);
+  }
+
+  try {
+    const currentList = getDailyQuotes();
+    const isNew = !quoteData.id;
+    const finalId = quoteData.id || `quo_${Date.now()}`;
+
+    const formattedQuote = {
+      id: finalId,
+      text,
+      source,
+      type: quoteData.type || 'hadith',
+      active: quoteData.active !== false,
+      pinned: Boolean(quoteData.pinned),
+      updatedAt: new Date().toISOString(),
+      createdAt: quoteData.createdAt || new Date().toISOString(),
+    };
+
+    let updatedList;
+    if (isNew) {
+      if (formattedQuote.pinned) {
+        updatedList = [formattedQuote, ...currentList.map((q) => ({ ...q, pinned: false }))];
+      } else {
+        updatedList = [formattedQuote, ...currentList];
+      }
+    } else {
+      updatedList = currentList.map((q) => {
+        if (q.id === finalId) {
+          return { ...q, ...formattedQuote };
+        }
+        if (formattedQuote.pinned) {
+          return { ...q, pinned: false };
+        }
+        return q;
+      });
+      if (!currentList.some((q) => q.id === finalId)) {
+        updatedList = [formattedQuote, ...currentList];
+      }
+    }
+
+    localStorage.setItem(STORAGE_KEY_DAILY_QUOTES, JSON.stringify(updatedList));
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('ilm-quotes-updated', {
+          detail: { action: isNew ? 'create' : 'update', quote: formattedQuote },
+        })
+      );
+    }
+
+    return formattedQuote;
+  } catch (err) {
+    console.error('Failed to save daily quote:', err);
+    throw err;
+  }
+}
+
+/**
+ * Delete a quote by ID
+ */
+export function deleteDailyQuote(id) {
+  try {
+    const currentList = getDailyQuotes();
+    const updated = currentList.filter((q) => q.id !== id);
+    localStorage.setItem(STORAGE_KEY_DAILY_QUOTES, JSON.stringify(updated));
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('ilm-quotes-updated', { detail: { action: 'delete', id } })
+      );
+    }
+
+    return updated;
+  } catch (err) {
+    console.error('Failed to delete daily quote:', err);
+    throw err;
+  }
+}
+
+/**
+ * Toggle pinned status for a quote (setting this quote as today's active quote)
+ */
+export function toggleQuotePinned(id) {
+  try {
+    const currentList = getDailyQuotes();
+    const target = currentList.find((q) => q.id === id);
+    const willBePinned = target ? !target.pinned : true;
+
+    const updated = currentList.map((q) => {
+      if (q.id === id) {
+        return { ...q, pinned: willBePinned };
+      }
+      if (willBePinned) {
+        return { ...q, pinned: false };
+      }
+      return q;
+    });
+
+    localStorage.setItem(STORAGE_KEY_DAILY_QUOTES, JSON.stringify(updated));
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('ilm-quotes-updated', {
+          detail: { action: 'toggle-pinned', id, isPinned: willBePinned },
+        })
+      );
+    }
+
+    return updated;
+  } catch (err) {
+    console.error('Failed to toggle quote pinned status:', err);
+    throw err;
+  }
+}
+
 
 
 

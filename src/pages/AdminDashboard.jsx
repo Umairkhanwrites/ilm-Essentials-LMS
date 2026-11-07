@@ -76,6 +76,7 @@ import {
   Smartphone,
   Library,
   BookMarked,
+  Quote,
 } from 'lucide-react';
 
 import Layout from '../components/layout/Layout';
@@ -126,6 +127,12 @@ import {
   saveLibraryItem,
   deleteLibraryItem,
   toggleLibraryItemFeatured,
+  getDailyQuotes,
+  saveDailyQuote,
+  deleteDailyQuote,
+  toggleQuotePinned,
+  countWords,
+  getTodaysQuote,
 } from '../services/courseStorage';
 
 export default function AdminDashboard() {
@@ -1090,6 +1097,134 @@ export default function AdminDashboard() {
     return { totalTitles, featuredCount, categoryCount, totalPages };
   }, [libraryList]);
 
+
+  // ==========================================
+  // DAILY REFLECTIONS & QUOTES STATE & ACTIONS
+  // ==========================================
+  const [quotesList, setQuotesList] = useState(() => getDailyQuotes());
+  const [quoteSearch, setQuoteSearch] = useState('');
+  const [quoteTypeFilter, setQuoteTypeFilter] = useState('all');
+  const [isQuoteModalOpen, setIsQuoteModalOpen] = useState(false);
+  const [editingQuote, setEditingQuote] = useState(null);
+  const [isQuoteDeleteModalOpen, setIsQuoteDeleteModalOpen] = useState(false);
+  const [quoteToDelete, setQuoteToDelete] = useState(null);
+  const [quoteFormError, setQuoteFormError] = useState('');
+
+  const initialQuoteForm = {
+    text: '',
+    source: '',
+    type: 'hadith',
+    active: true,
+    pinned: false,
+  };
+  const [quoteFormData, setQuoteFormData] = useState(initialQuoteForm);
+
+  // Sync quotes dynamically across events
+  React.useEffect(() => {
+    const handleUpdate = () => {
+      setQuotesList(getDailyQuotes());
+    };
+    window.addEventListener('ilm-quotes-updated', handleUpdate);
+    window.addEventListener('storage', handleUpdate);
+    return () => {
+      window.removeEventListener('ilm-quotes-updated', handleUpdate);
+      window.removeEventListener('storage', handleUpdate);
+    };
+  }, []);
+
+  const handleOpenAddQuoteModal = () => {
+    setEditingQuote(null);
+    setQuoteFormData(initialQuoteForm);
+    setQuoteFormError('');
+    setIsQuoteModalOpen(true);
+  };
+
+  const handleOpenEditQuoteModal = (quote) => {
+    setEditingQuote(quote);
+    setQuoteFormData({
+      text: quote.text || '',
+      source: quote.source || '',
+      type: quote.type || 'hadith',
+      active: quote.active !== false,
+      pinned: Boolean(quote.pinned),
+    });
+    setQuoteFormError('');
+    setIsQuoteModalOpen(true);
+  };
+
+  const handleSaveQuoteSubmit = (e) => {
+    e.preventDefault();
+    setQuoteFormError('');
+
+    const textWords = countWords(quoteFormData.text);
+    if (textWords > 40) {
+      setQuoteFormError(`Quote text exceeds the 40-word limit (current: ${textWords} words). Please shorten.`);
+      return;
+    }
+
+    const sourceWords = countWords(quoteFormData.source);
+    if (sourceWords > 8) {
+      setQuoteFormError(`Citation reference exceeds the 8-word limit (current: ${sourceWords} words).`);
+      return;
+    }
+
+    try {
+      saveDailyQuote({
+        ...(editingQuote ? { id: editingQuote.id, createdAt: editingQuote.createdAt } : {}),
+        ...quoteFormData,
+      });
+      setQuotesList(getDailyQuotes());
+      setIsQuoteModalOpen(false);
+      setEditingQuote(null);
+    } catch (err) {
+      setQuoteFormError(err.message || 'Failed to save quote.');
+    }
+  };
+
+  const handleToggleQuotePinned = (id) => {
+    const updated = toggleQuotePinned(id);
+    setQuotesList(updated);
+  };
+
+  const handleOpenDeleteQuoteModal = (quote) => {
+    setQuoteToDelete(quote);
+    setIsQuoteDeleteModalOpen(true);
+  };
+
+  const handleConfirmDeleteQuote = () => {
+    if (quoteToDelete) {
+      const updated = deleteDailyQuote(quoteToDelete.id);
+      setQuotesList(updated);
+      setIsQuoteDeleteModalOpen(false);
+      setQuoteToDelete(null);
+    }
+  };
+
+  // Filtered quotes list
+  const filteredQuotes = useMemo(() => {
+    return quotesList.filter((q) => {
+      const query = quoteSearch.trim().toLowerCase();
+      const matchesSearch =
+        !query ||
+        q.text?.toLowerCase().includes(query) ||
+        q.source?.toLowerCase().includes(query);
+
+      const matchesType = quoteTypeFilter === 'all' || q.type === quoteTypeFilter;
+      return matchesSearch && matchesType;
+    });
+  }, [quotesList, quoteSearch, quoteTypeFilter]);
+
+  const quotesMetrics = useMemo(() => {
+    const total = quotesList.length;
+    const active = quotesList.filter((q) => q.active !== false).length;
+    const pinnedQuote = quotesList.find((q) => q.pinned);
+    return { total, active, pinnedQuote };
+  }, [quotesList]);
+
+  const activeTodayQuote = useMemo(() => {
+    return quotesMetrics.pinnedQuote || quotesList.find((q) => q.active !== false) || quotesList[0];
+  }, [quotesMetrics, quotesList]);
+
   const handleAdminLogout = () => {
     logout();
     navigate('/admin/login');
@@ -1192,6 +1327,7 @@ export default function AdminDashboard() {
                     { id: 'courses', label: 'Course Management', icon: BookOpen, count: courses.length },
                     { id: 'pathways', label: 'Academic Pathways', icon: Compass, count: pathways.length },
                     { id: 'library', label: 'e-Library Catalog', icon: Library, count: libraryList.length },
+                    { id: 'quotes', label: 'Daily Quotes & Reflections', icon: Quote, count: quotesList.length },
                     { id: 'students', label: 'Student Accounts', icon: Users, count: students.length },
                     { id: 'instructors', label: 'Faculty & Instructors', icon: GraduationCap, count: instructors.length },
                     { id: 'fees', label: 'Tuition & Fee Management', icon: CreditCard, count: feeSummary.pendingCount },
@@ -3516,6 +3652,308 @@ export default function AdminDashboard() {
                                     onClick={() => handleOpenDeleteLibraryModal(item)}
                                     className="p-1.5 rounded-lg text-red-500 hover:text-red-700 hover:bg-red-50 transition-colors cursor-pointer"
                                     title="Delete Resource"
+                                  >
+                                    <Trash2 size={15} />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+            
+          {/* ==================================================== */}
+          {/* TAB: DAILY REFLECTIONS & QUOTES MANAGEMENT          */}
+          {/* ==================================================== */}
+          {activeTab === 'quotes' && (
+            <div className="space-y-6 animate-fadeIn">
+              {/* Header Banner & Action Button */}
+              <div className="bg-white rounded-2xl border border-sand-200 p-5 sm:p-6 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-gold-100 text-gold-800 text-[11px] font-bold tracking-wide uppercase mb-2">
+                    <Quote size={13} />
+                    Daily Reflections & Quotes
+                  </div>
+                  <h2 className="text-xl sm:text-2xl font-heading font-bold text-ink-900 tracking-tight">
+                    Daily Inscriptions & Wisdom
+                  </h2>
+                  <p className="text-xs sm:text-sm text-ink-500 mt-1 max-w-2xl">
+                    Manage the authentic Hadith, Quranic ayahs, and scholarly reflections displayed on the student dashboard hero card.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2.5 shrink-0">
+                  <Link
+                    to="/dashboard"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl border border-sand-300 text-xs font-semibold text-ink-700 hover:bg-sand-100 transition-colors cursor-pointer"
+                  >
+                    <ExternalLink size={14} />
+                    <span>View Student Dashboard</span>
+                  </Link>
+                  <button
+                    onClick={handleOpenAddQuoteModal}
+                    className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-primary-900 text-white text-xs font-semibold hover:bg-primary-800 transition-all shadow-sm cursor-pointer"
+                  >
+                    <Plus size={16} />
+                    <span>Add Quote</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Top Row: KPIs and Live Student Preview */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* 2 Cols: KPIs */}
+                <div className="lg:col-span-2 grid grid-cols-2 sm:grid-cols-3 gap-4">
+                  <div className="bg-white rounded-2xl border border-sand-200 p-4 shadow-xs">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-ink-400">Total Quotes</span>
+                      <div className="w-8 h-8 rounded-xl bg-primary-100 text-primary-900 flex items-center justify-center">
+                        <Quote size={16} />
+                      </div>
+                    </div>
+                    <p className="text-2xl font-heading font-bold text-ink-900">{quotesMetrics.total}</p>
+                    <p className="text-[11px] text-ink-500 mt-1">In platform database</p>
+                  </div>
+
+                  <div className="bg-white rounded-2xl border border-sand-200 p-4 shadow-xs">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-ink-400">Active Pool</span>
+                      <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center">
+                        <CheckCircle2 size={16} />
+                      </div>
+                    </div>
+                    <p className="text-2xl font-heading font-bold text-emerald-800">{quotesMetrics.active}</p>
+                    <p className="text-[11px] text-ink-500 mt-1">Rotating daily</p>
+                  </div>
+
+                  <div className="bg-white rounded-2xl border border-sand-200 p-4 shadow-xs col-span-2 sm:col-span-1">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-ink-400">Today's Display</span>
+                      <div className="w-8 h-8 rounded-xl bg-gold-100 text-gold-700 flex items-center justify-center">
+                        <Star size={16} className={quotesMetrics.pinnedQuote ? 'fill-gold-500 text-gold-600' : 'text-gold-600'} />
+                      </div>
+                    </div>
+                    <p className="text-sm font-heading font-bold text-ink-900 truncate">
+                      {quotesMetrics.pinnedQuote ? quotesMetrics.pinnedQuote.source : 'Daily Rotation'}
+                    </p>
+                    <p className="text-[11px] text-ink-500 mt-1">
+                      {quotesMetrics.pinnedQuote ? 'Admin Pinned Reflection' : 'Automated Calendar Seed'}
+                    </p>
+                  </div>
+
+                  {/* Word Limit Guideline Callout */}
+                  <div className="col-span-2 sm:col-span-3 bg-sand-100/70 border border-sand-200 rounded-2xl p-4 flex items-start gap-3">
+                    <div className="w-7 h-7 rounded-lg bg-primary-900 text-gold-400 flex items-center justify-center shrink-0 mt-0.5">
+                      <Sparkles size={14} />
+                    </div>
+                    <div className="text-xs text-ink-700 leading-relaxed">
+                      <strong className="font-semibold text-ink-900 block mb-0.5">Card UI Constraints (Enforced automatically):</strong>
+                      Quotes are restricted to a maximum of <strong>40 words</strong> and citations to <strong>8 words</strong> to ensure the student hero banner renders without clipping or overflow.
+                    </div>
+                  </div>
+                </div>
+
+                {/* 1 Col: Live Student Preview Card */}
+                <div className="bg-gradient-to-br from-[#0B3324] via-[#0F422F] to-[#072318] rounded-2xl p-5 border border-primary-900 shadow-md text-white flex flex-col justify-between">
+                  <div className="flex items-center justify-between mb-3 border-b border-white/10 pb-2.5">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-gold-400 flex items-center gap-1.5">
+                      <Eye size={12} />
+                      Live Student Card Preview
+                    </span>
+                    <span className="text-[10px] bg-white/10 px-2 py-0.5 rounded-full text-sand-200">
+                      Hero Banner
+                    </span>
+                  </div>
+
+                  {/* Exact Visual Replica */}
+                  <div className="relative rounded-xl border-l-4 border-gold-500 bg-white/5 backdrop-blur-sm p-4 border border-white/10 my-auto">
+                    <Quote className="absolute top-2.5 right-2.5 h-5 w-5 text-gold-400/20" />
+                    <div className="flex items-start gap-3">
+                      <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gold-500/20">
+                        <BookOpen className="h-3.5 w-3.5 text-gold-400" />
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-xs leading-relaxed text-sand-100 italic line-clamp-4">
+                          &ldquo;{activeTodayQuote?.text || 'The seeking of knowledge is obligatory for every Muslim.'}&rdquo;
+                        </p>
+                        <p className="text-[11px] font-semibold text-gold-400">
+                          — {activeTodayQuote?.source || 'Sunan Ibn Majah 224'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <p className="text-[10px] text-sand-300 mt-3 text-right">
+                    {activeTodayQuote?.pinned ? '★ Currently pinned for all students' : 'Rotating dynamically'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Filters & Search */}
+              <div className="bg-white rounded-2xl border border-sand-200 p-4 shadow-xs space-y-3">
+                <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
+                  <div className="relative flex-1">
+                    <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-400" />
+                    <input
+                      type="text"
+                      value={quoteSearch}
+                      onChange={(e) => setQuoteSearch(e.target.value)}
+                      placeholder="Search by quote text, book citation, or keywords..."
+                      className="w-full pl-9 pr-4 py-2 text-xs border border-sand-300 rounded-xl bg-sand-50/50 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-600 transition-all"
+                    />
+                    {quoteSearch && (
+                      <button
+                        onClick={() => setQuoteSearch('')}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-400 hover:text-ink-600 text-xs"
+                      >
+                        <X size={13} />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Type Filter */}
+                  <div className="flex items-center gap-1.5">
+                    {[
+                      { id: 'all', label: 'All Quotes' },
+                      { id: 'hadith', label: 'Hadith' },
+                      { id: 'quran', label: 'Quran' },
+                      { id: 'scholarly', label: 'Scholarly' },
+                    ].map((tab) => (
+                      <button
+                        key={tab.id}
+                        onClick={() => setQuoteTypeFilter(tab.id)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                          quoteTypeFilter === tab.id
+                            ? 'bg-primary-900 text-white'
+                            : 'bg-sand-100 text-ink-600 hover:bg-sand-200'
+                        }`}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Quotes Listing Table */}
+              <div className="bg-white rounded-2xl border border-sand-200 shadow-xs overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="bg-sand-50/80 border-b border-sand-200 text-ink-500 font-bold uppercase tracking-wider text-[10px]">
+                        <th className="py-3.5 px-4">Quote Text & Word Count</th>
+                        <th className="py-3.5 px-3">Reference / Citation</th>
+                        <th className="py-3.5 px-3">Category</th>
+                        <th className="py-3.5 px-3 text-center">Pin Today</th>
+                        <th className="py-3.5 px-3">Status</th>
+                        <th className="py-3.5 px-4 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-sand-100">
+                      {filteredQuotes.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="py-12 text-center text-ink-400">
+                            <div className="w-12 h-12 rounded-2xl bg-sand-100 flex items-center justify-center mx-auto mb-3 text-ink-400">
+                              <Quote size={22} />
+                            </div>
+                            <p className="text-sm font-semibold text-ink-700">No quotes match your filter</p>
+                            <p className="text-xs text-ink-500 mt-1">Add a new quote or adjust your search.</p>
+                            <button
+                              onClick={handleOpenAddQuoteModal}
+                              className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary-900 text-white text-xs font-medium hover:bg-primary-800 transition-colors cursor-pointer"
+                            >
+                              <Plus size={14} /> Add First Quote
+                            </button>
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredQuotes.map((q) => {
+                          const wCount = countWords(q.text);
+                          const isPinned = Boolean(q.pinned);
+                          return (
+                            <tr key={q.id} className="hover:bg-sand-50/60 transition-colors">
+                              {/* Text & Word count */}
+                              <td className="py-3.5 px-4 max-w-md">
+                                <p className="font-medium text-ink-900 text-xs italic leading-relaxed">
+                                  &ldquo;{q.text}&rdquo;
+                                </p>
+                                <span className="inline-block mt-1 text-[10px] text-ink-400 font-medium">
+                                  {wCount}/40 words
+                                </span>
+                              </td>
+
+                              {/* Source */}
+                              <td className="py-3.5 px-3 whitespace-nowrap">
+                                <span className="font-heading font-bold text-ink-800 text-xs">
+                                  {q.source}
+                                </span>
+                              </td>
+
+                              {/* Type */}
+                              <td className="py-3.5 px-3 whitespace-nowrap">
+                                <span className={`inline-block px-2 py-0.5 rounded-md text-[10px] font-bold uppercase ${
+                                  q.type === 'quran'
+                                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                    : q.type === 'hadith'
+                                    ? 'bg-gold-100 text-gold-900 border border-gold-300'
+                                    : 'bg-sand-100 text-ink-700 border border-sand-300'
+                                }`}>
+                                  {q.type}
+                                </span>
+                              </td>
+
+                              {/* Pin Toggle */}
+                              <td className="py-3.5 px-3 text-center whitespace-nowrap">
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleQuotePinned(q.id)}
+                                  title={isPinned ? "Currently pinned today — click to unpin" : "Pin as today's active quote for all students"}
+                                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                    isPinned
+                                      ? 'bg-amber-100 text-amber-900 border border-amber-300 shadow-xs'
+                                      : 'text-ink-400 hover:text-amber-600 hover:bg-sand-100'
+                                  }`}
+                                >
+                                  <Star size={14} className={isPinned ? 'fill-amber-500 text-amber-600' : ''} />
+                                  <span>{isPinned ? 'Pinned' : 'Pin'}</span>
+                                </button>
+                              </td>
+
+                              {/* Status */}
+                              <td className="py-3.5 px-3 whitespace-nowrap">
+                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                  q.active !== false
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : 'bg-sand-200 text-ink-600'
+                                }`}>
+                                  <span className={`w-1.5 h-1.5 rounded-full ${q.active !== false ? 'bg-emerald-500' : 'bg-ink-400'}`} />
+                                  {q.active !== false ? 'Active' : 'Archived'}
+                                </span>
+                              </td>
+
+                              {/* Actions */}
+                              <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                                <div className="flex items-center justify-end gap-1">
+                                  <button
+                                    onClick={() => handleOpenEditQuoteModal(q)}
+                                    className="p-1.5 rounded-lg text-ink-600 hover:text-primary-900 hover:bg-sand-100 transition-colors cursor-pointer"
+                                    title="Edit Quote"
+                                  >
+                                    <Edit3 size={15} />
+                                  </button>
+                                  <button
+                                    onClick={() => handleOpenDeleteQuoteModal(q)}
+                                    className="p-1.5 rounded-lg text-red-500 hover:text-red-700 hover:bg-red-50 transition-colors cursor-pointer"
+                                    title="Delete Quote"
                                   >
                                     <Trash2 size={15} />
                                   </button>

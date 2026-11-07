@@ -12,6 +12,7 @@ import { getAllStudents, getAllInstructors, updateStudentPassword } from '../ser
 const AuthContext = createContext(null);
 
 const STORAGE_KEY_USER = 'ilm_lms_user';
+const SESSION_DURATION_MS = 12 * 60 * 60 * 1000; // 12 hours silent auto-logout window
 
 export function AuthProvider({ children }) {
   // Initialize from localStorage or null (unauthenticated by default)
@@ -19,7 +20,30 @@ export function AuthProvider({ children }) {
     try {
       const stored = localStorage.getItem(STORAGE_KEY_USER);
       if (stored) {
-        return JSON.parse(stored);
+        const parsed = JSON.parse(stored);
+        const now = Date.now();
+
+        // 12-hour silent auto-logout verification
+        if (parsed?.sessionExpiresAt) {
+          if (now >= parsed.sessionExpiresAt) {
+            localStorage.removeItem(STORAGE_KEY_USER);
+            return null; // Silently logged out
+          }
+        } else if (parsed?.loginTime) {
+          if (now - parsed.loginTime >= SESSION_DURATION_MS) {
+            localStorage.removeItem(STORAGE_KEY_USER);
+            return null; // Silently logged out
+          }
+          parsed.sessionExpiresAt = parsed.loginTime + SESSION_DURATION_MS;
+          localStorage.setItem(STORAGE_KEY_USER, JSON.stringify(parsed));
+        } else {
+          // Stamp existing legacy session with 12-hour lifespan
+          parsed.loginTime = now;
+          parsed.sessionExpiresAt = now + SESSION_DURATION_MS;
+          localStorage.setItem(STORAGE_KEY_USER, JSON.stringify(parsed));
+        }
+
+        return parsed;
       }
     } catch (e) {
       console.error('Failed to parse stored auth user', e);
@@ -42,6 +66,52 @@ export function AuthProvider({ children }) {
   }, [user]);
 
   /**
+   * Log out and clear session
+   */
+  const logout = useCallback(() => {
+    setUser(null);
+    try {
+      localStorage.removeItem(STORAGE_KEY_USER);
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
+
+  // Active session monitor: silently logs out after 12 hours
+  useEffect(() => {
+    if (!user) return;
+
+    const checkSession = () => {
+      const expiresAt = user.sessionExpiresAt;
+      if (expiresAt && Date.now() >= expiresAt) {
+        logout();
+      }
+    };
+
+    // Run check immediately
+    checkSession();
+
+    // Check periodically every 30 seconds
+    const interval = setInterval(checkSession, 30000);
+
+    // Also check when tab or window regains visibility/focus
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        checkSession();
+      }
+    };
+
+    window.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', checkSession);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', checkSession);
+    };
+  }, [user, logout]);
+
+  /**
    * Log in with credentials and expected role
    * @param {string} email
    * @param {string} password
@@ -51,6 +121,11 @@ export function AuthProvider({ children }) {
   const login = useCallback(async (email, password, expectedRole = 'student') => {
     const cleanEmail = email.trim().toLowerCase();
     const cleanPass = password.trim();
+    const now = Date.now();
+    const sessionMeta = {
+      loginTime: now,
+      sessionExpiresAt: now + SESSION_DURATION_MS,
+    };
 
     // 1. Student Check
     const isDemoStudent =
@@ -64,6 +139,7 @@ export function AuthProvider({ children }) {
         name: demoCredentials.student.name,
         email: demoCredentials.student.email,
         role: 'student',
+        ...sessionMeta,
       };
       setUser(studentUser);
       return { success: true, user: studentUser };
@@ -80,6 +156,7 @@ export function AuthProvider({ children }) {
         email: matchStudent.email,
         role: 'student',
         mustChangePassword: Boolean(matchStudent.mustChangePassword),
+        ...sessionMeta,
       };
       setUser(studentUser);
       return { success: true, user: studentUser };
@@ -96,6 +173,7 @@ export function AuthProvider({ children }) {
         name: demoCredentials.admin.name,
         email: demoCredentials.admin.email,
         role: 'admin',
+        ...sessionMeta,
       };
       setUser(adminUser);
       return { success: true, user: adminUser };
@@ -115,6 +193,7 @@ export function AuthProvider({ children }) {
         role: 'instructor',
         title: 'Senior Scholar & Course Instructor',
         avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=200&q=80',
+        ...sessionMeta,
       };
       setUser(instUser);
       return { success: true, user: instUser };
@@ -132,6 +211,7 @@ export function AuthProvider({ children }) {
         role: 'instructor',
         title: matchInst.title,
         avatar: matchInst.avatar,
+        ...sessionMeta,
       };
       setUser(instUser);
       return { success: true, user: instUser };
@@ -148,18 +228,6 @@ export function AuthProvider({ children }) {
       success: false,
       error: 'Invalid email or password. Please verify your credentials and try again.',
     };
-  }, []);
-
-  /**
-   * Log out and clear session
-   */
-  const logout = useCallback(() => {
-    setUser(null);
-    try {
-      localStorage.removeItem(STORAGE_KEY_USER);
-    } catch (e) {
-      console.error(e);
-    }
   }, []);
 
   /**

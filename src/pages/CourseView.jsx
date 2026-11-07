@@ -288,13 +288,7 @@ export default function CourseView() {
 
               {/* Lesson Info Pill */}
               <div className="bg-white rounded-xl border border-sand-200 p-3.5 sm:p-4 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-semibold uppercase tracking-wider text-primary-700 bg-primary-50 px-2 py-0.5 rounded-md">
-                      Current Lesson
-                    </span>
-                    <span className="text-xs text-ink-500">• {currentLesson?.duration || 'Video Lecture'}</span>
-                  </div>
+                <div className="min-w-0">
                   <h2 className="text-base sm:text-lg font-heading font-semibold text-ink-900 leading-snug">
                     {currentLesson?.title}
                   </h2>

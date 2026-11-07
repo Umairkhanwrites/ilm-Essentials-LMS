@@ -10,22 +10,11 @@
  * TODO: Connect to backend for user data and dynamic quotes
  */
 
-import { useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { Quote, BookOpen } from 'lucide-react';
-import { dailyQuotes, currentUser } from '../../data/mockData';
-
-/**
- * Picks a deterministic-but-daily-rotating quote from the dailyQuotes array.
- * Uses the current day-of-year as a seed so the quote stays consistent for a day.
- */
-function getDailyQuote() {
-  const today = new Date();
-  const dayOfYear = Math.floor(
-    (today - new Date(today.getFullYear(), 0, 0)) / (1000 * 60 * 60 * 24)
-  );
-  return dailyQuotes[dayOfYear % dailyQuotes.length];
-}
+import { Quote, BookOpen, Sparkles } from 'lucide-react';
+import { currentUser } from '../../data/mockData';
+import { getTodaysQuote } from '../../services/courseStorage';
 
 /**
  * Formats a Date into a readable string like "Monday, November 3, 2026"
@@ -42,8 +31,23 @@ function formatDate(date) {
 }
 
 export default function WelcomeSection() {
-  const quote = useMemo(() => getDailyQuote(), []);
+  const [quote, setQuote] = useState(() => getTodaysQuote());
   const today = useMemo(() => formatDate(new Date()), []);
+
+  // Listen to admin quote updates in real-time
+  useEffect(() => {
+    const handleUpdate = () => {
+      setQuote(getTodaysQuote());
+    };
+
+    window.addEventListener('ilm-quotes-updated', handleUpdate);
+    window.addEventListener('storage', handleUpdate);
+
+    return () => {
+      window.removeEventListener('ilm-quotes-updated', handleUpdate);
+      window.removeEventListener('storage', handleUpdate);
+    };
+  }, []);
 
   return (
     <motion.section
@@ -98,10 +102,10 @@ export default function WelcomeSection() {
 
               <div className="space-y-1.5">
                 <p className="text-xs sm:text-sm leading-relaxed text-sand-100 italic">
-                  &ldquo;{quote.text}&rdquo;
+                  &ldquo;{quote?.text || 'The seeking of knowledge is obligatory for every Muslim.'}&rdquo;
                 </p>
                 <p className="text-xs font-semibold text-gold-400">
-                  — {quote.source}
+                  — {quote?.source || 'Sunan Ibn Majah 224'}
                 </p>
               </div>
             </div>

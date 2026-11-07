@@ -57,14 +57,38 @@ export default function UpcomingSchedule() {
         return distA - distB;
       });
 
+      const now = new Date();
       const mappedSessions = sortedSlots.slice(0, 4).map((slot) => {
         const distance = getSlotDistance(slot.dayOfWeek);
         const isToday = distance === 0;
         const isTomorrow = distance === 1;
 
-        let dayLabel = slot.dayOfWeek;
-        if (isToday) dayLabel = 'Today';
-        else if (isTomorrow) dayLabel = 'Tomorrow';
+        // Calculate next calendar date for this weekday
+        const slotDate = new Date();
+        slotDate.setDate(now.getDate() + distance);
+        const monthShort = slotDate.toLocaleDateString('en-US', { month: 'short' });
+        const dayNum = slotDate.getDate();
+        const dateFormatted = `${dayNum} ${monthShort}`;
+
+        const shortDayMap = {
+          Sunday: 'Sun',
+          Monday: 'Mon',
+          Tuesday: 'Tue',
+          Wednesday: 'Wed',
+          Thursday: 'Thu',
+          Friday: 'Fri',
+          Saturday: 'Sat',
+        };
+        const shortDay = shortDayMap[slot.dayOfWeek] || slot.dayOfWeek;
+
+        let dayLabel;
+        if (isToday) {
+          dayLabel = `${dateFormatted}, Today`;
+        } else if (isTomorrow) {
+          dayLabel = `${dateFormatted}, Tomorrow`;
+        } else {
+          dayLabel = `${dateFormatted}, ${shortDay}`;
+        }
 
         const formattedTime = slot.startTime && slot.endTime
           ? formatSlotTimeRange(slot.startTime, slot.endTime)
@@ -147,7 +171,7 @@ export default function UpcomingSchedule() {
               <span className="text-sand-400">•</span>
               <span className="text-ink-500 text-xs">Next:</span>
               <span className="font-semibold text-ink-900">{primarySession.courseTitle}</span>
-              <span className="text-ink-500">({primarySession.dayLabel}, {primarySession.time})</span>
+              <span className="text-ink-500">({primarySession.dayLabel} • {primarySession.time})</span>
             </div>
           ) : null}
         </div>
