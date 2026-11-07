@@ -74,6 +74,8 @@ import {
   Send,
   MessageSquare,
   Smartphone,
+  Library,
+  BookMarked,
 } from 'lucide-react';
 
 import Layout from '../components/layout/Layout';
@@ -120,6 +122,10 @@ import {
   formatSlotTimeRange,
   formatTime12h,
   timeToMinutes,
+  getLibraryItems,
+  saveLibraryItem,
+  deleteLibraryItem,
+  toggleLibraryItemFeatured,
 } from '../services/courseStorage';
 
 export default function AdminDashboard() {
@@ -940,6 +946,150 @@ export default function AdminDashboard() {
     setTimeout(() => setCopiedSlotId(null), 2000);
   };
 
+
+  // ==========================================
+  // E-LIBRARY MANAGEMENT STATE & HANDLERS
+  // ==========================================
+  const [libraryList, setLibraryList] = useState(() => getLibraryItems());
+  const [librarySearch, setLibrarySearch] = useState('');
+  const [libraryCategoryFilter, setLibraryCategoryFilter] = useState('all');
+  const [libraryTypeFilter, setLibraryTypeFilter] = useState('all');
+  const [isLibraryModalOpen, setIsLibraryModalOpen] = useState(false);
+  const [editingLibraryItem, setEditingLibraryItem] = useState(null);
+  const [isLibraryDeleteModalOpen, setIsLibraryDeleteModalOpen] = useState(false);
+  const [libraryItemToDelete, setLibraryItemToDelete] = useState(null);
+  const [libraryFormError, setLibraryFormError] = useState('');
+
+  const initialLibraryForm = {
+    title: '',
+    author: '',
+    category: 'Tafsir',
+    type: 'reference',
+    pages: '',
+    fileSize: '',
+    language: 'Arabic / English',
+    description: '',
+    featured: false,
+    downloadUrl: '',
+    externalUrl: '',
+    status: 'published',
+  };
+  const [libraryFormData, setLibraryFormData] = useState(initialLibraryForm);
+
+  // Synchronize library items dynamically on custom & storage events
+  React.useEffect(() => {
+    const handleUpdate = () => {
+      setLibraryList(getLibraryItems());
+    };
+    window.addEventListener('ilm-library-updated', handleUpdate);
+    window.addEventListener('storage', handleUpdate);
+    return () => {
+      window.removeEventListener('ilm-library-updated', handleUpdate);
+      window.removeEventListener('storage', handleUpdate);
+    };
+  }, []);
+
+  const handleOpenAddLibraryModal = () => {
+    setEditingLibraryItem(null);
+    setLibraryFormData(initialLibraryForm);
+    setLibraryFormError('');
+    setIsLibraryModalOpen(true);
+  };
+
+  const handleOpenEditLibraryModal = (item) => {
+    setEditingLibraryItem(item);
+    setLibraryFormData({
+      title: item.title || '',
+      author: item.author || '',
+      category: item.category || 'Tafsir',
+      type: item.type || 'reference',
+      pages: item.pages ?? '',
+      fileSize: item.fileSize || '',
+      language: item.language || 'Arabic / English',
+      description: item.description || '',
+      featured: Boolean(item.featured),
+      downloadUrl: item.downloadUrl || '',
+      externalUrl: item.externalUrl || '',
+      status: item.status || 'published',
+    });
+    setLibraryFormError('');
+    setIsLibraryModalOpen(true);
+  };
+
+  const handleSaveLibrarySubmit = (e) => {
+    e.preventDefault();
+    if (!libraryFormData.title.trim()) {
+      setLibraryFormError('Please enter a title for the library resource.');
+      return;
+    }
+
+    try {
+      saveLibraryItem({
+        ...(editingLibraryItem ? { id: editingLibraryItem.id } : {}),
+        ...libraryFormData,
+        pages: libraryFormData.pages ? Number(libraryFormData.pages) : 0,
+      });
+      setLibraryList(getLibraryItems());
+      setIsLibraryModalOpen(false);
+      setEditingLibraryItem(null);
+    } catch (err) {
+      setLibraryFormError('Failed to save library resource: ' + (err?.message || 'Unknown error'));
+    }
+  };
+
+  const handleToggleLibraryFeatured = (id) => {
+    const updated = toggleLibraryItemFeatured(id);
+    setLibraryList(updated);
+  };
+
+  const handleOpenDeleteLibraryModal = (item) => {
+    setLibraryItemToDelete(item);
+    setIsLibraryDeleteModalOpen(true);
+  };
+
+  const handleConfirmDeleteLibrary = () => {
+    if (libraryItemToDelete) {
+      const updated = deleteLibraryItem(libraryItemToDelete.id);
+      setLibraryList(updated);
+      setIsLibraryDeleteModalOpen(false);
+      setLibraryItemToDelete(null);
+    }
+  };
+
+  // Filtered library items
+  const filteredLibraryItems = useMemo(() => {
+    return libraryList.filter((item) => {
+      const q = librarySearch.trim().toLowerCase();
+      const matchesSearch =
+        !q ||
+        item.title?.toLowerCase().includes(q) ||
+        item.author?.toLowerCase().includes(q) ||
+        item.description?.toLowerCase().includes(q);
+
+      const matchesCategory =
+        libraryCategoryFilter === 'all' || item.category === libraryCategoryFilter;
+
+      const matchesType =
+        libraryTypeFilter === 'all' || item.type === libraryTypeFilter;
+
+      return matchesSearch && matchesCategory && matchesType;
+    });
+  }, [libraryList, librarySearch, libraryCategoryFilter, libraryTypeFilter]);
+
+  const libraryCategories = useMemo(() => {
+    const defaultCats = ['Tafsir', 'Hadith', 'Fiqh', 'Seerah', 'Arabic', 'Tazkiyah', 'Aqeedah', 'General'];
+    const activeCats = libraryList.map((i) => i.category).filter(Boolean);
+    return Array.from(new Set([...defaultCats, ...activeCats]));
+  }, [libraryList]);
+
+  const libraryMetrics = useMemo(() => {
+    const totalTitles = libraryList.length;
+    const featuredCount = libraryList.filter((i) => i.featured).length;
+    const categoryCount = new Set(libraryList.map((i) => i.category)).size;
+    const totalPages = libraryList.reduce((acc, i) => acc + (Number(i.pages) || 0), 0);
+    return { totalTitles, featuredCount, categoryCount, totalPages };
+  }, [libraryList]);
+
   const handleAdminLogout = () => {
     logout();
     navigate('/admin/login');
@@ -1041,6 +1191,7 @@ export default function AdminDashboard() {
                   {[
                     { id: 'courses', label: 'Course Management', icon: BookOpen, count: courses.length },
                     { id: 'pathways', label: 'Academic Pathways', icon: Compass, count: pathways.length },
+                    { id: 'library', label: 'e-Library Catalog', icon: Library, count: libraryList.length },
                     { id: 'students', label: 'Student Accounts', icon: Users, count: students.length },
                     { id: 'instructors', label: 'Faculty & Instructors', icon: GraduationCap, count: instructors.length },
                     { id: 'fees', label: 'Tuition & Fee Management', icon: CreditCard, count: feeSummary.pendingCount },
@@ -3041,6 +3192,346 @@ export default function AdminDashboard() {
               </div>
             </div>
           )}
+            
+          {/* ==================================================== */}
+          {/* TAB: E-LIBRARY RESOURCE MANAGEMENT                  */}
+          {/* ==================================================== */}
+          {activeTab === 'library' && (
+            <div className="space-y-6 animate-fadeIn">
+              {/* Header Banner & Action Button */}
+              <div className="bg-white rounded-2xl border border-sand-200 p-5 sm:p-6 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-gold-100 text-gold-800 text-[11px] font-bold tracking-wide uppercase mb-2">
+                    <Library size={13} />
+                    Digital Repository & Reading Materials
+                  </div>
+                  <h2 className="text-xl sm:text-2xl font-heading font-bold text-ink-900 tracking-tight">
+                    e-Library Catalog Management
+                  </h2>
+                  <p className="text-xs sm:text-sm text-ink-500 mt-1 max-w-2xl">
+                    Publish, edit, feature, and manage Islamic reference texts, curriculum companion textbooks, and downloadable study materials for students.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2.5 shrink-0">
+                  <Link
+                    to="/library"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl border border-sand-300 text-xs font-semibold text-ink-700 hover:bg-sand-100 transition-colors cursor-pointer"
+                  >
+                    <ExternalLink size={14} />
+                    <span>View Student Library</span>
+                  </Link>
+                  <button
+                    onClick={handleOpenAddLibraryModal}
+                    className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-primary-900 text-white text-xs font-semibold hover:bg-primary-800 transition-all shadow-sm cursor-pointer"
+                  >
+                    <Plus size={16} />
+                    <span>Add Resource</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Quick KPI Overview */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="bg-white rounded-2xl border border-sand-200 p-4 shadow-xs">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-ink-400">Total Resources</span>
+                    <div className="w-8 h-8 rounded-xl bg-primary-100 text-primary-900 flex items-center justify-center">
+                      <BookOpen size={16} />
+                    </div>
+                  </div>
+                  <p className="text-2xl font-heading font-bold text-ink-900">{libraryMetrics.totalTitles}</p>
+                  <p className="text-[11px] text-ink-500 mt-1">Cataloged in repository</p>
+                </div>
+
+                <div className="bg-white rounded-2xl border border-sand-200 p-4 shadow-xs">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-ink-400">Featured Titles</span>
+                    <div className="w-8 h-8 rounded-xl bg-gold-100 text-gold-700 flex items-center justify-center">
+                      <Star size={16} className="fill-gold-500 text-gold-600" />
+                    </div>
+                  </div>
+                  <p className="text-2xl font-heading font-bold text-gold-700">{libraryMetrics.featuredCount}</p>
+                  <p className="text-[11px] text-ink-500 mt-1">Highlighted on e-Library home</p>
+                </div>
+
+                <div className="bg-white rounded-2xl border border-sand-200 p-4 shadow-xs">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-ink-400">Active Subjects</span>
+                    <div className="w-8 h-8 rounded-xl bg-sand-200 text-ink-700 flex items-center justify-center">
+                      <Layers size={16} />
+                    </div>
+                  </div>
+                  <p className="text-2xl font-heading font-bold text-ink-900">{libraryMetrics.categoryCount}</p>
+                  <p className="text-[11px] text-ink-500 mt-1">Disciplines & fields</p>
+                </div>
+
+                <div className="bg-white rounded-2xl border border-sand-200 p-4 shadow-xs">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-ink-400">Total Pages</span>
+                    <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center">
+                      <FileText size={16} />
+                    </div>
+                  </div>
+                  <p className="text-2xl font-heading font-bold text-ink-900">{libraryMetrics.totalPages.toLocaleString()}</p>
+                  <p className="text-[11px] text-ink-500 mt-1">Pages across all works</p>
+                </div>
+              </div>
+
+              {/* Filter & Search Controls */}
+              <div className="bg-white rounded-2xl border border-sand-200 p-4 shadow-xs space-y-3">
+                <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
+                  {/* Search input */}
+                  <div className="relative flex-1">
+                    <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-400" />
+                    <input
+                      type="text"
+                      value={librarySearch}
+                      onChange={(e) => setLibrarySearch(e.target.value)}
+                      placeholder="Search by title, author, scholar, or content keywords..."
+                      className="w-full pl-9 pr-4 py-2 text-xs border border-sand-300 rounded-xl bg-sand-50/50 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-600 transition-all"
+                    />
+                    {librarySearch && (
+                      <button
+                        onClick={() => setLibrarySearch('')}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-400 hover:text-ink-600 text-xs"
+                      >
+                        <X size={13} />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Type Filter */}
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs font-semibold text-ink-500 shrink-0">Type:</label>
+                    <select
+                      value={libraryTypeFilter}
+                      onChange={(e) => setLibraryTypeFilter(e.target.value)}
+                      className="text-xs border border-sand-300 rounded-xl px-3 py-2 bg-white text-ink-700 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                    >
+                      <option value="all">All Resource Types</option>
+                      <option value="reference">Reference Works</option>
+                      <option value="textbook">Course Textbooks</option>
+                      <option value="course-material">Study Materials</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Category Pills */}
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 pt-1 scrollbar-none border-t border-sand-100">
+                  <span className="text-[11px] font-bold uppercase text-ink-400 mr-1 shrink-0">Category:</span>
+                  <button
+                    onClick={() => setLibraryCategoryFilter('all')}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold shrink-0 transition-colors ${
+                      libraryCategoryFilter === 'all'
+                        ? 'bg-primary-900 text-white'
+                        : 'bg-sand-100 text-ink-600 hover:bg-sand-200'
+                    }`}
+                  >
+                    All ({libraryList.length})
+                  </button>
+                  {libraryCategories.map((cat) => {
+                    const count = libraryList.filter((i) => i.category === cat).length;
+                    return (
+                      <button
+                        key={cat}
+                        onClick={() => setLibraryCategoryFilter(cat)}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-semibold shrink-0 transition-colors ${
+                          libraryCategoryFilter === cat
+                            ? 'bg-primary-900 text-white'
+                            : 'bg-sand-100 text-ink-600 hover:bg-sand-200'
+                        }`}
+                      >
+                        {cat} {count > 0 && `(${count})`}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Resource Table / Catalog Listing */}
+              <div className="bg-white rounded-2xl border border-sand-200 shadow-xs overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="bg-sand-50/80 border-b border-sand-200 text-ink-500 font-bold uppercase tracking-wider text-[10px]">
+                        <th className="py-3.5 px-4">Title & Details</th>
+                        <th className="py-3.5 px-3">Subject / Type</th>
+                        <th className="py-3.5 px-3">Pages & Size</th>
+                        <th className="py-3.5 px-3 text-center">Featured</th>
+                        <th className="py-3.5 px-3">Status</th>
+                        <th className="py-3.5 px-3">Access Links</th>
+                        <th className="py-3.5 px-4 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-sand-100">
+                      {filteredLibraryItems.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} className="py-12 text-center text-ink-400">
+                            <div className="w-12 h-12 rounded-2xl bg-sand-100 flex items-center justify-center mx-auto mb-3 text-ink-400">
+                              <BookOpen size={22} />
+                            </div>
+                            <p className="text-sm font-semibold text-ink-700">No library resources found</p>
+                            <p className="text-xs text-ink-500 mt-1">Try adjusting your search criteria or add a new resource.</p>
+                            <button
+                              onClick={handleOpenAddLibraryModal}
+                              className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary-900 text-white text-xs font-medium hover:bg-primary-800 transition-colors cursor-pointer"
+                            >
+                              <Plus size={14} /> Add First Resource
+                            </button>
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredLibraryItems.map((item) => {
+                          const isFeatured = Boolean(item.featured);
+                          const typeLabel =
+                            item.type === 'reference'
+                              ? 'Reference'
+                              : item.type === 'textbook'
+                              ? 'Textbook'
+                              : 'Study Material';
+
+                          return (
+                            <tr key={item.id} className="hover:bg-sand-50/60 transition-colors">
+                              {/* Title & Author */}
+                              <td className="py-3.5 px-4 max-w-xs">
+                                <div className="flex items-start gap-3">
+                                  <div className="w-8 h-8 rounded-xl bg-sand-100 text-primary-900 flex items-center justify-center shrink-0 mt-0.5">
+                                    <BookMarked size={16} />
+                                  </div>
+                                  <div className="min-w-0">
+                                    <p className="font-heading font-bold text-ink-900 text-xs truncate">
+                                      {item.title}
+                                    </p>
+                                    <p className="text-[11px] text-ink-500 truncate mt-0.5">
+                                      {item.author || 'Author unspecified'}
+                                    </p>
+                                    {item.description && (
+                                      <p className="text-[10px] text-ink-400 line-clamp-1 mt-0.5">
+                                        {item.description}
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                              </td>
+
+                              {/* Category & Type */}
+                              <td className="py-3.5 px-3">
+                                <div className="space-y-1">
+                                  <span className="inline-block px-2 py-0.5 rounded-md text-[10px] font-bold bg-primary-50 text-primary-900 border border-primary-200">
+                                    {item.category}
+                                  </span>
+                                  <div>
+                                    <span className="inline-block px-2 py-0.5 rounded-md text-[10px] font-medium bg-sand-100 text-ink-600">
+                                      {typeLabel}
+                                    </span>
+                                  </div>
+                                </div>
+                              </td>
+
+                              {/* Pages & Size */}
+                              <td className="py-3.5 px-3 whitespace-nowrap">
+                                <p className="font-semibold text-ink-900 text-xs">
+                                  {item.pages > 0 ? `${item.pages} pgs` : '—'}
+                                </p>
+                                <p className="text-[10px] text-ink-400">
+                                  {item.fileSize || item.language || 'Digital'}
+                                </p>
+                              </td>
+
+                              {/* Featured Toggle */}
+                              <td className="py-3.5 px-3 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleLibraryFeatured(item.id)}
+                                  title={isFeatured ? 'Featured on e-Library — click to unfeature' : 'Click to feature on e-Library home'}
+                                  className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                                    isFeatured
+                                      ? 'text-amber-500 hover:bg-amber-50'
+                                      : 'text-ink-300 hover:text-amber-500 hover:bg-sand-100'
+                                  }`}
+                                >
+                                  <Star
+                                    size={16}
+                                    className={isFeatured ? 'fill-amber-400 text-amber-500' : ''}
+                                  />
+                                </button>
+                              </td>
+
+                              {/* Status */}
+                              <td className="py-3.5 px-3 whitespace-nowrap">
+                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                  item.status === 'draft'
+                                    ? 'bg-amber-100 text-amber-800'
+                                    : 'bg-emerald-100 text-emerald-800'
+                                }`}>
+                                  <span className={`w-1.5 h-1.5 rounded-full ${item.status === 'draft' ? 'bg-amber-500' : 'bg-emerald-500'}`} />
+                                  {item.status === 'draft' ? 'Draft' : 'Published'}
+                                </span>
+                              </td>
+
+                              {/* Access Links */}
+                              <td className="py-3.5 px-3 whitespace-nowrap">
+                                <div className="flex items-center gap-1.5">
+                                  {item.downloadUrl ? (
+                                    <a
+                                      href={item.downloadUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="p-1 rounded-md text-primary-700 hover:bg-primary-50 transition-colors"
+                                      title="Test Download Link"
+                                    >
+                                      <Download size={14} />
+                                    </a>
+                                  ) : (
+                                    <span className="text-[10px] text-ink-300">No link</span>
+                                  )}
+                                  {item.externalUrl && (
+                                    <a
+                                      href={item.externalUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="p-1 rounded-md text-ink-500 hover:bg-sand-100 transition-colors"
+                                      title="Test Online Link"
+                                    >
+                                      <ExternalLink size={14} />
+                                    </a>
+                                  )}
+                                </div>
+                              </td>
+
+                              {/* Action Buttons */}
+                              <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                                <div className="flex items-center justify-end gap-1">
+                                  <button
+                                    onClick={() => handleOpenEditLibraryModal(item)}
+                                    className="p-1.5 rounded-lg text-ink-600 hover:text-primary-900 hover:bg-sand-100 transition-colors cursor-pointer"
+                                    title="Edit Resource"
+                                  >
+                                    <Edit3 size={15} />
+                                  </button>
+                                  <button
+                                    onClick={() => handleOpenDeleteLibraryModal(item)}
+                                    className="p-1.5 rounded-lg text-red-500 hover:text-red-700 hover:bg-red-50 transition-colors cursor-pointer"
+                                    title="Delete Resource"
+                                  >
+                                    <Trash2 size={15} />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
             </main>
           </div>
         </div>

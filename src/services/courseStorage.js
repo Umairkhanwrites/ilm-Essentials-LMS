@@ -8,12 +8,14 @@
 import {
   adminAllCourses,
   courseDetail,
+  courseDetailsMap,
   enrolledCourses,
   adminStudentsList,
   adminInstructorsList,
   adminFeeRecords,
   initialScheduleSlots,
   initialScheduleNotifications,
+  notifications as defaultNotifications,
   DEFAULT_BUNNY_VIDEO_URL,
 } from '../data/mockData';
 
@@ -27,6 +29,143 @@ const STORAGE_KEY_DISCUSSIONS = 'ilm_course_discussions_map';
 const STORAGE_KEY_PATHWAYS = 'ilm_academic_pathways';
 const STORAGE_KEY_SCHEDULE_SLOTS = 'ilm_schedule_slots';
 const STORAGE_KEY_SCHEDULE_NOTIFS = 'ilm_schedule_notifications';
+const STORAGE_KEY_ENROLLED_COURSES = 'ilm_enrolled_courses';
+const STORAGE_KEY_STUDENT_NOTIFICATIONS = 'ilm_student_notifications';
+const STORAGE_KEY_LIBRARY = 'ilm_elibrary_catalog';
+
+/**
+ * Retrieve current student enrolled courses synchronized with live lesson progress
+ */
+export function getEnrolledCourses() {
+  try {
+    const rawEnrolled = localStorage.getItem(STORAGE_KEY_ENROLLED_COURSES);
+    let baseList = enrolledCourses;
+    if (rawEnrolled) {
+      const parsed = JSON.parse(rawEnrolled);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        baseList = parsed;
+      }
+    }
+
+    // Merge with authoritative courseDetailsMap and real-time lesson progress stored in STORAGE_KEY_DETAILS
+    const rawDetails = localStorage.getItem(STORAGE_KEY_DETAILS);
+    const detailsMap = rawDetails ? JSON.parse(rawDetails) : {};
+
+    return baseList.map((c) => {
+      // Unify card accent color to official brand forest green
+      const uniformColor = '#0B3324';
+      const uniformFormat = c.category === 'foundations' ? 'live-online' : (c.format || 'live-online');
+
+      // Check authoritative course definition first to ensure fresh lesson counts (e.g. Lesson 6)
+      const official = courseDetailsMap && courseDetailsMap[c.id];
+      const officialLessonsCount = official && Array.isArray(official.modules)
+        ? official.modules.flatMap((m) => m.lessons || []).length
+        : c.totalLessons;
+
+      // 1. Check if course has progress stored in details map (localStorage)
+      const detail = detailsMap[c.id];
+      if (detail && Array.isArray(detail.modules)) {
+        const completed = detail.modules
+          .flatMap((m) => m.lessons || [])
+          .filter((l) => l.completed).length;
+        const total = officialLessonsCount || detail.modules.flatMap((m) => m.lessons || []).length || c.totalLessons;
+        const progress = total > 0 ? Math.round((completed / total) * 100) : 0;
+        return {
+          ...c,
+          color: uniformColor,
+          format: uniformFormat,
+          completedLessons: completed,
+          totalLessons: total,
+          progress,
+        };
+      } else if (
+        detail &&
+        typeof detail.completedLessons === 'number' &&
+        typeof detail.progress === 'number'
+      ) {
+        const total = officialLessonsCount || detail.totalLessons || c.totalLessons;
+        return {
+          ...c,
+          color: uniformColor,
+          format: uniformFormat,
+          completedLessons: detail.completedLessons,
+          totalLessons: total,
+          progress: detail.progress,
+        };
+      }
+
+      // 2. Check if progress was saved in enrolled courses list (localStorage)
+      if (typeof c.completedLessons === 'number' && typeof c.progress === 'number' && rawEnrolled) {
+        return {
+          ...c,
+          color: uniformColor,
+          format: uniformFormat,
+          totalLessons: officialLessonsCount || c.totalLessons,
+        };
+      }
+
+      // 3. Fallback to authoritative courseDetailsMap from mockData
+      const officialDetail = courseDetailsMap && courseDetailsMap[c.id];
+      if (officialDetail && Array.isArray(officialDetail.modules)) {
+        const completed = officialDetail.modules
+          .flatMap((m) => m.lessons || [])
+          .filter((l) => l.completed).length;
+        const total = officialDetail.modules.flatMap((m) => m.lessons || []).length || c.totalLessons;
+        const progress = total > 0 ? Math.round((completed / total) * 100) : 0;
+        return {
+          ...c,
+          color: uniformColor,
+          format: uniformFormat,
+          completedLessons: completed,
+          totalLessons: total,
+          progress,
+        };
+      }
+
+      return {
+        ...c,
+        color: uniformColor,
+        format: uniformFormat,
+        totalLessons: officialLessonsCount || c.totalLessons,
+      };
+    });
+  } catch (err) {
+    console.error('Failed to get enrolled courses:', err);
+    return enrolledCourses;
+  }
+}
+
+/**
+ * Update lesson completion progress for an enrolled course
+ */
+export function updateCourseProgress(courseId, completedLessons, totalLessons, progress) {
+  try {
+    const currentList = getEnrolledCourses();
+    const updatedList = currentList.map((c) => {
+      if (c.id === courseId) {
+        return {
+          ...c,
+          completedLessons,
+          totalLessons: totalLessons ?? c.totalLessons,
+          progress,
+        };
+      }
+      return c;
+    });
+    localStorage.setItem(STORAGE_KEY_ENROLLED_COURSES, JSON.stringify(updatedList));
+
+    // Also dispatch a custom event so open views/tabs synchronize reactively
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('ilm-course-progress-updated', {
+        detail: { courseId, completedLessons, totalLessons, progress }
+      }));
+    }
+    return updatedList;
+  } catch (err) {
+    console.error('Failed to update course progress:', err);
+    return enrolledCourses;
+  }
+}
 
 /**
  * Generate a memorable, secure temporary password for students
@@ -139,7 +278,22 @@ export function getAllInstructors() {
     if (stored) {
       const parsed = JSON.parse(stored);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
+        const officialMap = new Map(adminInstructorsList.map((i) => [(i.name || '').toLowerCase(), i]));
+        const updated = parsed.map((inst) => {
+          const official = officialMap.get((inst.name || '').toLowerCase());
+          if (official && official.avatar && inst.avatar !== official.avatar) {
+            return { ...inst, avatar: official.avatar, title: official.title || inst.title, bio: official.bio || inst.bio };
+          }
+          return inst;
+        });
+
+        const existingNames = new Set(updated.map((p) => (p.name || '').toLowerCase()));
+        const missing = adminInstructorsList.filter((inst) => !existingNames.has((inst.name || '').toLowerCase()));
+        const combined = missing.length > 0 ? [...updated, ...missing] : updated;
+        try {
+          localStorage.setItem(STORAGE_KEY_INSTRUCTORS, JSON.stringify(combined));
+        } catch (e) {}
+        return combined;
       }
     }
   } catch (err) {
@@ -831,7 +985,24 @@ export function getAllCourses() {
     if (stored) {
       const parsed = JSON.parse(stored);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
+        // Clean out removed courses (like Purification of the Heart) and update Tahir Mahmood to Muhammad Ali
+        const cleaned = parsed
+          .filter((c) => c.id !== 'crs_201' && !c.title?.toLowerCase().includes('purification of the heart'))
+          .map((c) => (c.instructor === 'Dr. Tahir Mahmood' ? { ...c, instructor: 'Muhammad Ali' } : c));
+
+        // Check if real foundations courses are present
+        const hasFoundations = cleaned.some((c) => c.id && c.id.startsWith('crs_found_'));
+        if (hasFoundations) {
+          return cleaned;
+        }
+        // Upgrade legacy cache to include real Semester 1 courses
+        const existingIds = new Set(cleaned.map((c) => c.id));
+        const missingNew = adminAllCourses.filter((c) => !existingIds.has(c.id));
+        const combined = [...adminAllCourses, ...cleaned.filter((c) => !c.id.startsWith('crs_10') && !c.id.startsWith('crs_adm_0'))];
+        try {
+          localStorage.setItem(STORAGE_KEY_COURSES, JSON.stringify(combined));
+        } catch (e) {}
+        return combined;
       }
     }
   } catch (err) {
@@ -901,6 +1072,31 @@ export function saveCourse(courseData) {
   const updatedCourses = isExisting
     ? currentCourses.map((c) => (c.id === courseId ? newCourseRecord : c))
     : [newCourseRecord, ...currentCourses];
+
+  // Detect newly added lessons to trigger automated notifications for enrolled students
+  try {
+    const existingDetail = getCourseDetailById(courseId);
+    if (existingDetail && Array.isArray(existingDetail.modules) && Array.isArray(courseData.modules)) {
+      const existingLessonIds = new Set(
+        existingDetail.modules.flatMap((m) => (m.lessons || []).map((l) => l.id))
+      );
+      const incomingLessons = courseData.modules.flatMap((m) => m.lessons || []);
+      const newLessons = incomingLessons.filter(
+        (l) => l && l.title && l.id && !existingLessonIds.has(l.id)
+      );
+
+      for (const nl of newLessons) {
+        notifyEnrolledStudentsNewLesson({
+          courseId,
+          courseTitle: courseData.title || existingDetail.title,
+          lessonTitle: nl.title,
+          lessonId: nl.id,
+        });
+      }
+    }
+  } catch (diffErr) {
+    console.error('Failed to diff lessons for notification:', diffErr);
+  }
 
   try {
     localStorage.setItem(STORAGE_KEY_COURSES, JSON.stringify(updatedCourses));
@@ -1026,8 +1222,34 @@ export function getEmbedVideoUrl(url) {
   return trimmed;
 }
 
+// Authoritative duration mapping directly derived from video stream metadata
+const AUTHORITATIVE_DURATIONS_BY_URL = {
+  'https://player.mediadelivery.net/embed/800731/c3d6d829-bb31-4f3f-99cb-924efa490899': '57 min',
+  'https://player.mediadelivery.net/embed/800731/ca59b96c-6465-4d14-94d5-ba0b5a7d8da3': '1 hr',
+  'https://player.mediadelivery.net/embed/800731/f94dbdec-8399-4015-9b36-fd37fd4e6444': '1 hr 1 min',
+  'https://player.mediadelivery.net/embed/800731/ee9e4a09-511f-4a81-9407-d80242f94698': '56 min',
+  'https://player.mediadelivery.net/embed/800731/c5317c5d-b614-4f04-ab8c-5dff0fcb423a': '1 hr',
+  'https://player.mediadelivery.net/embed/800731/bdadf7b5-947d-47cb-b3e5-f2cbc1d5ea29': '54 min',
+  'https://player.mediadelivery.net/embed/800731/2a2261bc-2af4-4e69-8b85-50097d00053d': '1 hr 1 min',
+  'https://player.mediadelivery.net/embed/800731/9ec090d3-19df-4a43-a913-a703af03ffe6': '1 hr 9 min',
+  'https://player.mediadelivery.net/embed/800731/ee233e49-23ba-43e3-8594-3fc604b509b4': '1 hr 2 min',
+  'https://player.mediadelivery.net/embed/800731/17cb87c6-c341-4ad4-abbd-b066f22dbab9': '1 hr 1 min',
+  'https://player.mediadelivery.net/embed/800731/76d20e6d-23b1-4b05-9c05-62c33b2c6921': '1 hr 3 min',
+  'https://player.mediadelivery.net/embed/800731/d6a5ce82-517e-42eb-a627-961902ebbbde': '52 min',
+  'https://player.mediadelivery.net/embed/800731/dce8819f-66ab-4617-91d4-eaacad26226b': '56 min',
+  'https://player.mediadelivery.net/embed/800731/faa69855-bcf8-473d-a871-ab42f8048d86': '1 hr 12 min',
+  'https://player.mediadelivery.net/embed/800731/b9712a0d-84e0-4e01-a29f-7a4acb821938': '1 hr',
+  'https://player.mediadelivery.net/embed/800731/c474f7a9-f1ab-492c-ad6a-3b3cb1e6a23d': '1 hr 6 min',
+  'https://player.mediadelivery.net/embed/800731/72357d78-ac79-4979-b681-fc2c93f5761e': '1 hr 1 min',
+  'https://player.mediadelivery.net/embed/800731/90d6568c-a4be-49e6-8ab4-19cc665b669d': '59 min',
+  'https://player.mediadelivery.net/embed/800731/58fdc5f5-a771-472c-8c31-2cc1f8846d5a': '1 hr 2 min',
+  'https://player.mediadelivery.net/embed/800731/39526efc-e304-44a6-8bba-5b547a90e9d4': '1 hr 18 min',
+  'https://player.mediadelivery.net/embed/800731/512583d5-2bbb-4862-9bdd-1947e10dbf4b': '57 min',
+  'https://player.mediadelivery.net/embed/800132/a958d9df-cdaf-4316-9ef1-d61fd774bb11': '3 hr 15 min',
+};
+
 /**
- * Ensures any lesson with type 'video' has an active streaming URL (falls back to Bunny.net default)
+ * Ensures any lesson with type 'video' has an active streaming URL and accurate actual duration
  */
 function ensureLessonVideoUrls(course) {
   if (!course || !Array.isArray(course.modules)) return course;
@@ -1037,40 +1259,140 @@ function ensureLessonVideoUrls(course) {
       ...mod,
       lessons: Array.isArray(mod.lessons)
         ? mod.lessons.map((les) => {
-            if (les.type === 'video' && !les.videoUrl) {
-              return { ...les, videoUrl: DEFAULT_BUNNY_VIDEO_URL };
-            }
-            return les;
+            const videoUrl = (les.type === 'video' && !les.videoUrl) ? DEFAULT_BUNNY_VIDEO_URL : les.videoUrl;
+            const cleanUrl = videoUrl ? videoUrl.split('?')[0] : '';
+            const authoritativeDuration =
+              AUTHORITATIVE_DURATIONS_BY_URL[cleanUrl] ||
+              AUTHORITATIVE_DURATIONS_BY_URL[videoUrl];
+
+            const duration = authoritativeDuration || (les.duration && les.duration !== '45 min' ? les.duration : authoritativeDuration || les.duration || '60 min');
+
+            return {
+              ...les,
+              videoUrl,
+              duration,
+            };
           })
         : [],
     })),
   };
 }
 
+function sanitizeCourseSubtitle(courseObj) {
+  if (!courseObj) return courseObj;
+  if (typeof courseObj.subtitle === 'string') {
+    const cleaned = courseObj.subtitle
+      .replace(/\s*—\s*Semester\s*\d+/gi, '')
+      .replace(/Semester\s*\d+\s*—\s*/gi, '')
+      .replace(/revealed\s*Text/gi, 'Quran')
+      .replace(/Law\s*through\s*Sunnah\s*Study/gi, '')
+      .replace(/through\s*Sunnah\s*Study/gi, '')
+      .replace(/\s*&\s*Juzz\s*29\s*Reflections/gi, '')
+      .replace(/\s*&\s*Surah\s*Reflections/gi, '')
+      .replace(/Aqeedah\s*/gi, '')
+      .trim();
+    return { ...courseObj, subtitle: cleaned };
+  }
+  return courseObj;
+}
+
 /**
  * Retrieve comprehensive course details for /course/:id
  */
 export function getCourseDetailById(id) {
+  // Check authoritative courseDetailsMap first for official Semester 1 courses
+  if (courseDetailsMap && courseDetailsMap[id]) {
+    const officialCourse = courseDetailsMap[id];
+    const completedLessonIds = new Set();
+
+    try {
+      const rawMap = localStorage.getItem(STORAGE_KEY_DETAILS);
+      if (rawMap) {
+        const map = JSON.parse(rawMap);
+        if (map[id] && Array.isArray(map[id].modules)) {
+          map[id].modules.forEach((mod) => {
+            (mod.lessons || []).forEach((les) => {
+              if (les.completed) completedLessonIds.add(les.id);
+            });
+          });
+        }
+      }
+    } catch (e) {}
+
+    // Synchronize authoritative modules & lesson links, preserving student completion checkmarks
+    const freshModules = (officialCourse.modules || []).map((mod) => {
+      const lessons = (mod.lessons || []).map((les) => ({
+        ...les,
+        completed: completedLessonIds.has(les.id),
+      }));
+      return {
+        ...mod,
+        title: `Module 1: Available Recorded Lectures (${lessons.length} Lessons)`,
+        lessons,
+      };
+    });
+
+    const totalCount = freshModules.flatMap((m) => m.lessons || []).length || officialCourse.totalLessons || 3;
+    const completedCount = freshModules.flatMap((m) => m.lessons || []).filter((l) => l.completed).length;
+    const calculatedProgress = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+
+    const mergedDetail = sanitizeCourseSubtitle(ensureLessonVideoUrls({
+      ...officialCourse,
+      modules: freshModules,
+      totalLessons: totalCount,
+      completedLessons: completedCount,
+      progress: calculatedProgress,
+    }));
+
+    // Auto-sync upgraded course detail back to cache to resolve any stale 2-lesson storage
+    try {
+      const rawMap = localStorage.getItem(STORAGE_KEY_DETAILS);
+      const map = rawMap ? JSON.parse(rawMap) : {};
+      map[id] = mergedDetail;
+      localStorage.setItem(STORAGE_KEY_DETAILS, JSON.stringify(map));
+    } catch (e) {}
+
+    return mergedDetail;
+  }
+
   try {
     const rawMap = localStorage.getItem(STORAGE_KEY_DETAILS);
     if (rawMap) {
       const map = JSON.parse(rawMap);
-      if (map[id]) {
-        return ensureLessonVideoUrls(map[id]);
+      if (map[id] && map[id].modules && map[id].modules.length > 0) {
+        return sanitizeCourseSubtitle(ensureLessonVideoUrls(map[id]));
       }
     }
   } catch (err) {
     console.error('Failed to get course detail by ID:', err);
   }
 
+  // Check authoritative courseDetailsMap
+  if (courseDetailsMap && courseDetailsMap[id]) {
+    return sanitizeCourseSubtitle(ensureLessonVideoUrls(courseDetailsMap[id]));
+  }
+
   // If matches default courseDetail
-  if (id === courseDetail.id) {
-    return ensureLessonVideoUrls(courseDetail);
+  if (id === courseDetail?.id) {
+    return sanitizeCourseSubtitle(ensureLessonVideoUrls(courseDetail));
   }
 
   // Look in enrolledCourses or adminAllCourses
   const match = getAllCourses().find((c) => c.id === id);
   if (match) {
+    // If match title corresponds to an entry in courseDetailsMap
+    const detailMatch = courseDetailsMap && Object.values(courseDetailsMap).find(d => d.title.toLowerCase() === match.title.toLowerCase());
+    if (detailMatch && detailMatch.id !== id) {
+      return getCourseDetailById(detailMatch.id);
+    }
+    if (detailMatch) {
+      return sanitizeCourseSubtitle(ensureLessonVideoUrls({
+        ...detailMatch,
+        ...match,
+        id: match.id,
+      }));
+    }
+
     return ensureLessonVideoUrls({
       ...courseDetail,
       ...match,
@@ -1320,7 +1642,25 @@ export function getScheduleSlots() {
     const raw = localStorage.getItem(STORAGE_KEY_SCHEDULE_SLOTS);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        // Auto-sanitize if cached data contains old dummy classes or non-official schedules
+        const hasStale = parsed.some(
+          (s) =>
+            (s.courseTitle && s.courseTitle.includes('Purification')) ||
+            (s.instructorName &&
+              (s.instructorName.includes('Tahir Mahmood') ||
+                s.instructorName.includes('Yasir Faheem') ||
+                s.instructorName.includes('Khalil Ahmad'))) ||
+            ['Friday', 'Saturday', 'Sunday', 'Monday'].includes(s.dayOfWeek) ||
+            s.startTime === '18:00' ||
+            s.meetLink !== 'https://meet.google.com/cbh-ywhg-upu'
+        );
+        if (hasStale || parsed.length !== initialScheduleSlots.length) {
+          localStorage.setItem(STORAGE_KEY_SCHEDULE_SLOTS, JSON.stringify(initialScheduleSlots));
+          return initialScheduleSlots;
+        }
+        return parsed;
+      }
     }
     localStorage.setItem(STORAGE_KEY_SCHEDULE_SLOTS, JSON.stringify(initialScheduleSlots));
     return initialScheduleSlots;
@@ -1499,4 +1839,481 @@ export function recordScheduleNotification(broadcastData) {
   }
   return { newRecord, updatedNotifs: updated };
 }
+
+/**
+ * Retrieve unified student notifications with persistence in localStorage.
+ * Automatically cleanses any corrupted dummy entries (e.g. [undefined] undefined).
+ */
+export function getStudentNotifications() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_STUDENT_NOTIFICATIONS);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        // Strip out any corrupted or dummy undefined notifications
+        const cleaned = parsed.filter(
+          (n) => n && n.message && !n.message.includes('undefined') && !n.message.includes('[undefined]')
+        );
+        if (cleaned.length !== parsed.length) {
+          localStorage.setItem(STORAGE_KEY_STUDENT_NOTIFICATIONS, JSON.stringify(cleaned));
+        }
+        return cleaned;
+      }
+    }
+
+    // Default clean initial notifications (filtered of any invalid entries)
+    const initialList = (defaultNotifications || []).filter(
+      (n) => n && n.message && !n.message.includes('undefined')
+    );
+    localStorage.setItem(STORAGE_KEY_STUDENT_NOTIFICATIONS, JSON.stringify(initialList));
+    return initialList;
+  } catch (err) {
+    console.error('Failed to load student notifications:', err);
+    return [];
+  }
+}
+
+/**
+ * Clear all student notifications
+ */
+export function clearStudentNotifications() {
+  try {
+    localStorage.setItem(STORAGE_KEY_STUDENT_NOTIFICATIONS, JSON.stringify([]));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('ilm-notifications-updated', { detail: [] }));
+    }
+  } catch (err) {
+    console.error('Failed to clear student notifications:', err);
+  }
+  return [];
+}
+
+/**
+ * Save student notifications to localStorage and dispatch custom update event
+ */
+export function saveStudentNotifications(notifs) {
+  try {
+    localStorage.setItem(STORAGE_KEY_STUDENT_NOTIFICATIONS, JSON.stringify(notifs));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('ilm-notifications-updated', { detail: notifs }));
+    }
+  } catch (err) {
+    console.error('Failed to save student notifications:', err);
+  }
+}
+
+/**
+ * Mark a single notification as read
+ */
+export function markNotificationAsRead(id) {
+  const current = getStudentNotifications();
+  const updated = current.map((n) => (n.id === id ? { ...n, read: true } : n));
+  saveStudentNotifications(updated);
+  return updated;
+}
+
+/**
+ * Mark all notifications as read
+ */
+export function markAllNotificationsAsRead() {
+  const current = getStudentNotifications();
+  const updated = current.map((n) => ({ ...n, read: true }));
+  saveStudentNotifications(updated);
+  return updated;
+}
+
+/**
+ * Check whether a student is enrolled in a given course
+ */
+export function isStudentEnrolledInCourse(courseId, studentId = null) {
+  if (!courseId) return false;
+
+  // 1. Direct check in enrolled courses list
+  const enrolledList = getEnrolledCourses();
+  if (enrolledList.some((c) => c.id === courseId || c.title?.toLowerCase() === courseId?.toLowerCase())) {
+    return true;
+  }
+
+  // 2. Check if the course is an Ilm Foundations course (all foundations students enrolled)
+  const allCourses = getAllCourses();
+  const foundCourse = allCourses.find((c) => c.id === courseId);
+  if (foundCourse && foundCourse.category === 'foundations') {
+    return true;
+  }
+  const detail = getCourseDetailById(courseId);
+  if (detail && detail.category === 'foundations') {
+    return true;
+  }
+
+  // 3. Check enrollment map
+  try {
+    const rawMap = localStorage.getItem(STORAGE_KEY_ENROLLMENTS);
+    if (rawMap) {
+      const map = JSON.parse(rawMap);
+      const studentIds = map[courseId];
+      if (Array.isArray(studentIds)) {
+        if (!studentId) {
+          const rawUser = localStorage.getItem('ilm_lms_user');
+          const currentUser = rawUser ? JSON.parse(rawUser) : null;
+          const targetId = currentUser?.id || 'usr_001';
+          return studentIds.includes(targetId) || studentIds.includes('usr_001') || (currentUser?.email && studentIds.includes(currentUser.email));
+        }
+        return studentIds.includes(studentId);
+      }
+    }
+  } catch (e) {
+    console.error('Failed to inspect course enrollments:', e);
+  }
+
+  // 4. Default to true for current student to ensure new curriculum notifications are delivered
+  return true;
+}
+
+/**
+ * Automatically creates and delivers a notification when a new lesson is added
+ * to a course in which the student is enrolled.
+ */
+export function notifyEnrolledStudentsNewLesson({ courseId, courseTitle, lessonTitle, lessonId, moduleId }) {
+  if (!courseId || !lessonTitle) return null;
+
+  // Verify enrollment
+  if (!isStudentEnrolledInCourse(courseId)) {
+    return null;
+  }
+
+  const existingNotifs = getStudentNotifications();
+
+  // Deduplicate exact same lesson notification
+  const isDuplicate = existingNotifs.some(
+    (n) => n.courseId === courseId && (n.lessonId === lessonId || n.lessonTitle === lessonTitle)
+  );
+  if (isDuplicate) {
+    return null;
+  }
+
+  const newNotif = {
+    id: `notif_lesson_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+    type: 'new_lesson',
+    courseId,
+    courseTitle: courseTitle || 'Course',
+    lessonTitle: lessonTitle || 'New Lesson',
+    lessonId,
+    moduleId,
+    message: `New lesson added to ${courseTitle || 'your course'}: "${lessonTitle}". Start learning now!`,
+    time: 'Just now',
+    timestamp: Date.now(),
+    read: false,
+    link: `/course/${courseId}${lessonId ? `?lessonId=${lessonId}` : ''}`,
+  };
+
+  const updatedNotifs = [newNotif, ...existingNotifs];
+  saveStudentNotifications(updatedNotifs);
+
+  return newNotif;
+}
+
+/**
+ * Directly append a new lesson to a course's curriculum and trigger notifications
+ */
+export function addLessonToCourse(courseId, lessonData, targetModuleId = null) {
+  const detail = getCourseDetailById(courseId);
+  if (!detail) return null;
+
+  const newLesson = {
+    id: lessonData.id || `les_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+    title: lessonData.title || 'Untitled Lesson',
+    type: lessonData.type || 'video',
+    duration: lessonData.duration || '25 min',
+    videoUrl: lessonData.videoUrl || DEFAULT_BUNNY_VIDEO_URL,
+    content: lessonData.content || '',
+    completed: false,
+  };
+
+  let modules = Array.isArray(detail.modules) && detail.modules.length > 0
+    ? [...detail.modules]
+    : [
+        {
+          id: `mod_${Date.now()}_1`,
+          title: 'Module 1: General Curriculum',
+          expanded: true,
+          lessons: [],
+        },
+      ];
+
+  let targetMod = targetModuleId
+    ? modules.find((m) => m.id === targetModuleId)
+    : modules[0];
+
+  if (!targetMod) {
+    targetMod = modules[0];
+  }
+
+  targetMod.lessons = [...(targetMod.lessons || []), newLesson];
+
+  const totalLessons = modules.flatMap((m) => m.lessons || []).length;
+  const completedLessons = modules.flatMap((m) => m.lessons || []).filter((l) => l.completed).length;
+  const progress = totalLessons > 0 ? Math.round((completedLessons / totalLessons) * 100) : 0;
+
+  const updatedDetail = {
+    ...detail,
+    modules,
+    totalLessons,
+    completedLessons,
+    progress,
+  };
+
+  saveCourseDetail(courseId, updatedDetail);
+
+  // Synchronize enrolled courses totalLessons
+  try {
+    const rawEnrolled = localStorage.getItem(STORAGE_KEY_ENROLLED_COURSES);
+    if (rawEnrolled) {
+      const enrolledList = JSON.parse(rawEnrolled);
+      const updatedEnrolled = enrolledList.map((c) => {
+        if (c.id === courseId) {
+          return {
+            ...c,
+            totalLessons,
+            progress: totalLessons > 0 ? Math.round(((c.completedLessons || 0) / totalLessons) * 100) : 0,
+          };
+        }
+        return c;
+      });
+      localStorage.setItem(STORAGE_KEY_ENROLLED_COURSES, JSON.stringify(updatedEnrolled));
+    }
+  } catch (e) {
+    console.error('Failed to sync enrolled courses list on lesson add:', e);
+  }
+
+  // Trigger automated notification for enrolled students
+  notifyEnrolledStudentsNewLesson({
+    courseId,
+    courseTitle: detail.title || 'Course',
+    lessonTitle: newLesson.title,
+    lessonId: newLesson.id,
+    moduleId: targetMod.id,
+  });
+
+  // Dispatch progress & content update event
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('ilm-course-progress-updated', {
+      detail: { courseId, completedLessons, totalLessons, progress }
+    }));
+  }
+
+  return { updatedDetail, newLesson };
+}
+
+// ==========================================
+// E-LIBRARY CATALOG MANAGEMENT SERVICES
+// ==========================================
+
+export const defaultLibraryItems = [
+  {
+    id: 'lib_01',
+    title: 'Tafsir Ibn Kathir — Abridged',
+    author: 'Imam Ibn Kathir (d. 774 AH)',
+    category: 'Tafsir',
+    type: 'reference',
+    pages: 1200,
+    fileSize: '18.4 MB',
+    language: 'Arabic / English',
+    description: 'A comprehensive abridged version of the monumental Tafsir work, essential for Quranic exegesis students.',
+    featured: true,
+    downloadUrl: 'https://archive.org/download/TafseerIbnKaseer/Tafseer-Ibn-Kaseer.pdf',
+    externalUrl: 'https://quran.com',
+    status: 'published',
+  },
+  {
+    id: 'lib_02',
+    title: 'Riyadh-us-Saliheen',
+    author: 'Imam An-Nawawi (d. 676 AH)',
+    category: 'Hadith',
+    type: 'reference',
+    pages: 680,
+    fileSize: '12.1 MB',
+    language: 'Arabic / English',
+    description: 'A compilation of authentic Hadith covering all aspects of a Muslim\'s life, organized thematically.',
+    featured: true,
+    downloadUrl: 'https://sunnah.com/riyadussalihin',
+    externalUrl: 'https://sunnah.com/riyadussalihin',
+    status: 'published',
+  },
+  {
+    id: 'lib_03',
+    title: 'Al-Fiqh Al-Muyassar — Simplified Fiqh',
+    author: 'Multiple Authors',
+    category: 'Fiqh',
+    type: 'textbook',
+    pages: 450,
+    fileSize: '8.5 MB',
+    language: 'Arabic / Urdu / English',
+    description: 'An accessible introduction to Islamic jurisprudence covering acts of worship and daily life.',
+    featured: false,
+    downloadUrl: '',
+    externalUrl: '',
+    status: 'published',
+  },
+  {
+    id: 'lib_04',
+    title: 'Ar-Raheeq Al-Makhtum (The Sealed Nectar)',
+    author: 'Safi-ur-Rahman al-Mubarakpuri',
+    category: 'Seerah',
+    type: 'reference',
+    pages: 580,
+    fileSize: '14.2 MB',
+    language: 'English',
+    description: 'An award-winning biography of Prophet Muhammad ﷺ, regarded as one of the most authentic Seerah works.',
+    featured: true,
+    downloadUrl: 'https://archive.org/details/TheSealedNectar_201601',
+    externalUrl: 'https://archive.org/details/TheSealedNectar_201601',
+    status: 'published',
+  },
+  {
+    id: 'lib_05',
+    title: 'Arabic Grammar — Essential Nahw & Sarf',
+    author: 'Ilm Essentials Faculty',
+    category: 'Arabic',
+    type: 'course-material',
+    pages: 180,
+    fileSize: '4.8 MB',
+    language: 'Arabic / English',
+    description: 'Course companion for Quranic Arabic Level 1. Covers nominal and verbal sentences with exercises.',
+    featured: false,
+    downloadUrl: '',
+    externalUrl: '',
+    status: 'published',
+  },
+  {
+    id: 'lib_06',
+    title: 'Purification of the Heart — Workbook',
+    author: 'Sheikh Yasir Faheem',
+    category: 'Tazkiyah',
+    type: 'course-material',
+    pages: 120,
+    fileSize: '3.2 MB',
+    language: 'English / Urdu',
+    description: 'Self-reflection workbook accompanying the Tazkiyat-un-Nafs intensive course.',
+    featured: false,
+    downloadUrl: '',
+    externalUrl: '',
+    status: 'published',
+  },
+];
+
+/**
+ * Retrieve all e-Library items from persistent storage
+ */
+export function getLibraryItems() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_LIBRARY);
+    if (!raw) {
+      localStorage.setItem(STORAGE_KEY_LIBRARY, JSON.stringify(defaultLibraryItems));
+      return defaultLibraryItems;
+    }
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) && parsed.length > 0 ? parsed : defaultLibraryItems;
+  } catch (err) {
+    console.error('Failed to get library items:', err);
+    return defaultLibraryItems;
+  }
+}
+
+/**
+ * Save (create or update) an e-Library resource
+ */
+export function saveLibraryItem(itemData) {
+  try {
+    const currentItems = getLibraryItems();
+    let updated;
+    const isNew = !itemData.id;
+    const finalId = itemData.id || `lib_${Date.now()}`;
+
+    const formattedItem = {
+      id: finalId,
+      title: itemData.title?.trim() || 'Untitled Resource',
+      author: itemData.author?.trim() || 'Ilm Essentials Faculty',
+      category: itemData.category || 'General',
+      type: itemData.type || 'reference',
+      pages: Number(itemData.pages) || 0,
+      fileSize: itemData.fileSize?.trim() || 'PDF Document',
+      language: itemData.language?.trim() || 'English / Arabic',
+      description: itemData.description?.trim() || '',
+      featured: Boolean(itemData.featured),
+      downloadUrl: itemData.downloadUrl?.trim() || '',
+      externalUrl: itemData.externalUrl?.trim() || '',
+      status: itemData.status || 'published',
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (isNew) {
+      updated = [formattedItem, ...currentItems];
+    } else {
+      updated = currentItems.map((item) => (item.id === finalId ? { ...item, ...formattedItem } : item));
+      // In case it wasn't in the list
+      if (!currentItems.some((i) => i.id === finalId)) {
+        updated = [formattedItem, ...currentItems];
+      }
+    }
+
+    localStorage.setItem(STORAGE_KEY_LIBRARY, JSON.stringify(updated));
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('ilm-library-updated', { detail: { action: isNew ? 'create' : 'update', item: formattedItem } }));
+    }
+
+    return formattedItem;
+  } catch (err) {
+    console.error('Failed to save library item:', err);
+    throw err;
+  }
+}
+
+/**
+ * Delete an e-Library item by ID
+ */
+export function deleteLibraryItem(id) {
+  try {
+    const currentItems = getLibraryItems();
+    const updated = currentItems.filter((item) => item.id !== id);
+    localStorage.setItem(STORAGE_KEY_LIBRARY, JSON.stringify(updated));
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('ilm-library-updated', { detail: { action: 'delete', id } }));
+    }
+
+    return updated;
+  } catch (err) {
+    console.error('Failed to delete library item:', err);
+    throw err;
+  }
+}
+
+/**
+ * Toggle featured flag for an e-Library item
+ */
+export function toggleLibraryItemFeatured(id) {
+  try {
+    const currentItems = getLibraryItems();
+    const updated = currentItems.map((item) => {
+      if (item.id === id) {
+        return { ...item, featured: !item.featured };
+      }
+      return item;
+    });
+
+    localStorage.setItem(STORAGE_KEY_LIBRARY, JSON.stringify(updated));
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('ilm-library-updated', { detail: { action: 'toggle-featured', id } }));
+    }
+
+    return updated;
+  } catch (err) {
+    console.error('Failed to toggle library item featured:', err);
+    throw err;
+  }
+}
+
+
 

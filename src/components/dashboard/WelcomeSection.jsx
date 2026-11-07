@@ -59,18 +59,6 @@ export default function WelcomeSection() {
       <div className="relative z-10 flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
         {/* Left: Greeting */}
         <div className="flex-1 space-y-2">
-          <motion.div
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1, duration: 0.4 }}
-            className="flex items-center gap-2"
-          >
-            <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="text-xs uppercase tracking-wider text-emerald-300 font-semibold">
-              Student Portal
-            </span>
-          </motion.div>
-
           {/* Greeting heading */}
           <motion.h1
             initial={{ opacity: 0, y: 10 }}
@@ -78,7 +66,7 @@ export default function WelcomeSection() {
             transition={{ delay: 0.2, duration: 0.4 }}
             className="font-heading text-2xl sm:text-3xl lg:text-4xl font-bold tracking-tight text-white"
           >
-            Assalamu Alaikum, {currentUser.name}
+            {currentUser.name}
           </motion.h1>
 
           {/* Date */}

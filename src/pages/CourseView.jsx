@@ -13,7 +13,7 @@
  */
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   BookOpen,
@@ -21,7 +21,7 @@ import {
   MessageSquare,
   ListOrdered,
   ChevronRight,
-  Sparkles,
+  Target,
   Info,
   CheckCircle,
   Video,
@@ -40,7 +40,7 @@ import Card from '../components/ui/Card';
 import Avatar from '../components/ui/Avatar';
 
 import { courseDetail as defaultCourseDetail, courseFormats, enrolledCourses } from '../data/mockData';
-import { getCourseDetailById } from '../services/courseStorage';
+import { getCourseDetailById, saveCourseDetail, updateCourseProgress } from '../services/courseStorage';
 
 export default function CourseView() {
   const { id } = useParams();
@@ -80,6 +80,19 @@ export default function CourseView() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+
+  const [searchParams] = useSearchParams();
+  const queryLessonId = searchParams.get('lessonId');
+
+  // If a specific lesson was requested via query param (e.g. from notification), activate it
+  useEffect(() => {
+    if (queryLessonId && allLessons.length > 0) {
+      const match = allLessons.find((l) => l.id === queryLessonId);
+      if (match) {
+        setCurrentLesson(match);
+      }
+    }
+  }, [queryLessonId, allLessons]);
 
   // Keep currentLesson synchronized with course changes
   useEffect(() => {
@@ -135,12 +148,18 @@ export default function CourseView() {
         prev && prev.id === lessonId ? { ...prev, completed: isNowCompleted } : prev
       );
 
-      return {
+      const updatedCourseObj = {
         ...prevCourse,
         modules: updatedModules,
         completedLessons,
         progress,
       };
+
+      // Persist to storage so dashboard & curriculum stay permanently synchronized
+      saveCourseDetail(prevCourse.id, updatedCourseObj);
+      updateCourseProgress(prevCourse.id, completedLessons, totalLessons, progress);
+
+      return updatedCourseObj;
     });
   }, []);
 
@@ -174,11 +193,6 @@ export default function CourseView() {
         icon: <FileText className="w-4 h-4" />,
         count: course.resources?.length || 0,
       },
-      {
-        label: 'Q&A & Community',
-        icon: <MessageSquare className="w-4 h-4" />,
-        count: course.discussions?.length || 0,
-      },
     ],
     [course]
   );
@@ -208,7 +222,7 @@ export default function CourseView() {
       <div className="min-h-screen bg-sand-50 pb-16">
         {/* Top Header Banner */}
         <div className="bg-white border-b border-sand-200">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
             <CourseHeader
               course={course}
               formatMeta={formatMeta}
@@ -217,27 +231,12 @@ export default function CourseView() {
           </div>
         </div>
 
-        {/* Mobile Curriculum Trigger Button */}
-        <div className="lg:hidden sticky top-16 z-30 bg-white/95 backdrop-blur-sm border-b border-sand-200 px-4 py-3 flex items-center justify-between shadow-xs">
-          <div className="flex items-center gap-2 text-sm text-ink-700 font-medium truncate">
-            <span className="w-2 h-2 rounded-full bg-primary-600 animate-pulse" />
-            <span className="truncate">{currentLesson?.title || 'Current Lesson'}</span>
-          </div>
-          <button
-            onClick={() => setIsMobileDrawerOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary-50 text-primary-900 border border-primary-200 text-xs font-semibold hover:bg-primary-100 transition-colors shrink-0"
-          >
-            <ListOrdered className="w-3.5 h-3.5" />
-            Curriculum
-          </button>
-        </div>
-
         {/* Main Content Area */}
         <div
           className={
             theaterMode
-              ? 'w-full px-2 sm:px-4 py-6 transition-all duration-300'
-              : 'max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 transition-all duration-300'
+              ? 'w-full px-2 sm:px-4 py-4 sm:py-6 transition-all duration-300'
+              : 'max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 transition-all duration-300'
           }
         >
           <div className="flex flex-col lg:flex-row gap-6 items-start">
@@ -252,6 +251,7 @@ export default function CourseView() {
                 handleLessonSelect(id);
                 setIsMobileDrawerOpen(false);
               }}
+              onToggleLessonCompletion={handleToggleLessonCompletion}
               isCollapsed={theaterMode || isSidebarCollapsed}
               onToggle={() => setIsSidebarCollapsed((prev) => !prev)}
               isMobileOpen={isMobileDrawerOpen}
@@ -259,7 +259,7 @@ export default function CourseView() {
             />
 
             {/* Right: Media Player & Content Panels */}
-            <div className="flex-1 min-w-0 w-full space-y-6">
+            <div className="flex-1 min-w-0 w-full space-y-4 sm:space-y-6">
               {/* Theater Mode Exit Bar (if active) */}
               {theaterMode && (
                 <div className="flex items-center justify-between bg-primary-950 text-sand-100 px-4 py-2 rounded-xl text-xs">
@@ -277,7 +277,7 @@ export default function CourseView() {
               )}
 
               {/* Media Player */}
-              <div className="bg-black rounded-2xl overflow-hidden shadow-elevated">
+              <div className="bg-black rounded-xl sm:rounded-2xl overflow-hidden shadow-elevated">
                 <MediaPlayer
                   currentLesson={currentLesson}
                   isLive={false}
@@ -287,20 +287,33 @@ export default function CourseView() {
               </div>
 
               {/* Lesson Info Pill */}
-              <div className="bg-white rounded-xl border border-sand-200 p-4 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="bg-white rounded-xl border border-sand-200 p-3.5 sm:p-4 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-semibold uppercase tracking-wider text-primary-700 bg-primary-50 px-2 py-0.5 rounded-md">
                       Current Lesson
                     </span>
-                    <span className="text-xs text-ink-500">• {currentLesson?.duration || '45 min'}</span>
+                    <span className="text-xs text-ink-500">• {currentLesson?.duration || 'Video Lecture'}</span>
                   </div>
-                  <h2 className="text-lg font-heading font-semibold text-ink-900">
+                  <h2 className="text-base sm:text-lg font-heading font-semibold text-ink-900 leading-snug">
                     {currentLesson?.title}
                   </h2>
                 </div>
 
-                <div className="flex items-center gap-2 self-end sm:self-auto">
+                <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end pt-2 sm:pt-0 border-t sm:border-t-0 border-sand-100">
+                  {/* Quick Mobile Curriculum Drawer Button */}
+                  <button
+                    type="button"
+                    onClick={() => setIsMobileDrawerOpen(true)}
+                    className="lg:hidden inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-primary-50 text-primary-900 border border-primary-200 text-xs font-semibold hover:bg-primary-100 transition-colors cursor-pointer"
+                  >
+                    <ListOrdered className="w-3.5 h-3.5 text-primary-700" />
+                    <span>Curriculum</span>
+                    <span className="px-1.5 py-0.5 rounded bg-primary-200/70 text-[10px] text-primary-950 font-bold">
+                      {course.completedLessons}/{course.totalLessons}
+                    </span>
+                  </button>
+
                   <button
                     onClick={() => handleToggleLessonCompletion(currentLesson?.id)}
                     className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer shadow-xs ${
@@ -310,7 +323,7 @@ export default function CourseView() {
                     }`}
                   >
                     <CheckCircle className={`w-4 h-4 ${currentLesson?.completed ? 'text-gold-300' : 'text-primary-600'}`} />
-                    {currentLesson?.completed ? 'Completed (Click to Undo)' : 'Mark as Completed'}
+                    {currentLesson?.completed ? 'Completed' : 'Mark as Completed'}
                   </button>
                 </div>
               </div>
@@ -331,28 +344,38 @@ export default function CourseView() {
 
                     {/* What you'll learn */}
                     <div className="p-5 rounded-xl bg-sand-50 border border-sand-200">
-                      <h4 className="font-heading text-base font-bold text-ink-900 mb-3 flex items-center gap-2">
-                        <Sparkles className="w-4 h-4 text-gold-600" />
-                        Learning Objectives
+                      <h4 className="font-heading text-base font-bold text-ink-900 mb-3">
+                        Learning Outcomes
                       </h4>
-                      <ul className="grid grid-cols-1 md:grid-cols-2 gap-2.5 text-sm text-ink-700">
-                        <li className="flex items-start gap-2">
-                          <span className="text-primary-600 font-bold mt-0.5">✓</span>
-                          <span>Understand traditional Asbab al-Nuzul (contexts of revelation)</span>
-                        </li>
-                        <li className="flex items-start gap-2">
-                          <span className="text-primary-600 font-bold mt-0.5">✓</span>
-                          <span>Learn linguistic nuances of classical Qur'anic vocabulary</span>
-                        </li>
-                        <li className="flex items-start gap-2">
-                          <span className="text-primary-600 font-bold mt-0.5">✓</span>
-                          <span>Extract timeless principles for modern ethical decision-making</span>
-                        </li>
-                        <li className="flex items-start gap-2">
-                          <span className="text-primary-600 font-bold mt-0.5">✓</span>
-                          <span>Harmonize Tafsir bil-Ma'thur with contemporary scholarship</span>
-                        </li>
-                      </ul>
+                      {Array.isArray(course.learningOutcomes) && course.learningOutcomes.length > 0 ? (
+                        <ul className="grid grid-cols-1 md:grid-cols-2 gap-2.5 text-sm text-ink-700">
+                          {course.learningOutcomes.map((outcome, idx) => (
+                            <li key={idx} className="flex items-start gap-2">
+                              <span className="text-primary-600 font-bold mt-0.5 shrink-0">✓</span>
+                              <span>{outcome}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <ul className="grid grid-cols-1 md:grid-cols-2 gap-2.5 text-sm text-ink-700">
+                          <li className="flex items-start gap-2">
+                            <span className="text-primary-600 font-bold mt-0.5">✓</span>
+                            <span>Understand traditional Asbab al-Nuzul (contexts of revelation)</span>
+                          </li>
+                          <li className="flex items-start gap-2">
+                            <span className="text-primary-600 font-bold mt-0.5">✓</span>
+                            <span>Learn linguistic nuances of classical Qur'anic vocabulary</span>
+                          </li>
+                          <li className="flex items-start gap-2">
+                            <span className="text-primary-600 font-bold mt-0.5">✓</span>
+                            <span>Extract timeless principles for modern ethical decision-making</span>
+                          </li>
+                          <li className="flex items-start gap-2">
+                            <span className="text-primary-600 font-bold mt-0.5">✓</span>
+                            <span>Harmonize classical foundations with contemporary scholarship</span>
+                          </li>
+                        </ul>
+                      )}
                     </div>
 
                     {/* Instructor Bio */}
@@ -363,6 +386,7 @@ export default function CourseView() {
                       <div className="flex items-start gap-4 p-4 rounded-xl bg-sand-50/60 border border-sand-200">
                         <Avatar
                           name={course.instructor.name}
+                          src={course.instructor.avatar}
                           size="lg"
                           className="shrink-0"
                         />
@@ -384,16 +408,6 @@ export default function CourseView() {
                   {/* Tab 2: Resources */}
                   <div className="pt-2">
                     <ResourceTab resources={course.resources} />
-                  </div>
-
-                  {/* Tab 3: Community & Q&A */}
-                  <div className="pt-2">
-                    <CommunityTab
-                      courseId={course.id}
-                      instructorName={typeof course.instructor === 'object' ? course.instructor?.name : course.instructor}
-                      discussions={course.discussions}
-                      onAddDiscussion={handleAddDiscussion}
-                    />
                   </div>
                 </Tabs>
               </div>

@@ -32,9 +32,13 @@ import {
 } from 'lucide-react';
 
 import logo from '../../assets/logo.png';
-import { notifications as defaultNotifications } from '../../data/mockData';
 import { useAuth } from '../../context/AuthContext';
-import { getScheduleNotifications } from '../../services/courseStorage';
+import {
+  getStudentNotifications,
+  markNotificationAsRead,
+  markAllNotificationsAsRead,
+  clearStudentNotifications,
+} from '../../services/courseStorage';
 
 /** Returns user initials from full name */
 function getInitials(name) {
@@ -101,21 +105,28 @@ export default function Navbar() {
   const notifRef = useRef(null);
   const userRef = useRef(null);
 
-  const [notificationList, setNotificationList] = useState(() => {
-    const broadcasts = getScheduleNotifications();
-    const formattedBroadcasts = broadcasts.map((b) => ({
-      id: b.id,
-      message: `📢 [${b.courseName}] ${b.message}`,
-      time: 'Broadcast',
-      read: false,
-    }));
-    return [...formattedBroadcasts, ...defaultNotifications];
-  });
+  const [notificationList, setNotificationList] = useState(() => getStudentNotifications());
+
+  useEffect(() => {
+    const refreshNotifications = () => {
+      setNotificationList(getStudentNotifications());
+    };
+    window.addEventListener('ilm-notifications-updated', refreshNotifications);
+    window.addEventListener('storage', refreshNotifications);
+    return () => {
+      window.removeEventListener('ilm-notifications-updated', refreshNotifications);
+      window.removeEventListener('storage', refreshNotifications);
+    };
+  }, []);
 
   const unreadCount = notificationList.filter((n) => !n.read).length;
 
   const handleMarkAllRead = () => {
-    setNotificationList((prev) => prev.map((n) => ({ ...n, read: true })));
+    markAllNotificationsAsRead();
+  };
+
+  const handleClearAll = () => {
+    clearStudentNotifications();
   };
 
   // Handle scroll shadow
@@ -283,45 +294,102 @@ export default function Navbar() {
                       className="absolute right-0 top-full mt-2 w-80 rounded-xl bg-white border border-sand-200 shadow-elevated overflow-hidden"
                     >
                       <div className="px-4 py-3 border-b border-sand-200 flex items-center justify-between">
-                        <h3 className="text-sm font-semibold text-ink-900">Notifications</h3>
-                        <button
-                          type="button"
-                          onClick={handleMarkAllRead}
-                          className="text-xs text-primary-700 hover:text-primary-900 font-medium cursor-pointer"
-                        >
-                          Mark all read
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-sm font-semibold text-ink-900">Notifications</h3>
+                          {unreadCount > 0 && (
+                            <span className="px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">
+                              {unreadCount}
+                            </span>
+                          )}
+                        </div>
+                        {notificationList.length > 0 && (
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={handleMarkAllRead}
+                              className="text-xs text-primary-700 hover:text-primary-900 font-medium cursor-pointer"
+                            >
+                              Mark read
+                            </button>
+                            <span className="text-sand-300">•</span>
+                            <button
+                              type="button"
+                              onClick={handleClearAll}
+                              className="text-xs text-ink-400 hover:text-red-600 font-medium cursor-pointer"
+                            >
+                              Clear
+                            </button>
+                          </div>
+                        )}
                       </div>
-                      <ul className="max-h-72 overflow-y-auto divide-y divide-sand-100">
-                        {notificationList.map((n) => (
-                          <li
-                            key={n.id}
-                            className={clsx(
-                              'px-4 py-3 text-sm transition-colors hover:bg-sand-50',
-                              !n.read && 'bg-primary-50/40'
-                            )}
-                          >
-                            <p className={clsx('text-ink-800 text-xs leading-relaxed', !n.read && 'font-medium')}>
-                              {n.message}
-                            </p>
-                            <div className="flex items-center justify-between mt-1.5">
-                              <span className="text-[11px] text-ink-400">{n.time}</span>
-                              {n.meetingLink && (
-                                <a
-                                  href={n.meetingLink}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold shadow-xs transition-colors"
-                                >
-                                  <Video size={11} />
-                                  Join Class
-                                  <ExternalLink size={10} />
-                                </a>
+
+                      {notificationList.length === 0 ? (
+                        <div className="py-8 px-4 text-center">
+                          <Bell size={22} className="mx-auto text-sand-300 mb-2 opacity-60" />
+                          <p className="font-semibold text-xs text-ink-700">No notifications</p>
+                          <p className="text-[11px] text-ink-400 mt-0.5">You're all caught up!</p>
+                        </div>
+                      ) : (
+                        <ul className="max-h-80 overflow-y-auto divide-y divide-sand-100">
+                          {notificationList.map((n) => (
+                            <li
+                              key={n.id}
+                              onClick={() => {
+                                markNotificationAsRead(n.id);
+                                if (n.link) {
+                                  navigate(n.link);
+                                  setNotifOpen(false);
+                                } else if (n.courseId) {
+                                  navigate(`/course/${n.courseId}`);
+                                  setNotifOpen(false);
+                                }
+                              }}
+                              className={clsx(
+                                'px-4 py-3 text-sm transition-colors hover:bg-sand-50 cursor-pointer',
+                                !n.read && 'bg-primary-50/40'
                               )}
+                            >
+                              <div className="flex items-start gap-2.5">
+                              {n.type === 'new_lesson' ? (
+                                <span className="flex-shrink-0 mt-0.5 p-1 rounded-md bg-emerald-100 text-emerald-800">
+                                  <BookOpen size={13} />
+                                </span>
+                              ) : n.type === 'live_class' || n.meetingLink ? (
+                                <span className="flex-shrink-0 mt-0.5 p-1 rounded-md bg-emerald-100 text-emerald-800">
+                                  <Video size={13} />
+                                </span>
+                              ) : null}
+                              <div className="flex-1 min-w-0">
+                                <p className={clsx('text-ink-800 text-xs leading-relaxed', !n.read && 'font-medium')}>
+                                  {n.message}
+                                </p>
+                                <div className="flex items-center justify-between mt-1.5">
+                                  <span className="text-[11px] text-ink-400">{n.time}</span>
+                                  {n.type === 'new_lesson' && (
+                                    <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 hover:text-emerald-900">
+                                      Start Learning →
+                                    </span>
+                                  )}
+                                  {n.meetingLink && (
+                                    <a
+                                      href={n.meetingLink}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold shadow-xs transition-colors"
+                                    >
+                                      <Video size={11} />
+                                      Join Class
+                                      <ExternalLink size={10} />
+                                    </a>
+                                  )}
+                                </div>
+                              </div>
                             </div>
                           </li>
                         ))}
                       </ul>
+                      )}
                     </motion.div>
                   )}
                 </AnimatePresence>
@@ -359,12 +427,7 @@ export default function Navbar() {
                       >
                         {/* Student info header */}
                         <div className="px-4 py-3 border-b border-sand-200 bg-sand-50/50">
-                          <div className="flex items-center justify-between">
-                            <p className="text-sm font-bold text-ink-900 truncate">{user?.name}</p>
-                            <span className="text-[10px] uppercase font-semibold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">
-                              Student
-                            </span>
-                          </div>
+                          <p className="text-sm font-bold text-ink-900 truncate">{user?.name}</p>
                           <p className="text-xs text-ink-500 mt-0.5 truncate">{user?.email}</p>
                         </div>
 

@@ -2,18 +2,16 @@ import React, { useState, useMemo } from 'react';
 import Layout from '../components/layout/Layout';
 import {
   Calendar,
-  Clock,
   Video,
   MapPin,
   ExternalLink,
-  Copy,
-  Check,
   List,
-  CalendarDays,
-  User,
   ArrowLeft,
+  Table,
+  GraduationCap,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import clsx from 'clsx';
 import {
   getScheduleSlots,
   formatSlotTimeRange,
@@ -34,21 +32,16 @@ export default function AcademicSchedule() {
   const [slots] = useState(() => getScheduleSlots());
   const [selectedModality, setSelectedModality] = useState('all');
   const [selectedDay, setSelectedDay] = useState('all');
-  const [viewMode, setViewMode] = useState('agenda');
-  const [copiedId, setCopiedId] = useState(null);
-
-  const handleCopyLink = (id, link) => {
-    if (!link) return;
-    navigator.clipboard?.writeText(link);
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 2500);
-  };
+  const [viewMode, setViewMode] = useState('table'); // Default to exact timetable table view
 
   const filteredSlots = useMemo(() => {
     return slots.filter((slot) => {
       if (slot.status === 'cancelled') return false;
+      const isOnline = slot.modality ? slot.modality.includes('online') : true;
       const matchModality =
-        selectedModality === 'all' || slot.modality === selectedModality;
+        selectedModality === 'all' ||
+        (selectedModality === 'online' && isOnline) ||
+        (selectedModality === 'onsite' && !isOnline);
       const matchDay = selectedDay === 'all' || slot.dayOfWeek === selectedDay;
       return matchModality && matchDay;
     });
@@ -72,92 +65,104 @@ export default function AcademicSchedule() {
 
   return (
     <Layout>
-      <div className="space-y-6 max-w-6xl mx-auto">
-        {/* Navigation Breadcrumb */}
-        <div className="flex items-center justify-between">
-          <Link
-            to="/dashboard"
-            className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary-800 hover:text-primary-950 transition-colors"
-          >
-            <ArrowLeft size={14} />
-            <span>Back to Student Dashboard</span>
-          </Link>
-          <span className="text-xs text-ink-500 font-medium">
-            Academic Term: Fall 2026
-          </span>
-        </div>
-
-        {/* Hero Banner */}
-        <div className="rounded-3xl bg-gradient-to-br from-[#0B3324] via-[#0A3D2E] to-[#072419] p-6 sm:p-8 text-white shadow-card flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-2xl bg-white/10 border border-white/20 flex items-center justify-center text-emerald-300">
-              <CalendarDays size={24} />
-            </div>
-            <div>
-              <h1 className="text-xl sm:text-2xl font-heading font-bold text-white">
-                Academic Timetable
-              </h1>
-              <p className="text-xs sm:text-sm text-sand-200 mt-1">
-                Complete Weekly Lecture Timetable &bull; Google Meet &amp; DHA Phase 6 Campus
-              </p>
-            </div>
+      <div className="space-y-6 max-w-7xl mx-auto px-2 sm:px-4">
+        {/* Page Header with Integrated View Switcher */}
+        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 pb-4 border-b border-sand-200">
+          <div>
+            <Link
+              to="/dashboard"
+              className="inline-flex items-center gap-1 text-xs font-medium text-ink-500 hover:text-primary-800 transition-colors mb-1.5"
+            >
+              <ArrowLeft size={13} />
+              <span>Back to Dashboard</span>
+            </Link>
+            <h1 className="text-xl sm:text-2xl font-heading font-bold text-ink-900 tracking-tight">
+              Academic Timetable
+            </h1>
           </div>
 
-          <div className="flex items-center gap-2">
-            <span className="inline-flex items-center gap-1 px-3 py-1.5 bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 rounded-xl text-xs font-bold">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              Live Sync Active
-            </span>
+          {/* View Switcher: Timetable and Agenda List */}
+          <div className="inline-flex items-center p-0.5 rounded-xl bg-sand-100 border border-sand-200 text-xs shrink-0 self-start sm:self-end">
+            <button
+              type="button"
+              onClick={() => setViewMode('table')}
+              className={clsx(
+                'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer',
+                viewMode === 'table'
+                  ? 'bg-white text-ink-900 shadow-2xs font-semibold'
+                  : 'text-ink-600 hover:text-ink-900'
+              )}
+            >
+              <Table size={13} />
+              <span>Timetable</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('agenda')}
+              className={clsx(
+                'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer',
+                viewMode === 'agenda'
+                  ? 'bg-white text-ink-900 shadow-2xs font-semibold'
+                  : 'text-ink-600 hover:text-ink-900'
+              )}
+            >
+              <List size={13} />
+              <span>Agenda List</span>
+            </button>
           </div>
         </div>
 
-        {/* Control Toolbar */}
-        <div className="p-4 bg-white rounded-2xl border border-sand-200 shadow-2xs flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-1 bg-sand-100 p-1 rounded-xl border border-sand-200 text-xs">
+        {/* Agenda Modality & Day Filter Toolbar — visible only in Agenda view */}
+        {viewMode === 'agenda' && (
+          <div className="flex flex-wrap items-center gap-2 pt-1 animate-fadeIn">
+            <div className="inline-flex items-center p-0.5 rounded-lg bg-sand-100 border border-sand-200 text-xs">
               <button
                 type="button"
                 onClick={() => setSelectedModality('all')}
-                className={`px-3 py-1.5 rounded-lg font-semibold transition-colors cursor-pointer ${
+                className={clsx(
+                  'px-3 py-1 rounded-md font-medium transition-colors cursor-pointer',
                   selectedModality === 'all'
-                    ? 'bg-[#0B3324] text-white'
+                    ? 'bg-white text-ink-900 shadow-2xs font-semibold'
                     : 'text-ink-600 hover:text-ink-900'
-                }`}
+                )}
               >
-                All Modalities
+                All
               </button>
               <button
                 type="button"
-                onClick={() => setSelectedModality('online_meet')}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-semibold transition-colors cursor-pointer ${
-                  selectedModality === 'online_meet'
-                    ? 'bg-[#0B3324] text-white'
+                onClick={() => setSelectedModality('online')}
+                className={clsx(
+                  'inline-flex items-center gap-1 px-3 py-1 rounded-md font-medium transition-colors cursor-pointer',
+                  selectedModality === 'online'
+                    ? 'bg-white text-ink-900 shadow-2xs font-semibold'
                     : 'text-ink-600 hover:text-ink-900'
-                }`}
+                )}
               >
-                <Video size={13} />
-                <span>Google Meet</span>
+                <Video size={12} />
+                <span>Online</span>
               </button>
               <button
                 type="button"
-                onClick={() => setSelectedModality('onsite_campus')}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-semibold transition-colors cursor-pointer ${
-                  selectedModality === 'onsite_campus'
-                    ? 'bg-[#0B3324] text-white'
+                onClick={() => setSelectedModality('onsite')}
+                className={clsx(
+                  'inline-flex items-center gap-1 px-3 py-1 rounded-md font-medium transition-colors cursor-pointer',
+                  selectedModality === 'onsite'
+                    ? 'bg-white text-ink-900 shadow-2xs font-semibold'
                     : 'text-ink-600 hover:text-ink-900'
-                }`}
+                )}
               >
-                <MapPin size={13} />
-                <span>DHA Phase 6</span>
+                <MapPin size={12} />
+                <span>Onsite</span>
               </button>
             </div>
 
+            {/* Day Dropdown */}
             <select
               value={selectedDay}
               onChange={(e) => setSelectedDay(e.target.value)}
-              className="text-xs px-3 py-2 rounded-xl bg-white border border-sand-300 font-semibold text-ink-700 focus:outline-none focus:ring-2 focus:ring-[#0B3324]/20"
+              className="text-xs px-2.5 py-1.5 rounded-lg bg-white border border-sand-200 font-medium text-ink-700 hover:border-sand-300 focus:outline-none focus:ring-1 focus:ring-primary-800"
             >
-              <option value="all">All Days (Monday – Sunday)</option>
+              <option value="all">All Days</option>
               {DAYS_OF_WEEK.map((d) => (
                 <option key={d} value={d}>
                   {d}
@@ -165,37 +170,201 @@ export default function AcademicSchedule() {
               ))}
             </select>
           </div>
-
-          <div className="flex items-center gap-1 bg-sand-100 p-1 rounded-xl border border-sand-200 text-xs shrink-0">
-            <button
-              type="button"
-              onClick={() => setViewMode('agenda')}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-semibold transition-colors cursor-pointer ${
-                viewMode === 'agenda'
-                  ? 'bg-[#0B3324] text-white'
-                  : 'text-ink-600 hover:text-ink-900'
-              }`}
-            >
-              <List size={13} />
-              <span>Agenda List</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode('weekly')}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-semibold transition-colors cursor-pointer ${
-                viewMode === 'weekly'
-                  ? 'bg-[#0B3324] text-white'
-                  : 'text-ink-600 hover:text-ink-900'
-              }`}
-            >
-              <Calendar size={13} />
-              <span>Weekly Grid</span>
-            </button>
-          </div>
-        </div>
+        )}
 
         {/* Content Section */}
-        {viewMode === 'agenda' ? (
+        {viewMode === 'table' ? (
+          /* Exact Official Timetable Table */
+          <div className="bg-white rounded-2xl border border-sand-200 shadow-2xs overflow-hidden">
+            {/* Distinct Program Heading Banner Before Table */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-5 py-4 bg-gradient-to-r from-emerald-50/60 via-sand-50/40 to-white border-b border-sand-200">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-100/80 text-emerald-900 border border-emerald-200 flex items-center justify-center shrink-0">
+                  <GraduationCap size={20} />
+                </div>
+                <div>
+                  <h2 className="text-base sm:text-lg font-heading font-bold text-ink-900 leading-tight">
+                    Ilm Foundations
+                  </h2>
+                  <p className="text-xs text-ink-600 mt-0.5">
+                    8-Month Certificate Programme &bull; Tuesday, Wednesday &amp; Thursday (6:30 PM – 9:00 PM PKT)
+                  </p>
+                </div>
+              </div>
+              <div className="hidden sm:flex items-center gap-1.5 text-xs text-ink-600 font-medium bg-white px-3 py-1.5 rounded-lg border border-sand-200 shadow-2xs">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span>Live Classes</span>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-center border-collapse">
+                <thead>
+                  <tr className="border-b border-sand-200 bg-sand-50/70 text-ink-900">
+                    <th className="py-4 px-4 sm:px-6 text-left font-heading font-bold text-xs sm:text-sm text-ink-700 w-1/4 sm:w-1/5 border-r border-sand-200/80">
+                      Time Slot
+                    </th>
+                    <th className="py-4 px-4 sm:px-6 font-heading font-bold text-sm sm:text-base text-ink-900 w-1/4 border-r border-sand-200/80">
+                      Tuesday
+                    </th>
+                    <th className="py-4 px-4 sm:px-6 font-heading font-bold text-sm sm:text-base text-ink-900 w-1/4 border-r border-sand-200/80">
+                      Wednesday
+                    </th>
+                    <th className="py-4 px-4 sm:px-6 font-heading font-bold text-sm sm:text-base text-ink-900 w-1/4">
+                      Thursday
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-sand-200">
+                  {/* Row 1: 6:30 PM - 7:30 PM */}
+                  <tr className="hover:bg-sand-50/40 transition-colors">
+                    <td className="py-6 px-4 sm:px-6 text-left font-bold text-xs sm:text-sm text-ink-900 bg-sand-50/40 border-r border-sand-200/80 whitespace-nowrap">
+                      6:30 PM - 7:30 PM
+                    </td>
+                    {/* Tuesday: Qur'ānic Arabic */}
+                    <td className="py-6 px-4 sm:px-6 align-middle border-r border-sand-200/80">
+                      <div className="flex flex-col items-center justify-center space-y-1">
+                        <span className="font-heading font-bold text-sm sm:text-base text-ink-900">
+                          Qur'ānic Arabic
+                        </span>
+                        <span className="text-xs sm:text-sm text-ink-600 italic">
+                          Dr. Mutee Ur Rehman
+                        </span>
+                        <a
+                          href="https://meet.google.com/cbh-ywhg-upu"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800 hover:text-emerald-950 underline underline-offset-2"
+                        >
+                          Join Google Meet <ExternalLink size={11} />
+                        </a>
+                      </div>
+                    </td>
+                    {/* Wednesday: Fiqh */}
+                    <td className="py-6 px-4 sm:px-6 align-middle border-r border-sand-200/80">
+                      <div className="flex flex-col items-center justify-center space-y-1">
+                        <span className="font-heading font-bold text-sm sm:text-base text-ink-900">
+                          Fiqh
+                        </span>
+                        <span className="text-xs sm:text-sm text-ink-600 italic">
+                          Dr. Hafiz Muhammad Zubair
+                        </span>
+                        <a
+                          href="https://meet.google.com/cbh-ywhg-upu"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800 hover:text-emerald-950 underline underline-offset-2"
+                        >
+                          Join Google Meet <ExternalLink size={11} />
+                        </a>
+                      </div>
+                    </td>
+                    {/* Thursday: Why Islam */}
+                    <td className="py-6 px-4 sm:px-6 align-middle">
+                      <div className="flex flex-col items-center justify-center space-y-1">
+                        <span className="font-heading font-bold text-sm sm:text-base text-ink-900">
+                          Why Islam
+                        </span>
+                        <span className="text-xs sm:text-sm text-ink-600 italic">
+                          Sir Ahmed Khan
+                        </span>
+                        <a
+                          href="https://meet.google.com/cbh-ywhg-upu"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800 hover:text-emerald-950 underline underline-offset-2"
+                        >
+                          Join Google Meet <ExternalLink size={11} />
+                        </a>
+                      </div>
+                    </td>
+                  </tr>
+
+                  {/* Row 2: 7:30 PM - 8:00 PM (Break) */}
+                  <tr className="bg-sand-50/60">
+                    <td className="py-4 px-4 sm:px-6 text-left font-bold text-xs sm:text-sm text-ink-900 bg-sand-100/40 border-r border-sand-200/80 whitespace-nowrap">
+                      7:30 PM - 8:00 PM
+                    </td>
+                    <td className="py-4 px-4 sm:px-6 text-xs sm:text-sm text-ink-500 font-medium border-r border-sand-200/80">
+                      Break
+                    </td>
+                    <td className="py-4 px-4 sm:px-6 text-xs sm:text-sm text-ink-500 font-medium border-r border-sand-200/80">
+                      Break
+                    </td>
+                    <td className="py-4 px-4 sm:px-6 text-xs sm:text-sm text-ink-500 font-medium">
+                      Break
+                    </td>
+                  </tr>
+
+                  {/* Row 3: 8:00 PM - 9:00 PM */}
+                  <tr className="hover:bg-sand-50/40 transition-colors">
+                    <td className="py-6 px-4 sm:px-6 text-left font-bold text-xs sm:text-sm text-ink-900 bg-sand-50/40 border-r border-sand-200/80 whitespace-nowrap">
+                      8:00 PM - 9:00 PM
+                    </td>
+                    {/* Tuesday: Tajwīd */}
+                    <td className="py-6 px-4 sm:px-6 align-middle border-r border-sand-200/80">
+                      <div className="flex flex-col items-center justify-center space-y-1">
+                        <span className="font-heading font-bold text-sm sm:text-base text-ink-900">
+                          Tajwīd
+                        </span>
+                        <span className="text-xs sm:text-sm text-ink-600 italic">
+                          Qari Salman Saleem
+                        </span>
+                        <a
+                          href="https://meet.google.com/cbh-ywhg-upu"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800 hover:text-emerald-950 underline underline-offset-2"
+                        >
+                          Join Google Meet <ExternalLink size={11} />
+                        </a>
+                      </div>
+                    </td>
+                    {/* Wednesday: Tafsīr */}
+                    <td className="py-6 px-4 sm:px-6 align-middle border-r border-sand-200/80">
+                      <div className="flex flex-col items-center justify-center space-y-1">
+                        <span className="font-heading font-bold text-sm sm:text-base text-ink-900">
+                          Tafsīr
+                        </span>
+                        <span className="text-xs sm:text-sm text-ink-600 italic">
+                          Shaykh Hamid Kamal UD DIn
+                        </span>
+                        <a
+                          href="https://meet.google.com/cbh-ywhg-upu"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800 hover:text-emerald-950 underline underline-offset-2"
+                        >
+                          Join Google Meet <ExternalLink size={11} />
+                        </a>
+                      </div>
+                    </td>
+                    {/* Thursday: Sīrah */}
+                    <td className="py-6 px-4 sm:px-6 align-middle">
+                      <div className="flex flex-col items-center justify-center space-y-1">
+                        <span className="font-heading font-bold text-sm sm:text-base text-ink-900">
+                          Sīrah
+                        </span>
+                        <span className="text-xs sm:text-sm text-ink-600 italic">
+                          Sir Ali Ahmed Saeed
+                        </span>
+                        <a
+                          href="https://meet.google.com/cbh-ywhg-upu"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800 hover:text-emerald-950 underline underline-offset-2"
+                        >
+                          Join Google Meet <ExternalLink size={11} />
+                        </a>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : (
+          /* Minimal Agenda List View */
           <div className="space-y-6">
             {DAYS_OF_WEEK.filter(
               (day) => selectedDay === 'all' || selectedDay === day
@@ -207,116 +376,97 @@ export default function AcademicSchedule() {
               if (daySlots.length === 0) return null;
 
               return (
-                <div key={day} className="space-y-3">
-                  <div className="flex items-center justify-between pb-1.5 border-b border-sand-200">
+                <div key={day} className="space-y-2.5">
+                  {/* Minimal Day Header */}
+                  <div className="flex items-center justify-between pb-1 border-b border-sand-200/80">
                     <div className="flex items-center gap-2">
-                      <h3 className="font-heading font-bold text-sm uppercase tracking-wider text-ink-900">
+                      <span className="font-heading font-bold text-xs uppercase tracking-wider text-ink-800">
                         {day}
-                      </h3>
+                      </span>
                       {isToday && (
-                        <span className="text-[10px] font-bold text-primary-900 bg-primary-100/90 px-2 py-0.5 rounded-full border border-primary-200">
+                        <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.2 rounded-full border border-emerald-200">
                           Today
                         </span>
                       )}
                     </div>
-                    <span className="text-xs font-semibold text-ink-500">
-                      {daySlots.length} {daySlots.length === 1 ? 'Slot' : 'Slots'}
+                    <span className="text-[11px] font-medium text-ink-400">
+                      {daySlots.length} {daySlots.length === 1 ? 'class' : 'classes'}
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {/* Clean Class Cards */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                     {daySlots.map((slot) => {
-                      const isOnline = slot.modality === 'online_meet';
+                      const isOnline = slot.modality ? slot.modality.includes('online') : true;
                       const meetUrl =
-                        slot.meetLink || 'https://meet.google.com/ilm-live-class';
+                        slot.meetLink || 'https://meet.google.com/cbh-ywhg-upu';
 
                       return (
                         <div
                           key={slot.id}
-                          className={`p-4 rounded-2xl border bg-white shadow-2xs transition-all hover:shadow-card flex flex-col justify-between gap-3 ${
+                          className={clsx(
+                            'p-3.5 rounded-xl border bg-white shadow-2xs transition-all hover:border-sand-300 flex flex-col justify-between gap-3',
                             isToday
-                              ? 'border-[#0B3324]/30 ring-1 ring-[#0B3324]/10 bg-sand-50/20'
+                              ? 'border-emerald-600/30 bg-emerald-50/10'
                               : 'border-sand-200'
-                          }`}
+                          )}
                         >
-                          <div className="space-y-2">
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                              <span
-                                className={`text-[11px] font-bold px-2 py-0.5 rounded-full inline-flex items-center gap-1 ${
-                                  isOnline
-                                    ? 'bg-blue-50 text-blue-800 border border-blue-200'
-                                    : 'bg-primary-50 text-primary-900 border border-primary-200'
-                                }`}
-                              >
-                                {isOnline ? <Video size={11} /> : <MapPin size={11} />}
-                                {isOnline ? 'Google Meet' : 'DHA Campus'}
-                              </span>
-                              <span className="text-xs font-bold text-ink-800 bg-sand-100 px-2 py-0.5 rounded-md">
+                          <div>
+                            {/* Time & Modality Pill */}
+                            <div className="flex items-center justify-between gap-2 text-xs">
+                              <span className="font-bold text-ink-900">
                                 {formatSlotTimeRange(slot.startTime, slot.endTime)}
                               </span>
-                            </div>
-
-                            <div>
-                              <h4 className="font-heading font-bold text-sm text-ink-900 leading-snug">
-                                {slot.courseTitle}
-                              </h4>
-                              <p className="text-xs text-ink-600 mt-0.5 line-clamp-2">
-                                {slot.topic || 'Curriculum session'}
-                              </p>
-                            </div>
-
-                            <div className="pt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-500 border-t border-sand-100">
-                              <span className="inline-flex items-center gap-1">
-                                <User size={12} className="text-primary-800" />
-                                <strong className="text-ink-800">{slot.instructorName}</strong>
-                              </span>
-                              {!isOnline && (
-                                <span className="inline-flex items-center gap-1 text-ink-700 font-medium">
-                                  <MapPin size={12} className="text-primary-800" />
-                                  {slot.campusRoom || 'Room 204'}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-
-                          {isOnline ? (
-                            <div className="pt-2 flex items-center justify-between gap-2 border-t border-sand-100">
-                              <button
-                                type="button"
-                                onClick={() => handleCopyLink(slot.id, meetUrl)}
-                                className="text-[11px] font-semibold text-ink-600 hover:text-ink-900 inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-sand-300 bg-white hover:bg-sand-50 transition-colors cursor-pointer"
+                              <span
+                                className={clsx(
+                                  'inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-medium border',
+                                  isOnline
+                                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200/70'
+                                    : 'bg-amber-50 text-amber-800 border-amber-200/70'
+                                )}
                               >
-                                {copiedId === slot.id ? (
+                                {isOnline ? (
                                   <>
-                                    <Check size={11} className="text-emerald-600" />
-                                    <span>Copied!</span>
+                                    <Video size={10} />
+                                    Online
                                   </>
                                 ) : (
                                   <>
-                                    <Copy size={11} />
-                                    <span>Copy Link</span>
+                                    <MapPin size={10} />
+                                    Onsite
                                   </>
                                 )}
-                              </button>
+                              </span>
+                            </div>
 
+                            {/* Subject Title */}
+                            <h4 className="font-heading font-bold text-sm text-ink-900 leading-snug mt-2">
+                              {slot.courseTitle}
+                            </h4>
+                            {slot.topic && (
+                              <p className="text-xs text-ink-500 mt-0.5 line-clamp-1">
+                                {slot.topic}
+                              </p>
+                            )}
+                          </div>
+
+                          {/* Footer: Instructor, Venue & Action */}
+                          <div className="pt-2 border-t border-sand-100 flex items-center justify-between text-xs text-ink-500">
+                            <span className="truncate">
+                              {slot.instructorName}
+                              {!isOnline && slot.campusRoom ? ` • ${slot.campusRoom}` : ''}
+                            </span>
+                            {isOnline && (
                               <a
                                 href={meetUrl}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#0B3324] hover:bg-[#072318] text-white text-xs font-bold transition-all shadow-2xs"
+                                className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-800 hover:text-emerald-950 underline underline-offset-2 shrink-0 ml-2"
                               >
-                                <span>{isToday ? '🟢 Join Live Class' : 'Launch'}</span>
-                                <ExternalLink size={12} />
+                                Join <ExternalLink size={11} />
                               </a>
-                            </div>
-                          ) : (
-                            <div className="pt-2 flex items-center justify-between text-xs text-ink-500 border-t border-sand-100">
-                              <span className="text-[11px]">DHA Phase 6 Lahore</span>
-                              <span className="text-[11px] font-semibold text-primary-900 bg-sand-100 px-2 py-0.5 rounded border border-sand-200">
-                                {slot.roomCapacity || 35} Seats
-                              </span>
-                            </div>
-                          )}
+                            )}
+                          </div>
                         </div>
                       );
                     })}
@@ -324,89 +474,6 @@ export default function AcademicSchedule() {
                 </div>
               );
             })}
-          </div>
-        ) : (
-          <div className="overflow-x-auto pb-4">
-            <div className="grid grid-cols-7 gap-3 min-w-[900px]">
-              {DAYS_OF_WEEK.map((day) => {
-                const daySlots = groupedByDay[day] || [];
-                const isToday = day === 'Thursday';
-
-                return (
-                  <div
-                    key={day}
-                    className={`flex flex-col rounded-2xl border p-3 min-h-[380px] ${
-                      isToday
-                        ? 'border-[#0B3324] bg-sand-50/50 shadow-xs'
-                        : 'border-sand-200 bg-sand-50/30'
-                    }`}
-                  >
-                    <div className="pb-2 mb-2 border-b border-sand-200 text-center">
-                      <span className="font-heading font-bold text-xs uppercase tracking-wider text-ink-900 block">
-                        {day.slice(0, 3)}
-                      </span>
-                      <span className="text-[10px] font-semibold text-ink-500">
-                        {daySlots.length} Slots
-                      </span>
-                    </div>
-
-                    <div className="space-y-2 flex-1">
-                      {daySlots.map((slot) => {
-                        const isOnline = slot.modality === 'online_meet';
-
-                        return (
-                          <div
-                            key={slot.id}
-                            className={`p-2.5 rounded-xl border bg-white shadow-2xs text-left space-y-1.5 ${
-                              isOnline
-                                ? 'border-l-4 border-l-blue-600 border-sand-200'
-                                : 'border-l-4 border-l-emerald-700 border-sand-200'
-                            }`}
-                          >
-                            <div className="flex items-center justify-between text-[10px] text-ink-500">
-                              <span className="font-bold text-ink-800">
-                                {formatTime12h(slot.startTime)}
-                              </span>
-                              <span>{slot.durationMinutes || 90}m</span>
-                            </div>
-
-                            <h5 className="font-heading font-bold text-xs text-ink-900 line-clamp-1">
-                              {slot.courseTitle}
-                            </h5>
-
-                            <p className="text-[10px] text-ink-500 line-clamp-1">
-                              {slot.instructorName}
-                            </p>
-
-                            <div className="pt-1 border-t border-sand-100 flex items-center justify-between text-[9px]">
-                              <span className={isOnline ? 'text-blue-700 font-bold' : 'text-primary-800 font-bold'}>
-                                {isOnline ? 'Google Meet' : (slot.campusRoom || 'Room 204')}
-                              </span>
-                              {isOnline && slot.meetLink && (
-                                <a
-                                  href={slot.meetLink}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-blue-600 hover:text-blue-900 font-bold"
-                                >
-                                  Join ↗
-                                </a>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-
-                      {daySlots.length === 0 && (
-                        <div className="h-full flex items-center justify-center text-[10px] text-ink-400 italic py-10">
-                          No classes
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
           </div>
         )}
       </div>

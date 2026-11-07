@@ -9,48 +9,24 @@
  */
 
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { Mail, Lock, Eye, EyeOff, LogIn, Loader2, ArrowRight, Check, Copy } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Mail, Lock, Eye, EyeOff, LogIn, Loader2, Info, X } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { demoCredentials } from '../../data/mockData';
 
 export default function LoginForm() {
   const navigate = useNavigate();
   const { login } = useAuth();
 
   const [formData, setFormData] = useState({
-    email: demoCredentials.student.email,
-    password: demoCredentials.student.password,
+    email: '',
+    password: '',
     rememberMe: true,
   });
 
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
-  const [copied, setCopied] = useState(false);
-
-  const handleCopyCredentials = () => {
-    navigator.clipboard.writeText(`${demoCredentials.student.email} / ${demoCredentials.student.password}`);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  const handleQuickStudentLogin = async () => {
-    setErrorMessage('');
-    setIsLoading(true);
-    try {
-      const res = await login(demoCredentials.student.email, demoCredentials.student.password, 'student');
-      if (res.success) {
-        navigate('/dashboard');
-      } else {
-        setErrorMessage(res.error || 'Failed to sign in.');
-      }
-    } catch (err) {
-      setErrorMessage('An unexpected error occurred.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const [showForgotNotice, setShowForgotNotice] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -77,51 +53,34 @@ export default function LoginForm() {
 
   return (
     <div className="space-y-5">
-      {/* ── Demo Credentials Helper Box ── */}
-      <div className="rounded-xl border border-sand-300 bg-sand-50/90 p-3.5 space-y-2.5 text-xs">
-        <div className="flex items-center justify-between">
-          <span className="font-bold text-ink-900 flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-primary-700 animate-pulse" />
-            Student Demo Credentials
-          </span>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleCopyCredentials}
-              className="text-[11px] font-semibold text-primary-800 hover:text-primary-950 flex items-center gap-1 cursor-pointer"
-            >
-              {copied ? <Check size={12} className="text-emerald-700" /> : <Copy size={12} />}
-              {copied ? 'Copied' : 'Copy'}
-            </button>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-2 text-[11px] text-ink-800">
-          <div className="p-2 rounded-lg bg-white border border-sand-200">
-            <span className="text-[10px] text-ink-400 block font-medium">Email</span>
-            <span className="truncate block font-semibold">{demoCredentials.student.email}</span>
-          </div>
-          <div className="p-2 rounded-lg bg-white border border-sand-200">
-            <span className="text-[10px] text-ink-400 block font-medium">Password</span>
-            <span className="block font-semibold">{demoCredentials.student.password}</span>
-          </div>
-        </div>
-
-        <button
-          type="button"
-          onClick={handleQuickStudentLogin}
-          disabled={isLoading}
-          className="w-full py-1.5 px-3 rounded-lg bg-primary-50 hover:bg-primary-100 text-primary-900 border border-primary-200 text-xs font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
-        >
-          <span>1-Click Sign In with Demo Student</span>
-          <ArrowRight size={12} />
-        </button>
-      </div>
-
       {/* ── Error Banner ── */}
       {errorMessage && (
         <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-medium">
           {errorMessage}
+        </div>
+      )}
+
+      {/* ── Forgot Password Notice ── */}
+      {showForgotNotice && (
+        <div className="p-3 rounded-xl bg-amber-50/90 border border-amber-200/80 text-amber-900 text-xs flex items-center justify-between gap-2.5 animate-fade-in shadow-xs">
+          <div className="flex items-center gap-2">
+            <Info className="w-4 h-4 text-amber-600 shrink-0" />
+            <p className="leading-snug">
+              Please contact your class administrator or email{' '}
+              <a href="mailto:contact@ilmessentials.pk" className="font-semibold underline hover:text-amber-950">
+                contact@ilmessentials.pk
+              </a>{' '}
+              to reset your password.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowForgotNotice(false)}
+            className="text-amber-500 hover:text-amber-800 p-1 rounded-md hover:bg-amber-100/60 transition-colors cursor-pointer shrink-0"
+            aria-label="Close"
+          >
+            <X size={14} />
+          </button>
         </div>
       )}
 
@@ -139,7 +98,7 @@ export default function LoginForm() {
               required
               value={formData.email}
               onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-              placeholder="student@ilmessentials.pk"
+              placeholder="name@example.com"
               className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-sand-200 bg-white text-ink-900 placeholder:text-ink-400 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
             />
           </div>
@@ -150,9 +109,13 @@ export default function LoginForm() {
             <label htmlFor="student-pass" className="block text-xs font-semibold text-ink-700">
               Password
             </label>
-            <Link to="/forgot-password" className="text-xs text-primary-700 hover:text-primary-900 font-medium">
+            <button
+              type="button"
+              onClick={() => setShowForgotNotice(true)}
+              className="text-xs text-primary-700 hover:text-primary-900 font-medium cursor-pointer"
+            >
               Forgot password?
-            </Link>
+            </button>
           </div>
           <div className="relative">
             <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-400" />
@@ -204,27 +167,9 @@ export default function LoginForm() {
             <>
               <LogIn className="w-4 h-4" />
               Sign In to Student Dashboard
-              <ArrowRight size={14} />
             </>
           )}
         </button>
-
-        <p className="text-center text-xs text-ink-500 pt-2">
-          New applicant or student?{' '}
-          <Link to="/signup" className="text-primary-700 hover:text-primary-900 font-bold underline">
-            Create an account
-          </Link>
-        </p>
-
-        <div className="pt-3 border-t border-sand-200 text-center">
-          <Link
-            to="/admin/login"
-            className="text-xs font-semibold text-ink-600 hover:text-primary-800 transition-colors inline-flex items-center gap-1.5"
-          >
-            <span>Faculty or staff member? Go to Admin Portal</span>
-            <ArrowRight size={12} />
-          </Link>
-        </div>
       </form>
     </div>
   );

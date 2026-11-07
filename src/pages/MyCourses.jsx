@@ -1,12 +1,13 @@
-import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { 
   BookOpen, Search, Filter, GraduationCap, Zap, 
   Clock, Users, MapPin, Video, PlayCircle, ChevronRight 
 } from 'lucide-react';
 import Layout from '../components/layout/Layout';
-import { enrolledCourses, courseFormats } from '../data/mockData';
+import { enrolledCourses as defaultEnrolledCourses, courseFormats } from '../data/mockData';
+import { getEnrolledCourses } from '../services/courseStorage';
 
 /**
  * MyCourses Page — Lists all enrolled courses with filtering.
@@ -16,11 +17,54 @@ import { enrolledCourses, courseFormats } from '../data/mockData';
  * TODO: Add pagination for large course lists
  */
 export function MyCourses() {
-  const [activeCategory, setActiveCategory] = useState('all');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const categoryParam = searchParams.get('category');
+
+  const [courses, setCourses] = useState(() => getEnrolledCourses());
+  const [activeCategory, setActiveCategory] = useState(() => {
+    if (categoryParam === 'foundations' || categoryParam === 'intensives') {
+      return categoryParam;
+    }
+    return 'all';
+  });
   const [searchQuery, setSearchQuery] = useState('');
 
+  // Keep active category in sync if URL query parameter changes
+  useEffect(() => {
+    if (categoryParam === 'foundations' || categoryParam === 'intensives') {
+      setActiveCategory(categoryParam);
+    } else if (!categoryParam) {
+      setActiveCategory('all');
+    }
+  }, [categoryParam]);
+
+  const handleCategoryChange = (catId) => {
+    setActiveCategory(catId);
+    if (catId === 'all') {
+      setSearchParams({});
+    } else {
+      setSearchParams({ category: catId });
+    }
+  };
+
+  useEffect(() => {
+    setCourses(getEnrolledCourses());
+
+    const handleProgressUpdate = () => {
+      setCourses(getEnrolledCourses());
+    };
+
+    window.addEventListener('ilm-course-progress-updated', handleProgressUpdate);
+    window.addEventListener('storage', handleProgressUpdate);
+
+    return () => {
+      window.removeEventListener('ilm-course-progress-updated', handleProgressUpdate);
+      window.removeEventListener('storage', handleProgressUpdate);
+    };
+  }, []);
+
   // --- Filter courses ---
-  const filteredCourses = enrolledCourses.filter((course) => {
+  const filteredCourses = courses.filter((course) => {
     const matchesCategory = activeCategory === 'all' || course.category === activeCategory;
     const matchesSearch = course.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
                           course.instructor.toLowerCase().includes(searchQuery.toLowerCase());
@@ -35,17 +79,16 @@ export function MyCourses() {
   };
 
   const categories = [
-    { id: 'all', label: 'All Courses', icon: BookOpen, count: enrolledCourses.length },
-    { id: 'foundations', label: 'Ilm Foundations', icon: GraduationCap, count: enrolledCourses.filter(c => c.category === 'foundations').length },
-    { id: 'intensives', label: 'Ilm Intensives', icon: Zap, count: enrolledCourses.filter(c => c.category === 'intensives').length },
+    { id: 'all', label: 'All Courses', icon: BookOpen, count: courses.length },
+    { id: 'foundations', label: 'Ilm Foundations', icon: GraduationCap, count: courses.filter(c => c.category === 'foundations').length },
+    { id: 'intensives', label: 'Ilm Intensives', icon: Zap, count: courses.filter(c => c.category === 'intensives').length },
   ];
 
   return (
     <Layout>
       {/* Page Header */}
       <div className="mb-8">
-        <h1 className="font-heading text-3xl font-bold text-ink-900 mb-2">My Courses</h1>
-        <p className="text-ink-500">Track your progress across all enrolled programmes</p>
+        <h1 className="font-heading text-3xl font-bold text-ink-900">My Courses</h1>
       </div>
 
         {/* Search & Filter Bar */}
@@ -69,8 +112,8 @@ export function MyCourses() {
             {categories.map((cat) => (
               <button
                 key={cat.id}
-                onClick={() => setActiveCategory(cat.id)}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                onClick={() => handleCategoryChange(cat.id)}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 cursor-pointer ${
                   activeCategory === cat.id
                     ? 'bg-primary-900 text-white shadow-sm'
                     : 'text-ink-600 hover:bg-sand-100'
@@ -107,50 +150,55 @@ export function MyCourses() {
                              hover:shadow-soft hover:border-sand-300 transition-all duration-300 group"
                 >
                   {/* Course Color Banner */}
-                  <div
-                    className="h-2"
-                    style={{ backgroundColor: course.color }}
-                  />
+                  <div className="h-1.5 bg-[#0B3324]" />
 
-                  <div className="p-5">
-                    {/* Category & Format Badges */}
-                    <div className="flex items-center justify-between mb-3">
-                      <span className="text-xs font-semibold uppercase tracking-wider text-primary-600">
-                        {course.category === 'foundations' ? 'Foundations' : 'Intensive'}
-                      </span>
-                      <span className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full ${format?.color || 'bg-sand-100 text-ink-600'}`}>
+                  <div className="p-5 flex flex-col justify-between flex-1">
+                    <div>
+                      {/* Title, Instructor & Avatar */}
+                      <div className="flex items-start justify-between gap-3 mb-4">
+                        <div className="min-w-0 flex-1">
+                          <h3 className="font-heading text-lg font-semibold text-ink-900 mb-1 group-hover:text-primary-800 transition-colors leading-snug">
+                            {course.title}
+                          </h3>
+                          <p className="text-sm text-ink-500">{course.instructor}</p>
+                        </div>
+                        {course.instructorAvatar && (
+                          <img
+                            src={course.instructorAvatar}
+                            alt={course.instructor}
+                            className="w-12 h-12 rounded-full object-cover object-top border-2 border-sand-200 bg-sand-100 shadow-2xs shrink-0"
+                            loading="lazy"
+                          />
+                        )}
+                      </div>
+
+                      {/* Progress */}
+                      <div className="space-y-2">
+                        <div className="flex justify-between text-xs">
+                          <span className="text-ink-500">{course.completedLessons}/{course.totalLessons} lessons</span>
+                          <span className="font-semibold text-primary-700">{course.progress}%</span>
+                        </div>
+                        <div className="w-full h-2 bg-sand-100 rounded-full overflow-hidden">
+                          <motion.div
+                            className="h-full rounded-full bg-gradient-to-r from-primary-600 to-primary-400"
+                            initial={{ width: 0 }}
+                            animate={{ width: `${course.progress}%` }}
+                            transition={{ duration: 1, delay: index * 0.1 + 0.3 }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Bottom Action Row: Format Badge on Bottom Left, Continue on Bottom Right */}
+                    <div className="flex items-center justify-between mt-4 pt-1">
+                      <span className={`inline-flex items-center gap-1 text-xs px-2.5 py-0.5 rounded-full ${format?.color || 'bg-emerald-100 text-emerald-800'}`}>
                         <FormatIcon className="w-3 h-3" />
                         {format?.label || course.format}
                       </span>
-                    </div>
-
-                    {/* Title & Instructor */}
-                    <h3 className="font-heading text-lg font-semibold text-ink-900 mb-1 group-hover:text-primary-800 transition-colors">
-                      {course.title}
-                    </h3>
-                    <p className="text-sm text-ink-500 mb-4">{course.instructor}</p>
-
-                    {/* Progress */}
-                    <div className="space-y-2">
-                      <div className="flex justify-between text-xs">
-                        <span className="text-ink-500">{course.completedLessons}/{course.totalLessons} lessons</span>
-                        <span className="font-semibold text-primary-700">{course.progress}%</span>
+                      <div className="flex items-center text-sm text-primary-600 font-medium group-hover:text-primary-800 transition-colors">
+                        Continue
+                        <ChevronRight className="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" />
                       </div>
-                      <div className="w-full h-2 bg-sand-100 rounded-full overflow-hidden">
-                        <motion.div
-                          className="h-full rounded-full bg-gradient-to-r from-primary-600 to-primary-400"
-                          initial={{ width: 0 }}
-                          animate={{ width: `${course.progress}%` }}
-                          transition={{ duration: 1, delay: index * 0.1 + 0.3 }}
-                        />
-                      </div>
-                    </div>
-
-                    {/* Continue Arrow */}
-                    <div className="flex items-center justify-end mt-4 text-sm text-primary-600 font-medium 
-                                    group-hover:text-primary-800 transition-colors">
-                      Continue
-                      <ChevronRight className="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" />
                     </div>
                   </div>
                 </Link>

@@ -15,7 +15,7 @@
  * TODO: Connect to backend for enrolled course data
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -27,7 +27,8 @@ import {
   BookOpen,
 } from 'lucide-react';
 import clsx from 'clsx';
-import { enrolledCourses, courseFormats } from '../../data/mockData';
+import { enrolledCourses as defaultEnrolledCourses, courseFormats } from '../../data/mockData';
+import { getEnrolledCourses } from '../../services/courseStorage';
 import ProgressBar from '../../components/ui/ProgressBar';
 
 /** Map format icon names to Lucide components */
@@ -62,9 +63,26 @@ const panelVariants = {
 
 export default function CourseCategories() {
   const [activeTab, setActiveTab] = useState('foundations');
+  const [courses, setCourses] = useState(() => getEnrolledCourses());
+
+  useEffect(() => {
+    setCourses(getEnrolledCourses());
+
+    const handleProgressUpdate = () => {
+      setCourses(getEnrolledCourses());
+    };
+
+    window.addEventListener('ilm-course-progress-updated', handleProgressUpdate);
+    window.addEventListener('storage', handleProgressUpdate);
+
+    return () => {
+      window.removeEventListener('ilm-course-progress-updated', handleProgressUpdate);
+      window.removeEventListener('storage', handleProgressUpdate);
+    };
+  }, []);
 
   const activeCategory = categories.find((c) => c.key === activeTab);
-  const filteredCourses = enrolledCourses.filter(
+  const filteredCourses = courses.filter(
     (c) => c.category === activeTab
   );
 
@@ -142,13 +160,30 @@ export default function CourseCategories() {
                   transition={{ duration: 0.3 }}
                   className="group rounded-xl bg-white shadow-card transition-all duration-300 hover:shadow-elevated"
                 >
-                  <div
-                    className="flex flex-col sm:flex-row sm:items-center gap-4 p-4 border-l-4 rounded-xl"
-                    style={{ borderLeftColor: course.color }}
-                  >
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-4 p-4 border-l-4 border-l-[#0B3324] rounded-xl">
+                    {/* Instructor Portrait Avatar */}
+                    {course.instructorAvatar && (
+                      <div className="relative shrink-0 hidden sm:block">
+                        <img
+                          src={course.instructorAvatar}
+                          alt={course.instructor}
+                          className="w-12 h-12 rounded-full object-cover object-top border-2 border-sand-200 bg-sand-100 shadow-2xs"
+                          loading="lazy"
+                        />
+                      </div>
+                    )}
+
                     {/* Course info */}
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
+                      <div className="flex items-center gap-2.5">
+                        {course.instructorAvatar && (
+                          <img
+                            src={course.instructorAvatar}
+                            alt={course.instructor}
+                            className="w-8 h-8 rounded-full object-cover object-top border border-sand-200 bg-sand-100 sm:hidden shrink-0"
+                            loading="lazy"
+                          />
+                        )}
                         <Link
                           to={`/course/${course.id}`}
                           className="group/courseTitle block truncate"

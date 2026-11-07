@@ -97,7 +97,7 @@ const PRESET_INSTRUCTORS = [
     bio: 'Traditional scholar focused on inner ethical development, classical Ghazalian spiritual psychology, and Hadith.',
   },
   {
-    name: 'Dr. Tahir Mahmood',
+    name: 'Muhammad Ali',
     title: 'Senior Researcher in Prophetic Biography (Sirah)',
     bio: 'Doctorate in Islamic History with extensive published monographs on the Madinan political landscape.',
   },

@@ -19,7 +19,6 @@ const quickLinks = [
   { to: '/dashboard', label: 'Dashboard' },
   { to: '/courses', label: 'Courses' },
   { to: '/library', label: 'e-Library' },
-  { to: '/support', label: 'Support' },
 ];
 
 export default function Footer() {
@@ -29,7 +28,7 @@ export default function Footer() {
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-12">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-10 md:gap-8">
           {/* Column 1 — Brand */}
-          <div className="space-y-4">
+          <div className="space-y-1.5">
             <Link to="/dashboard" className="inline-block" aria-label="ilm essentials Home">
               <img
                 src={logoWhite}
@@ -37,7 +36,7 @@ export default function Footer() {
                 className="h-7 sm:h-8 w-auto object-contain opacity-95"
               />
             </Link>
-            <p className="text-sm text-sand-300 max-w-xs leading-relaxed">
+            <p className="text-xs sm:text-sm text-sand-300 max-w-xs leading-normal">
               Structured path to divine knowledge
             </p>
           </div>
@@ -76,9 +75,17 @@ export default function Footer() {
                   contact@ilmessentials.pk
                 </a>
               </li>
-              <li className="flex items-start gap-2 text-sm text-sand-300">
-                <MapPin size={16} className="flex-shrink-0 text-gold-500 mt-0.5" />
-                <span>DHA Phase 6, Lahore</span>
+              <li>
+                <a
+                  href="https://share.google/voveRAVDsZheyiKpe"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-start gap-2 text-sm text-sand-300 hover:text-gold-400 transition-colors duration-200 group"
+                  title="Open location in Google Maps"
+                >
+                  <MapPin size={16} className="flex-shrink-0 text-gold-500 mt-0.5 group-hover:scale-110 transition-transform" />
+                  <span className="group-hover:underline">DHA Phase 6, Lahore</span>
+                </a>
               </li>
             </ul>
           </div>

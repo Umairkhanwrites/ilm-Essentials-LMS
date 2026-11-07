@@ -50,7 +50,8 @@ export default function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/student/login" element={<Login />} />
           <Route path="/admin/login" element={<AdminLogin />} />
-          <Route path="/signup" element={<Signup />} />
+          <Route path="/signup" element={<Navigate to="/login" replace />} />
+          <Route path="/forgot-password" element={<Navigate to="/login" replace />} />
 
           {/* Protected Student Routes */}
           <Route

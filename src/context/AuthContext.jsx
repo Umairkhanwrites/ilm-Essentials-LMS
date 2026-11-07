@@ -140,13 +140,13 @@ export function AuthProvider({ children }) {
     if (expectedRole === 'admin') {
       return {
         success: false,
-        error: 'Invalid staff credentials. Use admin@ilmessentials.pk / admin123',
+        error: 'Invalid administrator credentials. Please check your email and password.',
       };
     }
 
     return {
       success: false,
-      error: 'Invalid credentials. Please use student@ilmessentials.pk / student123 or check your password.',
+      error: 'Invalid email or password. Please verify your credentials and try again.',
     };
   }, []);
 

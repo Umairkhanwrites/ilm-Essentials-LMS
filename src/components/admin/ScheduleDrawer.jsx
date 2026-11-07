@@ -57,7 +57,7 @@ const INSTRUCTORS_LIST = [
   'Sheikh Abdullah Nasir',
   'Ustadha Fatima Zahra',
   'Sheikh Yasir Faheem',
-  'Dr. Tahir Mahmood',
+  'Muhammad Ali',
   'Raja Zia ul Haq',
 ];
 

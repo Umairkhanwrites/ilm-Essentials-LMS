@@ -23,36 +23,36 @@ import {
 } from 'lucide-react';
 import Card from '../../components/ui/Card';
 
-/** Map resource type → icon + colour */
+/** Map resource type → minimal icon + subtle styling */
 const RESOURCE_TYPE_META = {
   pdf: {
     Icon: FileText,
-    bg: 'bg-red-50',
-    text: 'text-red-600',
+    bg: 'bg-sand-100/90 border border-sand-200/80',
+    text: 'text-primary-800',
     label: 'PDF',
   },
   doc: {
     Icon: FileText,
-    bg: 'bg-blue-50',
-    text: 'text-blue-600',
+    bg: 'bg-sand-100/90 border border-sand-200/80',
+    text: 'text-primary-800',
     label: 'DOC',
   },
   xls: {
     Icon: FileSpreadsheet,
-    bg: 'bg-green-50',
-    text: 'text-green-600',
+    bg: 'bg-sand-100/90 border border-sand-200/80',
+    text: 'text-primary-800',
     label: 'XLS',
   },
   img: {
     Icon: FileImage,
-    bg: 'bg-purple-50',
-    text: 'text-purple-600',
+    bg: 'bg-sand-100/90 border border-sand-200/80',
+    text: 'text-primary-800',
     label: 'IMG',
   },
   default: {
     Icon: File,
-    bg: 'bg-sand-100',
-    text: 'text-ink-500',
+    bg: 'bg-sand-100/90 border border-sand-200/80',
+    text: 'text-ink-600',
     label: 'FILE',
   },
 };
@@ -94,7 +94,7 @@ export default function ResourceTab({ resources = [] }) {
       {/* Section title */}
       <div>
         <h2 className="text-xl font-heading font-bold text-ink-900 mb-1">
-          Course Resources &amp; Materials
+          Course Resources
         </h2>
         <p className="text-sm text-ink-500">
           {resources.length} resource{resources.length !== 1 && 's'} available for

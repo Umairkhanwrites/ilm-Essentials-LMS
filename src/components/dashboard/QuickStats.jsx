@@ -1,113 +1,129 @@
 /**
- * QuickStats — Animated stat cards for the Student Dashboard
+ * QuickStats — Minimal stat cards for the Student Dashboard
  *
- * Displays 4 metric cards in a responsive grid:
- * - Enrolled Courses, Hours Learned, Assignments Due, Day Streak
- * - Each card has an icon in a colored circle, large value, label, and change indicator
- * - Staggered entrance animation via framer-motion
+ * Displays 4 clean, minimalist metric cards in a responsive grid.
  *
  * @module components/dashboard/QuickStats
- * TODO: Connect to backend for live stat data
  */
 
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { BookOpen, Clock, FileText, CheckCircle } from 'lucide-react';
-import { quickStats } from '../../data/mockData';
+import { BookOpen, Clock, FileText, CheckCircle2 } from 'lucide-react';
+import { quickStats as defaultQuickStats } from '../../data/mockData';
+import { getEnrolledCourses } from '../../services/courseStorage';
 
-/** Map icon string names from mock data to actual Lucide components */
 const iconMap = {
   BookOpen,
   Clock,
   FileText,
-  CheckCircle,
-};
-
-/**
- * Maps color names to Tailwind background + text classes for the icon circle.
- * Uses light tints for the circle and vivid for the icon itself.
- */
-const colorStyles = {
-  primary: {
-    bg: 'bg-primary-100',
-    icon: 'text-primary-700',
-  },
-  gold: {
-    bg: 'bg-gold-100',
-    icon: 'text-gold-700',
-  },
-  amber: {
-    bg: 'bg-amber-100',
-    icon: 'text-amber-700',
-  },
-  emerald: {
-    bg: 'bg-emerald-100',
-    icon: 'text-emerald-700',
-  },
-};
-
-/** Stagger container animation */
-const containerVariants = {
-  hidden: {},
-  visible: {
-    transition: {
-      staggerChildren: 0.1,
-    },
-  },
-};
-
-/** Individual card animation */
-const cardVariants = {
-  hidden: { opacity: 0, y: 20 },
-  visible: {
-    opacity: 1,
-    y: 0,
-    transition: { duration: 0.45, ease: 'easeOut' },
-  },
+  CheckCircle: CheckCircle2,
 };
 
 export default function QuickStats() {
+  const [courses, setCourses] = useState(() => getEnrolledCourses());
+
+  useEffect(() => {
+    setCourses(getEnrolledCourses());
+
+    const handleProgressUpdate = () => {
+      setCourses(getEnrolledCourses());
+    };
+
+    window.addEventListener('ilm-course-progress-updated', handleProgressUpdate);
+    window.addEventListener('storage', handleProgressUpdate);
+
+    return () => {
+      window.removeEventListener('ilm-course-progress-updated', handleProgressUpdate);
+      window.removeEventListener('storage', handleProgressUpdate);
+    };
+  }, []);
+
+  const totalCompletedLessons = courses.reduce(
+    (sum, c) => sum + (Number(c.completedLessons) || 0),
+    0
+  );
+
+  const totalLessonsCount = courses.reduce(
+    (sum, c) => sum + (Number(c.totalLessons) || 0),
+    0
+  );
+
+  const completionPercentage = totalLessonsCount > 0
+    ? Math.round((totalCompletedLessons / totalLessonsCount) * 100)
+    : 0;
+
+  // Synchronized Hours Learned (approx 45 min = ~0.75h per completed lesson, 0h when 0 completed)
+  const hoursLearned =
+    totalCompletedLessons === 0
+      ? '0h'
+      : `${Math.max(1, Math.round(totalCompletedLessons * 0.75))}h`;
+
+  const stats = [
+    {
+      id: 'courses',
+      label: 'Enrolled Courses',
+      value: courses.length,
+      icon: BookOpen,
+      subtext: 'Active learning tracks',
+    },
+    {
+      id: 'hours',
+      label: 'Hours Learned',
+      value: hoursLearned,
+      icon: Clock,
+      subtext: 'Study time logged',
+    },
+    {
+      id: 'assignments',
+      label: 'Assignments Due',
+      value: 0,
+      icon: FileText,
+      subtext: 'No pending deadlines',
+    },
+    {
+      id: 'completed',
+      label: 'Completed Lessons',
+      value: totalCompletedLessons,
+      icon: CheckCircle2,
+      subtext: totalLessonsCount > 0 ? `${totalCompletedLessons} of ${totalLessonsCount} completed` : 'In progress',
+    },
+  ];
+
   return (
-    <motion.div
-      variants={containerVariants}
-      initial="hidden"
-      animate="visible"
-      className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-5"
-    >
-      {quickStats.map((stat) => {
-        const IconComponent = iconMap[stat.icon] || BookOpen;
-        const colors = colorStyles[stat.color] || colorStyles.primary;
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+      {stats.map((stat, index) => {
+        const IconComponent = stat.icon;
 
         return (
           <motion.div
             key={stat.label}
-            variants={cardVariants}
-            whileHover={{ y: -4, transition: { duration: 0.2 } }}
-            className="group relative rounded-xl bg-white p-5 shadow-card transition-all duration-300 hover:shadow-elevated cursor-default"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: index * 0.05, duration: 0.25 }}
+            className="group rounded-2xl bg-white border border-sand-200 p-4 sm:p-4.5 shadow-2xs hover:border-sand-300 hover:shadow-card transition-all duration-200 flex flex-col justify-between"
           >
-            <div className="flex items-start justify-between">
-              {/* Icon circle */}
-              <div
-                className={`flex h-11 w-11 items-center justify-center rounded-full ${colors.bg} transition-transform duration-300 group-hover:scale-110`}
-              >
-                <IconComponent className={`h-5 w-5 ${colors.icon}`} />
-              </div>
-
-              {/* Change indicator */}
-              <span className="inline-block max-w-[120px] truncate rounded-full bg-primary-50 px-2.5 py-0.5 text-[11px] font-medium text-primary-700">
-                {stat.change}
+            {/* Top row: Label + subtle minimalist icon */}
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-medium text-ink-500 line-clamp-1">
+                {stat.label}
               </span>
+              <IconComponent size={16} className="text-ink-400 group-hover:text-primary-800 transition-colors shrink-0" />
             </div>
 
-            {/* Value */}
-            <p className="mt-4 font-heading text-3xl font-bold text-ink-900">
-              {stat.value}
-            </p>
-
-            {/* Label */}
-            <p className="mt-1 text-sm text-ink-500">{stat.label}</p>
+            {/* Metric Value + Subtle Context Subtext */}
+            <div className="mt-3">
+              <p className="font-heading text-2xl sm:text-3xl font-bold text-ink-900 tracking-tight leading-none">
+                {stat.value}
+              </p>
+              {stat.subtext && (
+                <p className="text-[11px] text-ink-400 mt-1 font-normal">
+                  {stat.subtext}
+                </p>
+              )}
+            </div>
           </motion.div>
         );
       })}
-    </motion.div>
+    </div>
   );
 }

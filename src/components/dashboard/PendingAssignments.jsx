@@ -14,53 +14,7 @@ import {
   Download,
 } from 'lucide-react';
 
-const INITIAL_ASSIGNMENTS = [
-  {
-    id: 'asg_001',
-    title: "Surah Al-Baqarah Reflection Essay (Verses 142–152)",
-    course: "Tafsīr-ul-Qur'ān",
-    courseCode: "TAF-101",
-    dueDate: "Tomorrow • Fri, Nov 6, 2026",
-    dueTime: "11:59 PM PKT",
-    isUrgent: true,
-    weight: "15% of Final Grade",
-    estTime: "45 mins",
-    type: "Essay / Reflection",
-    status: "Pending", // 'Pending', 'Submitted', 'Graded'
-    instructions: "Write a 500-word critical reflection on the spiritual significance of the change of Qiblah (Surah Al-Baqarah 142-152) and its lessons for Muslim communal identity.",
-    instructor: "Ustadh Khalil Ahmad",
-  },
-  {
-    id: 'asg_002',
-    title: "Arabic Nominal Sentences (Al-Jumla Al-Ismiyya) Worksheet",
-    course: "Qur'ānic Arabic — Level 1",
-    courseCode: "ARB-101",
-    dueDate: "Sunday • Nov 8, 2026",
-    dueTime: "11:59 PM PKT",
-    isUrgent: false,
-    weight: "10% of Final Grade",
-    estTime: "30 mins",
-    type: "Worksheet & Grammar Exercise",
-    status: "Pending",
-    instructions: "Complete exercises 1 through 15 identifying the Mubtada' and Khabar in the provided Qur'anic ayaat from Surah Al-Kahf.",
-    instructor: "Dr. Mufti Bilal Patel",
-  },
-  {
-    id: 'asg_003',
-    title: "Fiqh of Tahārah & Salah Mid-Term Diagnostic Quiz",
-    course: "Fiqh — Acts of Worship",
-    courseCode: "FQH-201",
-    dueDate: "Thursday • Nov 12, 2026",
-    dueTime: "6:00 PM PKT",
-    isUrgent: false,
-    weight: "20% of Final Grade",
-    estTime: "25 mins",
-    type: "Timed Online Assessment",
-    status: "Pending",
-    instructions: "20 multiple choice questions covering prerequisites of Salah, nullifiers of Wudu, and rules of Tayammum.",
-    instructor: "Shaykh Dr. Zubair Farooq",
-  },
-];
+const INITIAL_ASSIGNMENTS = [];
 
 export default function PendingAssignments() {
   const [assignments, setAssignments] = useState(INITIAL_ASSIGNMENTS);
@@ -137,7 +91,14 @@ export default function PendingAssignments() {
 
       {/* Assignment Cards List */}
       <div className="grid grid-cols-1 gap-3.5">
-        {assignments.map((item) => {
+        {assignments.length === 0 ? (
+          <div className="p-8 text-center bg-white rounded-2xl border border-dashed border-sand-300">
+            <CheckCircle2 className="mx-auto h-8 w-8 text-emerald-600 mb-2" />
+            <h3 className="font-heading font-bold text-sm text-ink-900">No Assignments Due</h3>
+            <p className="text-xs text-ink-500 mt-1">You are all caught up! There are currently no pending assignments.</p>
+          </div>
+        ) : (
+          assignments.map((item) => {
           const isSubmitted = item.status === 'Submitted';
 
           return (
@@ -228,7 +189,7 @@ export default function PendingAssignments() {
               </div>
             </div>
           );
-        })}
+        }))}
       </div>
 
       {/* Submission Modal */}

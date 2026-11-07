@@ -57,6 +57,7 @@ function ModuleAccordion({
   index,
   activeLessonId,
   onLessonSelect,
+  onToggleLessonCompletion,
   expandedMap,
   toggleExpand,
 }) {
@@ -152,18 +153,36 @@ function ModuleAccordion({
                         </p>
                       </div>
 
-                      {/* Completion */}
-                      {lesson.completed ? (
-                        <CheckCircle2
-                          size={18}
-                          className="flex-shrink-0 text-primary-500"
-                        />
-                      ) : (
-                        <Circle
-                          size={18}
-                          className="flex-shrink-0 text-ink-300"
-                        />
-                      )}
+                      {/* Completion Toggle */}
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onToggleLessonCompletion?.(lesson.id);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            onToggleLessonCompletion?.(lesson.id);
+                          }
+                        }}
+                        className="p-1 -m-1 hover:scale-115 transition-transform cursor-pointer focus:outline-none flex-shrink-0"
+                        title={lesson.completed ? 'Mark lesson as incomplete' : 'Mark lesson as completed'}
+                      >
+                        {lesson.completed ? (
+                          <CheckCircle2
+                            size={18}
+                            className="text-primary-600 transition-colors"
+                          />
+                        ) : (
+                          <Circle
+                            size={18}
+                            className="text-ink-300 hover:text-primary-600 transition-colors"
+                          />
+                        )}
+                      </span>
                     </button>
                   </li>
                 );
@@ -179,6 +198,7 @@ function ModuleAccordion({
 /**
  * Main CurriculumSidebar
  */
+export { ModuleAccordion };
 export default function CurriculumSidebar({
   modules = [],
   totalLessons = 0,
@@ -186,6 +206,7 @@ export default function CurriculumSidebar({
   progress = 0,
   activeLessonId,
   onLessonSelect,
+  onToggleLessonCompletion,
   isCollapsed = false,
   onToggle,
   isMobileOpen = false,
@@ -243,7 +264,6 @@ export default function CurriculumSidebar({
           <span className="font-semibold">
             {completedLessons}/{totalLessons} Lessons
           </span>
-          <span className="font-bold text-primary-600">{progress}% Complete</span>
         </div>
         <ProgressBar value={progress} />
       </div>
@@ -257,6 +277,7 @@ export default function CurriculumSidebar({
             index={idx}
             activeLessonId={activeLessonId}
             onLessonSelect={onLessonSelect}
+            onToggleLessonCompletion={onToggleLessonCompletion}
             expandedMap={expandedMap}
             toggleExpand={toggleExpand}
           />
