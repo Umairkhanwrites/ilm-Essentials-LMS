@@ -29,6 +29,8 @@ import {
   Video,
   ExternalLink,
   Calendar,
+  CreditCard,
+  Lock,
 } from 'lucide-react';
 
 import logo from '../../assets/logo.png';
@@ -38,6 +40,7 @@ import {
   markNotificationAsRead,
   markAllNotificationsAsRead,
   clearStudentNotifications,
+  getStudentVideoRestriction,
 } from '../../services/courseStorage';
 
 /** Returns user initials from full name */
@@ -119,6 +122,20 @@ export default function Navbar() {
     };
   }, []);
 
+  const [restriction, setRestriction] = useState(() => getStudentVideoRestriction());
+
+  useEffect(() => {
+    const handleRestrictionUpdate = () => {
+      setRestriction(getStudentVideoRestriction());
+    };
+    window.addEventListener('ilm-video-restriction-updated', handleRestrictionUpdate);
+    window.addEventListener('storage', handleRestrictionUpdate);
+    return () => {
+      window.removeEventListener('ilm-video-restriction-updated', handleRestrictionUpdate);
+      window.removeEventListener('storage', handleRestrictionUpdate);
+    };
+  }, []);
+
   const unreadCount = notificationList.filter((n) => !n.read).length;
 
   const handleMarkAllRead = () => {
@@ -182,6 +199,24 @@ export default function Navbar() {
 
   return (
     <>
+      {restriction.isVideoRestricted && (
+        <div className="bg-red-950 text-white border-b border-red-700/60 px-4 py-2 text-xs font-medium z-50">
+          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" />
+              <span>
+                <strong>Video Access Blocked:</strong> Your course video playback has been restricted due to overdue fee installments.
+              </span>
+            </div>
+            <Link
+              to="/accounts"
+              className="text-amber-300 hover:text-amber-200 underline font-semibold shrink-0"
+            >
+              Resolve in Accounts &rarr;
+            </Link>
+          </div>
+        </div>
+      )}
       <header
         className={clsx(
           'sticky top-0 z-50 bg-white/95 backdrop-blur-md transition-shadow duration-200 border-b border-sand-200',
@@ -266,6 +301,10 @@ export default function Navbar() {
 
               <NavLink to="/library" className={navLinkClass}>
                 e-Library
+              </NavLink>
+
+              <NavLink to="/accounts" className={navLinkClass}>
+                Accounts
               </NavLink>
             </nav>
 
@@ -456,6 +495,14 @@ export default function Navbar() {
                             <Library size={16} /> e-Library
                           </Link>
 
+                          <Link
+                            to="/accounts"
+                            onClick={() => setUserOpen(false)}
+                            className="flex items-center gap-3 px-4 py-2.5 text-sm text-ink-700 hover:bg-sand-100 transition-colors"
+                          >
+                            <CreditCard size={16} /> Fee &amp; Accounts
+                          </Link>
+
                           <div className="border-t border-sand-200 my-1 pt-1">
                             <button
                               onClick={handleLogout}
@@ -579,6 +626,20 @@ export default function Navbar() {
                   >
                     <Library size={16} />
                     e-Library
+                  </NavLink>
+
+                  <NavLink
+                    to="/accounts"
+                    onClick={() => setMobileOpen(false)}
+                    className={({ isActive }) =>
+                      clsx(
+                        'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
+                        isActive ? 'bg-primary-50 text-primary-900 font-semibold' : 'text-ink-700 hover:bg-sand-100'
+                      )
+                    }
+                  >
+                    <CreditCard size={16} />
+                    Accounts
                   </NavLink>
                 </nav>
               </div>

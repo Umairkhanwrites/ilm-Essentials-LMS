@@ -18,7 +18,8 @@ import {
   notifications as defaultNotifications,
   DEFAULT_BUNNY_VIDEO_URL,
   dailyQuotes as defaultDailyQuotes,
-} from '../data/mockData';
+  initialFeeInstallments,
+} from '../data/mockData.js';
 
 const STORAGE_KEY_COURSES = 'ilm_admin_courses';
 const STORAGE_KEY_DETAILS = 'ilm_course_details_map';
@@ -34,6 +35,7 @@ const STORAGE_KEY_ENROLLED_COURSES = 'ilm_enrolled_courses';
 const STORAGE_KEY_STUDENT_NOTIFICATIONS = 'ilm_student_notifications';
 const STORAGE_KEY_LIBRARY = 'ilm_elibrary_catalog';
 const STORAGE_KEY_DAILY_QUOTES = 'ilm_daily_quotes';
+const STORAGE_KEY_INSTALLMENTS = 'ilm_fee_installments';
 
 /**
  * Retrieve current student enrolled courses synchronized with live lesson progress
@@ -2674,3 +2676,532 @@ export function toggleQuotePinned(id) {
 
 
 
+
+// ============================================================================
+// ACCOUNTS, FEE INSTALLMENTS & VIDEO ACCESS RESTRICTION SERVICE
+// ============================================================================
+
+/**
+ * Retrieve all fee installments with persistence in localStorage
+ */
+
+/**
+ * Generate a unique 8-digit numeric Challan Number (e.g. 24070543)
+ */
+export function generateChallanNo() {
+  const prefix = '24';
+  const randomSuffix = Math.floor(100000 + Math.random() * 900000).toString();
+  return `${prefix}${randomSuffix}`;
+}
+
+export function getFeeInstallments() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_INSTALLMENTS);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed;
+      }
+    }
+  } catch (err) {
+    console.error('Failed to load fee installments from localStorage:', err);
+  }
+  try {
+    localStorage.setItem(STORAGE_KEY_INSTALLMENTS, JSON.stringify(initialFeeInstallments));
+  } catch (e) {}
+  return initialFeeInstallments;
+}
+
+/**
+ * Save fee installments to localStorage and dispatch update event
+ */
+export function saveFeeInstallments(installments) {
+  try {
+    localStorage.setItem(STORAGE_KEY_INSTALLMENTS, JSON.stringify(installments));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('ilm-installments-updated', { detail: installments }));
+      window.dispatchEvent(new CustomEvent('storage', { key: STORAGE_KEY_INSTALLMENTS }));
+    }
+  } catch (err) {
+    console.error('Failed to save fee installments to localStorage:', err);
+  }
+}
+
+/**
+ * Retrieve installments for a specific student (or current student if null)
+ */
+export function getStudentInstallments(studentId = null) {
+  const all = getFeeInstallments();
+  let effectiveId = studentId;
+  let effectiveEmail = null;
+
+  if (!effectiveId) {
+    try {
+      const rawUser = localStorage.getItem('ilm_lms_user');
+      if (rawUser) {
+        const u = JSON.parse(rawUser);
+        effectiveId = u.id;
+        effectiveEmail = u.email ? u.email.toLowerCase().trim() : null;
+      }
+    } catch (e) {}
+  }
+
+  // Fallback demo student
+  if (!effectiveId) effectiveId = 'std_001';
+
+  return all
+    .filter((inst) => {
+      if (inst.studentId === effectiveId) return true;
+      if (effectiveId === 'usr_001' && inst.studentId === 'std_001') return true;
+      if (effectiveEmail && inst.studentEmail && inst.studentEmail.toLowerCase().trim() === effectiveEmail) return true;
+      return false;
+    })
+    .sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
+}
+
+/**
+ * Retrieve student accounts financial summary (Total Fee, Received, Receivable, Restriction)
+ */
+export function getStudentAccountsSummary(studentId = null) {
+  const installments = getStudentInstallments(studentId);
+  const totalFee = installments.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+  const receivedAmount = installments
+    .filter((inst) => inst.status === 'APPROVED')
+    .reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+  const receivableAmount = installments
+    .filter((inst) => ['UNPAID', 'UNDER_REVIEW', 'REJECTED'].includes(inst.status))
+    .reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+
+  const todayStr = new Date().toISOString().split('T')[0];
+  const overdueCount = installments.filter(
+    (inst) => inst.status !== 'APPROVED' && inst.dueDate < todayStr
+  ).length;
+
+  const restrictionInfo = getStudentVideoRestriction(studentId);
+
+  return {
+    totalFee,
+    receivedAmount,
+    receivableAmount,
+    overdueCount,
+    isVideoRestricted: restrictionInfo.isVideoRestricted,
+    restrictedAt: restrictionInfo.restrictedAt,
+    restrictedByAdminName: restrictionInfo.restrictedByAdminName,
+    installmentsCount: installments.length,
+  };
+}
+
+/**
+ * Global Admin Accounts Ledger Summary
+ */
+export function getGlobalAccountsSummary() {
+  const all = getFeeInstallments();
+  const totalReceived = all
+    .filter((inst) => inst.status === 'APPROVED')
+    .reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+  const totalReceivable = all
+    .filter((inst) => ['UNPAID', 'UNDER_REVIEW', 'REJECTED'].includes(inst.status))
+    .reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+
+  const todayStr = new Date().toISOString().split('T')[0];
+  const overdueCount = all.filter(
+    (inst) => inst.status !== 'APPROVED' && inst.dueDate < todayStr
+  ).length;
+  const pendingReviewCount = all.filter((inst) => inst.status === 'UNDER_REVIEW').length;
+
+  const allStudents = getAllStudents();
+  const restrictedCount = allStudents.filter((s) => s.isVideoRestricted).length;
+
+  return {
+    totalReceived,
+    totalReceivable,
+    totalBilled: totalReceived + totalReceivable,
+    overdueCount,
+    pendingReviewCount,
+    pendingCount: pendingReviewCount,
+    restrictedCount,
+    restrictedStudentsCount: restrictedCount,
+    totalInstallments: all.length,
+  };
+}
+
+/**
+ * Check video restriction status for a student
+ */
+export function getStudentVideoRestriction(studentId = null) {
+  let targetId = studentId;
+  let targetEmail = null;
+
+  try {
+    const rawUser = localStorage.getItem('ilm_lms_user');
+    if (rawUser) {
+      const u = JSON.parse(rawUser);
+      if (!targetId) targetId = u.id;
+      targetEmail = u.email ? u.email.toLowerCase().trim() : null;
+    }
+  } catch (e) {}
+
+  if (!targetId) targetId = 'std_001';
+
+  const allStudents = getAllStudents();
+  const student = allStudents.find(
+    (s) => s.id === targetId || (targetId === 'usr_001' && s.id === 'std_001') || (targetEmail && s.email?.toLowerCase().trim() === targetEmail)
+  );
+
+  return {
+    isVideoRestricted: Boolean(student?.isVideoRestricted),
+    restrictedAt: student?.restrictedAt || null,
+    restrictedByAdminName: student?.restrictedByAdminName || null,
+  };
+}
+
+/**
+ * Manually toggle or set video restriction for an individual student
+ */
+export function setStudentVideoRestriction(studentId, isRestricted, adminName = 'Ustadh Zafar Iqbal') {
+  const allStudents = getAllStudents();
+  const effectiveId = studentId === 'usr_001' ? 'std_001' : studentId;
+
+  const updatedStudents = allStudents.map((s) => {
+    if (s.id === effectiveId || (studentId && s.id === studentId)) {
+      return {
+        ...s,
+        isVideoRestricted: Boolean(isRestricted),
+        restrictedAt: isRestricted ? new Date().toISOString() : null,
+        restrictedByAdminName: isRestricted ? adminName : null,
+      };
+    }
+    return s;
+  });
+
+  try {
+    localStorage.setItem(STORAGE_KEY_STUDENTS, JSON.stringify(updatedStudents));
+  } catch (e) {}
+
+  // Keep active logged-in user in sync if it's the target student
+  try {
+    const rawUser = localStorage.getItem('ilm_lms_user');
+    if (rawUser) {
+      const currentUser = JSON.parse(rawUser);
+      if (currentUser.id === studentId || currentUser.id === effectiveId) {
+        currentUser.isVideoRestricted = Boolean(isRestricted);
+        currentUser.restrictedAt = isRestricted ? new Date().toISOString() : null;
+        currentUser.restrictedByAdminName = isRestricted ? adminName : null;
+        localStorage.setItem('ilm_lms_user', JSON.stringify(currentUser));
+      }
+    }
+  } catch (e) {}
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('ilm-video-restriction-updated', {
+      detail: { studentId: effectiveId, isRestricted, adminName }
+    }));
+  }
+
+  return updatedStudents;
+}
+
+/**
+ * Bulk Restrict Video Access for all students with Overdue/Unpaid installments (dueDate <= today)
+ */
+export function restrictAllOverdueStudents(adminName = 'Ustadh Zafar Iqbal') {
+  const allInstallments = getFeeInstallments();
+  const todayStr = new Date().toISOString().split('T')[0];
+
+  // Identify all students who have at least one overdue unapproved installment
+  const overdueStudentIds = new Set(
+    allInstallments
+      .filter((inst) => inst.status !== 'APPROVED' && inst.dueDate <= todayStr)
+      .map((inst) => inst.studentId)
+  );
+
+  const allStudents = getAllStudents();
+  let newlyRestrictedCount = 0;
+
+  const updatedStudents = allStudents.map((s) => {
+    if (overdueStudentIds.has(s.id) || (s.id === 'std_001' && overdueStudentIds.has('usr_001'))) {
+      if (!s.isVideoRestricted) newlyRestrictedCount++;
+      return {
+        ...s,
+        isVideoRestricted: true,
+        restrictedAt: new Date().toISOString(),
+        restrictedByAdminName: adminName,
+      };
+    }
+    return s;
+  });
+
+  try {
+    localStorage.setItem(STORAGE_KEY_STUDENTS, JSON.stringify(updatedStudents));
+  } catch (e) {}
+
+  // Update active user session if matched
+  try {
+    const rawUser = localStorage.getItem('ilm_lms_user');
+    if (rawUser) {
+      const currentUser = JSON.parse(rawUser);
+      if (overdueStudentIds.has(currentUser.id) || (currentUser.id === 'usr_001' && overdueStudentIds.has('std_001'))) {
+        currentUser.isVideoRestricted = true;
+        currentUser.restrictedAt = new Date().toISOString();
+        currentUser.restrictedByAdminName = adminName;
+        localStorage.setItem('ilm_lms_user', JSON.stringify(currentUser));
+      }
+    }
+  } catch (e) {}
+
+  // Dispatch global notifications to overdue students
+  for (const stdId of overdueStudentIds) {
+    const notifs = getStudentNotifications(stdId);
+    const newNotif = {
+      id: `notif_restr_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      type: 'account_restriction',
+      message: `Your course video playback has been restricted due to overdue fee installments. Please clear your dues in the Accounts section to restore access.`,
+      time: 'Just now',
+      timestamp: Date.now(),
+      read: false,
+      link: '/accounts',
+    };
+    saveStudentNotifications([newNotif, ...notifs]);
+  }
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('ilm-video-restriction-updated', {
+      detail: { overdueStudentIds: Array.from(overdueStudentIds), adminName }
+    }));
+  }
+
+  return { newlyRestrictedCount, totalRestricted: overdueStudentIds.size };
+}
+
+/**
+ * Create fixed installments for single or multiple students
+ */
+export function createInstallments({ studentIds, title, amount, dueDate, program = 'Ilm Foundations' }) {
+  if (!Array.isArray(studentIds) || studentIds.length === 0 || !title || !amount || !dueDate) {
+    throw new Error('Please provide valid student IDs, title, amount, and due date.');
+  }
+
+  const all = getFeeInstallments();
+  const allStudents = getAllStudents();
+  const now = new Date().toISOString();
+  const newInstallments = [];
+
+  for (const sId of studentIds) {
+    const student = allStudents.find((s) => s.id === sId) || { name: 'Enrolled Student', email: 'student@example.com' };
+    const instId = `inst_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
+    const newInst = {
+      id: instId,
+      studentId: sId,
+      studentName: student.name,
+      studentEmail: student.email,
+      program: student.program || program,
+      title: title.trim(),
+      amount: Math.round(Number(amount)),
+      dueDate,
+      status: 'UNPAID',
+      receiptImageUrl: null,
+      submittedAt: null,
+      approvedById: null,
+      approvedByName: null,
+      approvedAt: null,
+      rejectionReason: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    newInstallments.push(newInst);
+  }
+
+  const updated = [...newInstallments, ...all];
+  saveFeeInstallments(updated);
+  return { newInstallments, allInstallments: updated };
+}
+
+/**
+ * Student uploads or re-uploads payment proof image (Base64 data URL)
+ */
+export function uploadInstallmentReceipt(installmentId, receiptImageUrl) {
+  if (!installmentId || !receiptImageUrl) {
+    throw new Error('Installment ID and receipt image are required.');
+  }
+
+  const all = getFeeInstallments();
+  const target = all.find((inst) => inst.id === installmentId);
+
+  if (!target) {
+    throw new Error('Installment not found.');
+  }
+
+  if (target.status === 'APPROVED') {
+    throw new Error('This installment has already been approved.');
+  }
+
+  const now = new Date().toISOString();
+  const updated = all.map((inst) => {
+    if (inst.id === installmentId) {
+      return {
+        ...inst,
+        receiptImageUrl,
+        status: 'UNDER_REVIEW',
+        submittedAt: now,
+        rejectionReason: null,
+        updatedAt: now,
+      };
+    }
+    return inst;
+  });
+
+  saveFeeInstallments(updated);
+
+  // Broadcast in-app notification confirming receipt submission
+  const notifs = getStudentNotifications(target.studentId);
+  const newNotif = {
+    id: `notif_submit_${Date.now()}`,
+    type: 'receipt_submitted',
+    message: `Payment proof for "${target.title}" submitted successfully and is currently under review by Accounts.`,
+    time: 'Just now',
+    timestamp: Date.now(),
+    read: false,
+    link: '/accounts',
+  };
+  saveStudentNotifications([newNotif, ...notifs]);
+
+  return { success: true, installment: updated.find((i) => i.id === installmentId) };
+}
+
+/**
+ * Admin approves an installment payment proof
+ * Automatically runs the Auto-Unlock Check:
+ * If all installments with dueDate <= today are now APPROVED, video access is automatically restored!
+ */
+export function approveInstallment(installmentId, adminUser = { id: 'adm_001', name: 'Ustadh Zafar Iqbal' }, maybeAdminName) {
+  if (typeof adminUser === 'string') {
+    adminUser = { id: adminUser, name: maybeAdminName || 'Ustadh Zafar Iqbal' };
+  }
+  const all = getFeeInstallments();
+  const target = all.find((inst) => inst.id === installmentId);
+
+  if (!target) {
+    throw new Error('Installment not found.');
+  }
+
+  const now = new Date().toISOString();
+  const adminName = adminUser?.name || 'Ustadh Zafar Iqbal';
+  const adminId = adminUser?.id || 'adm_001';
+
+  const updatedInstallments = all.map((inst) => {
+    if (inst.id === installmentId) {
+      return {
+        ...inst,
+        status: 'APPROVED',
+        approvedById: adminId,
+        approvedByName: adminName,
+        approvedAt: now,
+        paidDate: now.split('T')[0],
+        paymentMode: inst.paymentMode && inst.paymentMode !== '—' ? inst.paymentMode : 'Meezan Online',
+        rejectionReason: null,
+        updatedAt: now,
+      };
+    }
+    return inst;
+  });
+
+  saveFeeInstallments(updatedInstallments);
+
+  // AUTO-UNLOCK CHECK:
+  // Check if this student has any remaining unapproved installments where dueDate <= today
+  const todayStr = new Date().toISOString().split('T')[0];
+  const remainingOverdue = updatedInstallments.filter(
+    (inst) =>
+      inst.studentId === target.studentId &&
+      inst.status !== 'APPROVED' &&
+      inst.dueDate <= todayStr
+  );
+
+  let autoUnlocked = false;
+  if (remainingOverdue.length === 0) {
+    // Student has cleared all installments up to today (even if future installments exist)
+    setStudentVideoRestriction(target.studentId, false, null);
+    autoUnlocked = true;
+  }
+
+  // Send student notification
+  const notifs = getStudentNotifications(target.studentId);
+  const newNotif = {
+    id: `notif_appr_${Date.now()}`,
+    type: 'fee_approved',
+    message: autoUnlocked
+      ? `Payment of PKR ${target.amount.toLocaleString()} for "${target.title}" was approved by ${adminName}. Your course video access is active!`
+      : `Payment of PKR ${target.amount.toLocaleString()} for "${target.title}" was approved by ${adminName}.`,
+    time: 'Just now',
+    timestamp: Date.now(),
+    read: false,
+    link: '/accounts',
+  };
+  saveStudentNotifications([newNotif, ...notifs]);
+
+  return {
+    success: true,
+    installment: updatedInstallments.find((i) => i.id === installmentId),
+    autoUnlocked,
+    remainingOverdueCount: remainingOverdue.length,
+  };
+}
+
+/**
+ * Admin rejects an installment payment proof with mandatory reason
+ */
+export function rejectInstallment(installmentId, rejectionReason, adminUser = { id: 'adm_001', name: 'Ustadh Zafar Iqbal' }, maybeAdminName) {
+  if (typeof adminUser === 'string') {
+    adminUser = { id: adminUser, name: maybeAdminName || 'Ustadh Zafar Iqbal' };
+  }
+  if (!rejectionReason || !rejectionReason.trim()) {
+    throw new Error('A rejection reason is mandatory.');
+  }
+
+  const all = getFeeInstallments();
+  const target = all.find((inst) => inst.id === installmentId);
+
+  if (!target) {
+    throw new Error('Installment not found.');
+  }
+
+  const now = new Date().toISOString();
+  const cleanReason = rejectionReason.trim();
+
+  const updatedInstallments = all.map((inst) => {
+    if (inst.id === installmentId) {
+      return {
+        ...inst,
+        status: 'REJECTED',
+        rejectionReason: cleanReason,
+        updatedAt: now,
+      };
+    }
+    return inst;
+  });
+
+  saveFeeInstallments(updatedInstallments);
+
+  // Send student notification
+  const notifs = getStudentNotifications(target.studentId);
+  const newNotif = {
+    id: `notif_rej_${Date.now()}`,
+    type: 'fee_rejected',
+    message: `Your fee receipt for "${target.title}" was rejected: ${cleanReason}. Please upload a clear receipt to try again.`,
+    time: 'Just now',
+    timestamp: Date.now(),
+    read: false,
+    link: '/accounts',
+  };
+  saveStudentNotifications([newNotif, ...notifs]);
+
+  const finalInst = updatedInstallments.find((i) => i.id === installmentId);
+  return {
+    success: true,
+    installment: finalInst,
+    status: finalInst?.status,
+    rejectionReason: finalInst?.rejectionReason,
+  };
+}

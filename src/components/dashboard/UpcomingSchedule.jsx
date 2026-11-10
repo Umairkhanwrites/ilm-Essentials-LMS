@@ -166,12 +166,24 @@ export default function UpcomingSchedule() {
           </button>
 
           {hasLiveToday ? (
-            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-100/90 text-emerald-900 border border-emerald-300/60 font-bold uppercase tracking-wider text-[10px]">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
-              Live Today
-            </span>
+            <div className="flex items-center flex-wrap gap-2 text-xs">
+              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-100/90 text-emerald-900 border border-emerald-300/60 font-bold uppercase tracking-wider text-[10px] shrink-0">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
+                Live Today
+              </span>
+              <span className="text-sand-400">•</span>
+              <span className="inline-flex items-center gap-1.5 text-xs">
+                <strong className="font-bold text-ink-900">{primarySession.courseTitle}</strong>
+                <span className="text-ink-600 font-medium">({primarySession.time})</span>
+                {primarySession.instructor && (
+                  <span className="text-ink-400 hidden lg:inline font-normal">
+                    — {primarySession.instructor}
+                  </span>
+                )}
+              </span>
+            </div>
           ) : !isExpanded ? (
-            <div className="flex items-center gap-1.5 font-medium text-ink-600">
+            <div className="flex items-center gap-1.5 font-medium text-ink-600 text-xs">
               <span className="text-sand-400">•</span>
               <span className="text-ink-500 text-xs">Next:</span>
               <span className="font-semibold text-ink-900">{primarySession.courseTitle}</span>
@@ -182,13 +194,19 @@ export default function UpcomingSchedule() {
 
         {/* Right: Actions & Expand Toggle */}
         <div className="flex items-center justify-between sm:justify-end gap-2 shrink-0">
-          {primarySession.isOnline && primaryIsLiveNow && (
+          {primarySession.isOnline && (hasLiveToday || primaryIsLiveNow) && (
             <a
               href={primarySession.meetingLink}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#0B3324] hover:bg-[#072318] text-white text-xs font-bold transition-all shadow-2xs"
+              className={clsx(
+                'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-2xs',
+                primaryIsLiveNow
+                  ? 'bg-emerald-700 hover:bg-emerald-800 text-white animate-pulse'
+                  : 'bg-[#0B3324] hover:bg-[#072318] text-white'
+              )}
             >
+              {primaryIsLiveNow && <span className="w-1.5 h-1.5 rounded-full bg-emerald-300 animate-ping" />}
               <span>Join Meet</span>
               <ExternalLink size={11} />
             </a>

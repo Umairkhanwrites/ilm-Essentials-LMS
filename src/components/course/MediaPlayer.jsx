@@ -11,7 +11,8 @@
  * @param {object}   currentLesson       - Active lesson object { id, title, type, duration, videoUrl, … }
  * @param {boolean}  isLive              - Whether this is a live session
  */
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import clsx from 'clsx';
 import {
   BookOpen,
@@ -20,19 +21,80 @@ import {
   Clock,
   Sparkles,
   ExternalLink,
+  Lock,
+  AlertTriangle,
+  CreditCard,
 } from 'lucide-react';
 import { DEFAULT_BUNNY_VIDEO_URL } from '../../data/mockData';
-import { getEmbedVideoUrl } from '../../services/courseStorage';
+import { getEmbedVideoUrl, getStudentVideoRestriction } from '../../services/courseStorage';
 
 export default function MediaPlayer({
   currentLesson,
   isLive = false,
 }) {
   const [iframeLoaded, setIframeLoaded] = useState(false);
+  const [restriction, setRestriction] = useState(() => getStudentVideoRestriction());
+
+  useEffect(() => {
+    const handleRestrictionUpdate = () => {
+      setRestriction(getStudentVideoRestriction());
+    };
+
+    window.addEventListener('ilm-video-restriction-updated', handleRestrictionUpdate);
+    window.addEventListener('storage', handleRestrictionUpdate);
+
+    return () => {
+      window.removeEventListener('ilm-video-restriction-updated', handleRestrictionUpdate);
+      window.removeEventListener('storage', handleRestrictionUpdate);
+    };
+  }, []);
 
   const lessonType = currentLesson?.type || 'video';
   const rawVideoUrl = currentLesson?.videoUrl || DEFAULT_BUNNY_VIDEO_URL;
   const embedUrl = getEmbedVideoUrl(rawVideoUrl);
+
+  // ---- 0. VIDEO ACCESS RESTRICTION GUARD ----
+  if (restriction.isVideoRestricted && lessonType === 'video') {
+    return (
+      <div className="relative w-full bg-gradient-to-br from-ink-950 via-[#140808] to-black rounded-xl sm:rounded-2xl overflow-hidden shadow-elevated select-none text-white border border-red-500/40">
+        <div className="relative w-full" style={{ paddingBottom: '56.25%' }}>
+          <div className="absolute inset-0 p-6 sm:p-10 flex flex-col items-center justify-center text-center space-y-4 z-10">
+            <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-red-950/80 border border-red-500/50 text-red-400 flex items-center justify-center shadow-lg">
+              <Lock size={28} className="animate-pulse text-red-400" />
+            </div>
+
+            <div className="max-w-md sm:max-w-lg space-y-2">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-red-900/60 text-red-200 border border-red-700/50 text-[11px] font-bold uppercase tracking-wider">
+                <AlertTriangle size={12} />
+                <span>Video Access Restricted</span>
+              </div>
+              <h3 className="text-lg sm:text-xl font-heading font-bold text-white leading-snug">
+                Course Video Access Restricted
+              </h3>
+              <p className="text-xs sm:text-sm text-sand-300 leading-relaxed">
+                Your course video access has been restricted by the admin due to pending fee dues. Please clear your overdue installments in the Accounts section to automatically restore access.
+              </p>
+              {restriction.restrictedByAdminName && (
+                <p className="text-[11px] text-sand-400 pt-1">
+                  Restriction placed by: <span className="font-semibold text-sand-200">{restriction.restrictedByAdminName}</span>
+                </p>
+              )}
+            </div>
+
+            <div className="pt-2">
+              <Link
+                to="/accounts"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-ink-950 font-bold text-xs sm:text-sm transition-all shadow-md cursor-pointer"
+              >
+                <CreditCard size={15} />
+                <span>Go to Accounts &amp; Pay Dues →</span>
+              </Link>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // ---- 1. READING LESSON CANVAS ----
   if (lessonType === 'reading') {

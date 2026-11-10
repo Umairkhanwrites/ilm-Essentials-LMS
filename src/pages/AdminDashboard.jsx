@@ -14,7 +14,7 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from "react-router-dom";
 import { motion } from 'framer-motion';
 import {
   Users,
@@ -77,6 +77,10 @@ import {
   Library,
   BookMarked,
   Quote,
+  ShieldAlert,
+  Unlock,
+  Image,
+  ZoomIn,
 } from 'lucide-react';
 
 import Layout from '../components/layout/Layout';
@@ -133,6 +137,16 @@ import {
   toggleQuotePinned,
   countWords,
   getTodaysQuote,
+  getFeeInstallments,
+  saveFeeInstallments,
+  getGlobalAccountsSummary,
+  getStudentVideoRestriction,
+  setStudentVideoRestriction,
+  restrictAllOverdueStudents,
+  createInstallments,
+  uploadInstallmentReceipt,
+  approveInstallment,
+  rejectInstallment,
 } from '../services/courseStorage';
 
 export default function AdminDashboard() {
@@ -462,7 +476,207 @@ export default function AdminDashboard() {
     setInstructors(getAllInstructors());
   };
 
-  // Student Fee Management State & Handlers
+  // ========================================================
+  // Accounts, Fee Installments & Video Restriction State
+  // ========================================================
+  const [feeInstallments, setFeeInstallments] = useState(() => getFeeInstallments());
+  const [activeFeeView, setActiveFeeView] = useState('installments'); // 'installments' | 'invoices'
+  const [installmentQueueTab, setInstallmentQueueTab] = useState('review'); // 'review' | 'overdue' | 'approved' | 'rejected' | 'all'
+  const [installmentSearch, setInstallmentSearch] = useState('');
+  const [inspectingInst, setInspectingInst] = useState(null);
+  const [rejectionReasonInput, setRejectionReasonInput] = useState('');
+  const [isRejectingMode, setIsRejectingMode] = useState(false);
+  const [showCreateInstallmentModal, setShowCreateInstallmentModal] = useState(false);
+  const [showBulkRestrictModal, setShowBulkRestrictModal] = useState(false);
+  const [createForm, setCreateForm] = useState({
+    studentSelection: 'all',
+    selectedStudentIds: [],
+    title: 'Installment 1',
+    amount: 8000,
+    dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+  });
+  const [accountsToast, setAccountsToast] = useState(null);
+
+  // Accounts Global Ledger Summary
+  const accountsSummary = useMemo(() => {
+    return getGlobalAccountsSummary();
+  }, [feeInstallments, students]);
+
+  // Today string YYYY-MM-DD
+  const todayDateStr = useMemo(() => new Date().toISOString().split('T')[0], []);
+
+  // Filtered Installments
+  const filteredInstallments = useMemo(() => {
+    const q = (installmentSearch || '').toLowerCase().trim();
+    return feeInstallments.filter((inst) => {
+      if (!inst) return false;
+      const matchSearch =
+        !q ||
+        (inst.studentName || '').toLowerCase().includes(q) ||
+        (inst.studentEmail || '').toLowerCase().includes(q) ||
+        (inst.title || '').toLowerCase().includes(q) ||
+        (inst.challanNo || '').toLowerCase().includes(q) ||
+        String(inst.amount).includes(q);
+
+      if (!matchSearch) return false;
+
+      if (installmentQueueTab === 'review') return inst.status === 'UNDER_REVIEW';
+      if (installmentQueueTab === 'overdue') return inst.status !== 'APPROVED' && inst.dueDate <= todayDateStr;
+      if (installmentQueueTab === 'approved') return inst.status === 'APPROVED';
+      if (installmentQueueTab === 'rejected') return inst.status === 'REJECTED';
+      return true; // 'all'
+    });
+  }, [feeInstallments, installmentQueueTab, installmentSearch, todayDateStr]);
+
+  // Count of students eligible for overdue bulk restriction
+  const overdueEligibleStudents = useMemo(() => {
+    const overdueInsts = feeInstallments.filter(
+      (inst) => inst.status !== 'APPROVED' && inst.dueDate <= todayDateStr
+    );
+    const studentIdSet = new Set(overdueInsts.map((i) => i.studentId));
+    return students.filter((s) => studentIdSet.has(s.id) && !s.isVideoRestricted);
+  }, [feeInstallments, students, todayDateStr]);
+
+  // Approve Installment Action (with Auto-Unlock Check)
+  const handleApproveInstallmentAction = (inst) => {
+    if (!inst) return;
+    const adminId = user?.id || 'adm_001';
+    const adminName = user?.name || 'Administrator';
+    const result = approveInstallment(inst.id, adminId, adminName);
+    if (!result) return;
+
+    // Refresh state
+    setFeeInstallments(getFeeInstallments());
+    setStudents(getAllStudents());
+    setInspectingInst(null);
+    setIsRejectingMode(false);
+    setRejectionReasonInput('');
+
+    if (result.unlockedVideo) {
+      setAccountsToast({
+        type: 'success',
+        title: 'Payment Approved & Access Restored!',
+        message: `PKR ${inst.amount.toLocaleString()} approved by ${adminName}. All overdue installments are cleared — student course video access automatically restored.`,
+      });
+    } else {
+      setAccountsToast({
+        type: 'success',
+        title: 'Payment Approved',
+        message: `Installment "${inst.title}" (PKR ${inst.amount.toLocaleString()}) approved and stamped by ${adminName}.`,
+      });
+    }
+    setTimeout(() => setAccountsToast(null), 5000);
+  };
+
+  // Reject Installment Action
+  const handleRejectInstallmentAction = (inst) => {
+    if (!inst) return;
+    if (!rejectionReasonInput.trim()) {
+      alert('Please provide a specific rejection reason for the student.');
+      return;
+    }
+    const adminId = user?.id || 'adm_001';
+    const adminName = user?.name || 'Administrator';
+    const rejected = rejectInstallment(inst.id, rejectionReasonInput.trim(), adminId, adminName);
+    if (!rejected) return;
+
+    // Refresh state
+    setFeeInstallments(getFeeInstallments());
+    setStudents(getAllStudents());
+    setInspectingInst(null);
+    setIsRejectingMode(false);
+    setRejectionReasonInput('');
+
+    setAccountsToast({
+      type: 'error',
+      title: 'Payment Proof Rejected',
+      message: `Installment "${inst.title}" marked as REJECTED. In-app notification sent to ${inst.studentName}.`,
+    });
+    setTimeout(() => setAccountsToast(null), 5000);
+  };
+
+  // Manual Toggle Individual Student Video Restriction
+  const handleToggleStudentVideo = (studentId, studentName, currentlyRestricted) => {
+    const adminName = user?.name || 'Administrator';
+    const newStatus = !currentlyRestricted;
+    setStudentVideoRestriction(studentId, newStatus, adminName);
+    setStudents(getAllStudents());
+
+    setAccountsToast({
+      type: newStatus ? 'warning' : 'success',
+      title: newStatus ? 'Course Video Access Restricted' : 'Course Video Access Restored',
+      message: newStatus
+        ? `${studentName}'s course video player has been manually locked by ${adminName}.`
+        : `${studentName}'s course video player access has been unlocked.`,
+    });
+    setTimeout(() => setAccountsToast(null), 4000);
+  };
+
+  // Bulk Restrict Overdue Students Action
+  const handleConfirmBulkRestrict = () => {
+    const adminName = user?.name || 'Administrator';
+    const result = restrictAllOverdueStudents(adminName);
+    setStudents(getAllStudents());
+    setShowBulkRestrictModal(false);
+
+    setAccountsToast({
+      type: 'warning',
+      title: 'Bulk Video Restriction Applied',
+      message: `Restricted course video access for ${result.restrictedCount} overdue student account(s). In-app notifications sent.`,
+    });
+    setTimeout(() => setAccountsToast(null), 5000);
+  };
+
+  // Create Installments Submit
+  const handleCreateInstallmentsSubmit = (e) => {
+    e.preventDefault();
+    const title = createForm.title.trim();
+    const amount = Number(createForm.amount);
+    const dueDate = createForm.dueDate;
+
+    if (!title || !amount || !dueDate) {
+      alert('Please fill in all required fields (title, amount, and due date).');
+      return;
+    }
+
+    let targetIds = [];
+    if (createForm.studentSelection === 'all') {
+      targetIds = students.map((s) => s.id);
+    } else {
+      targetIds = createForm.selectedStudentIds;
+    }
+
+    if (targetIds.length === 0) {
+      alert('Please select at least one student.');
+      return;
+    }
+
+    const created = createInstallments({
+      studentIds: targetIds,
+      title,
+      amount,
+      dueDate,
+    });
+
+    setFeeInstallments(getFeeInstallments());
+    setShowCreateInstallmentModal(false);
+    setCreateForm({
+      studentSelection: 'all',
+      selectedStudentIds: [],
+      title: 'Installment 1',
+      amount: 8000,
+      dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+    });
+
+    setAccountsToast({
+      type: 'success',
+      title: 'Installments Created',
+      message: `Successfully created and assigned ${created.length} installment record(s).`,
+    });
+    setTimeout(() => setAccountsToast(null), 5000);
+  };
+
+    // Student Fee Management State & Handlers
   const [feeRecords, setFeeRecords] = useState(() => getFeeRecords());
   const [feeSearch, setFeeSearch] = useState('');
   const [feeStatusFilter, setFeeStatusFilter] = useState('all');
@@ -1245,15 +1459,6 @@ export default function AdminDashboard() {
 
               {/* Admin Actions & Profile */}
               <div className="flex items-center gap-3">
-                <div className="hidden sm:block text-right pr-2">
-                  <span className="text-xs font-bold text-white block leading-tight">
-                    {user?.name || 'Administrator'}
-                  </span>
-                  <span className="text-[10px] text-primary-300 block">
-                    {user?.email || 'admin@ilmessentials.pk'}
-                  </span>
-                </div>
-
                 <Link
                   to="/admin/courses/new"
                   className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gold-500 hover:bg-gold-400 text-primary-950 text-xs font-bold transition-all shadow-sm cursor-pointer"
@@ -1330,7 +1535,7 @@ export default function AdminDashboard() {
                     { id: 'quotes', label: 'Daily Quotes & Reflections', icon: Quote, count: quotesList.length },
                     { id: 'students', label: 'Student Accounts', icon: Users, count: students.length },
                     { id: 'instructors', label: 'Faculty & Instructors', icon: GraduationCap, count: instructors.length },
-                    { id: 'fees', label: 'Tuition & Fee Management', icon: CreditCard, count: feeSummary.pendingCount },
+                    { id: 'fees', label: 'Accounts & Fee Management', icon: CreditCard, count: accountsSummary.pendingCount },
                     { id: 'applications', label: 'Admissions & Review', icon: FileCheck, count: 38 },
                     { id: 'schedules', label: 'Class Schedule Planner', icon: Calendar, count: activeWeeklySlots.length },
                   ].map((tab) => {
@@ -1807,6 +2012,7 @@ export default function AdminDashboard() {
                       <th className="py-3 px-3">Curriculum Progress</th>
                       <th className="py-3 px-3">Attendance</th>
                       <th className="py-3 px-3">Fee Status</th>
+                      <th className="py-3 px-3">Video Access</th>
                       <th className="py-3 px-3 text-right">Actions</th>
                     </tr>
                   </thead>
@@ -1853,6 +2059,34 @@ export default function AdminDashboard() {
                           >
                             {std.feeStatus || 'Paid'}
                           </span>
+                        </td>
+                        <td className="py-3.5 px-3 whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() => handleToggleStudentVideo(std.id, std.name, !!std.isVideoRestricted)}
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold transition-all cursor-pointer border ${
+                              std.isVideoRestricted
+                                ? 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100 shadow-2xs'
+                                : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                            }`}
+                            title={
+                              std.isVideoRestricted
+                                ? `Restricted by ${std.restrictedByAdminName || 'Admin'}. Click to unlock video access.`
+                                : 'Video access is active. Click to restrict video access.'
+                            }
+                          >
+                            {std.isVideoRestricted ? (
+                              <>
+                                <Lock size={11} className="text-red-600" />
+                                <span>Restricted</span>
+                              </>
+                            ) : (
+                              <>
+                                <Unlock size={11} className="text-emerald-600" />
+                                <span>Active</span>
+                              </>
+                            )}
+                          </button>
                         </td>
                         <td className="py-3.5 px-3 text-right whitespace-nowrap">
                           <div className="flex items-center justify-end gap-1.5">
@@ -2022,8 +2256,410 @@ export default function AdminDashboard() {
           )}
 
           {/* Tab 4: Student Tuition & Fee Management */}
+                    {/* Tab 4: Accounts, Fee Installments & Video Access Management */}
           {activeTab === 'fees' && (
-            <div className="bg-white rounded-2xl border border-sand-200 p-6 space-y-6 shadow-xs">
+            <div className="space-y-6">
+              {/* Page Header with Dual Action CTA */}
+              <div className="bg-white rounded-2xl border border-sand-200 p-6 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2.5">
+                    <h2 className="font-heading text-xl font-bold text-ink-900">Accounts &amp; Fee Management</h2>
+                    {accountsSummary.pendingCount > 0 && (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300 animate-pulse">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-600"></span>
+                        {accountsSummary.pendingCount} Verification{accountsSummary.pendingCount > 1 ? 's' : ''} Pending
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-ink-500 mt-1">
+                    Verify payment receipts, create fee installments, and control course video access permissions.
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2.5">
+                  {/* Bulk Restrict Action */}
+                  <button
+                    type="button"
+                    onClick={() => setShowBulkRestrictModal(true)}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-red-50 hover:bg-red-100 text-red-800 text-xs font-bold border border-red-200 transition-all cursor-pointer shadow-2xs"
+                    title="Restrict video playback for all students with overdue installments"
+                  >
+                    <ShieldAlert size={14} className="text-red-600" />
+                    <span>Restrict All Students With Overdue Fees</span>
+                    {overdueEligibleStudents.length > 0 && (
+                      <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-extrabold bg-red-600 text-white">
+                        {overdueEligibleStudents.length}
+                      </span>
+                    )}
+                  </button>
+
+                  {/* Create Installments Action */}
+                  <button
+                    type="button"
+                    onClick={() => setShowCreateInstallmentModal(true)}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#0B3324] hover:bg-[#072419] text-white text-xs font-bold transition-all shadow-sm cursor-pointer"
+                  >
+                    <Plus size={14} />
+                    <span>+ Create Installments</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* View Switcher Pills */}
+              <div className="flex items-center justify-between border-b border-sand-200 pb-2">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setActiveFeeView('installments')}
+                    className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                      activeFeeView === 'installments'
+                        ? 'bg-[#0B3324] text-white shadow-xs'
+                        : 'bg-sand-100 text-ink-600 hover:text-ink-900 hover:bg-sand-200'
+                    }`}
+                  >
+                    <Receipt size={14} />
+                    <span>Fee Installments &amp; Queue</span>
+                    {accountsSummary.pendingCount > 0 && (
+                      <span className={`px-1.5 py-0.2 text-[10px] rounded-full font-bold ${
+                        activeFeeView === 'installments' ? 'bg-amber-400 text-[#0B3324]' : 'bg-amber-100 text-amber-900'
+                      }`}>
+                        {accountsSummary.pendingCount}
+                      </span>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setActiveFeeView('invoices')}
+                    className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                      activeFeeView === 'invoices'
+                        ? 'bg-[#0B3324] text-white shadow-xs'
+                        : 'bg-sand-100 text-ink-600 hover:text-ink-900 hover:bg-sand-200'
+                    }`}
+                  >
+                    <CreditCard size={14} />
+                    <span>Course Invoices &amp; Tuition</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* VIEW 1: FEE INSTALLMENTS & VERIFICATION QUEUE */}
+              {activeFeeView === 'installments' && (
+                <div className="space-y-6">
+                  {/* Financial Ledger KPI Cards */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
+                    <div className="p-4 rounded-xl bg-emerald-50/80 border border-emerald-200 shadow-2xs">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] text-emerald-800 font-bold uppercase tracking-wider">Total Received</span>
+                        <CheckCircle2 size={16} className="text-emerald-600" />
+                      </div>
+                      <div className="text-xl font-bold font-heading text-emerald-950 mt-1">
+                        PKR {accountsSummary.totalReceived.toLocaleString()}
+                      </div>
+                      <span className="text-[10px] text-emerald-700">Approved payments</span>
+                    </div>
+
+                    <div className="p-4 rounded-xl bg-amber-50/80 border border-amber-200 shadow-2xs">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] text-amber-800 font-bold uppercase tracking-wider">Total Receivable</span>
+                        <Clock size={16} className="text-amber-600" />
+                      </div>
+                      <div className="text-xl font-bold font-heading text-amber-950 mt-1">
+                        PKR {accountsSummary.totalReceivable.toLocaleString()}
+                      </div>
+                      <span className="text-[10px] text-amber-700">Unpaid &amp; under review</span>
+                    </div>
+
+                    <div className="p-4 rounded-xl bg-indigo-50/80 border border-indigo-200 shadow-2xs">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] text-indigo-800 font-bold uppercase tracking-wider">Pending Review</span>
+                        <Receipt size={16} className="text-indigo-600" />
+                      </div>
+                      <div className="text-xl font-bold font-heading text-indigo-950 mt-1">
+                        {accountsSummary.pendingCount} Receipts
+                      </div>
+                      <span className="text-[10px] text-indigo-700">Needs admin approval</span>
+                    </div>
+
+                    <div className="p-4 rounded-xl bg-red-50/80 border border-red-200 shadow-2xs">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] text-red-800 font-bold uppercase tracking-wider">Overdue Accounts</span>
+                        <AlertTriangle size={16} className="text-red-600" />
+                      </div>
+                      <div className="text-xl font-bold font-heading text-red-950 mt-1">
+                        {accountsSummary.overdueCount} Accounts
+                      </div>
+                      <span className="text-[10px] text-red-700">Due date passed</span>
+                    </div>
+
+                    <div className="p-4 rounded-xl bg-rose-50/80 border border-rose-200 shadow-2xs">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] text-rose-800 font-bold uppercase tracking-wider">Restricted Students</span>
+                        <Lock size={16} className="text-rose-600" />
+                      </div>
+                      <div className="text-xl font-bold font-heading text-rose-950 mt-1">
+                        {accountsSummary.restrictedStudentsCount} Students
+                      </div>
+                      <span className="text-[10px] text-rose-700">Course video blocked</span>
+                    </div>
+                  </div>
+
+                  {/* Filter Tabs & Search Bar */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {[
+                        { id: 'review', label: 'Pending Review', count: feeInstallments.filter((i) => i.status === 'UNDER_REVIEW').length, badgeColor: 'bg-amber-100 text-amber-900 border-amber-300' },
+                        { id: 'overdue', label: 'Overdue / Unpaid', count: feeInstallments.filter((i) => i.status !== 'APPROVED' && i.dueDate <= todayDateStr).length, badgeColor: 'bg-red-100 text-red-900 border-red-200' },
+                        { id: 'approved', label: 'Approved', count: feeInstallments.filter((i) => i.status === 'APPROVED').length, badgeColor: 'bg-emerald-100 text-emerald-900 border-emerald-200' },
+                        { id: 'rejected', label: 'Rejected', count: feeInstallments.filter((i) => i.status === 'REJECTED').length, badgeColor: 'bg-rose-100 text-rose-900 border-rose-200' },
+                        { id: 'all', label: 'All Installments', count: feeInstallments.length, badgeColor: 'bg-sand-200 text-ink-800' },
+                      ].map((tab) => (
+                        <button
+                          key={tab.id}
+                          type="button"
+                          onClick={() => setInstallmentQueueTab(tab.id)}
+                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                            installmentQueueTab === tab.id
+                              ? 'bg-primary-900 text-white shadow-2xs'
+                              : 'bg-sand-100 text-ink-600 hover:bg-sand-200'
+                          }`}
+                        >
+                          <span>{tab.label}</span>
+                          <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-extrabold ${
+                            installmentQueueTab === tab.id ? 'bg-white/20 text-white' : tab.badgeColor
+                          }`}>
+                            {tab.count}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="relative w-full sm:w-72">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-ink-400" />
+                      <input
+                        type="text"
+                        value={installmentSearch}
+                        onChange={(e) => setInstallmentSearch(e.target.value)}
+                        placeholder="Search student, email, title..."
+                        className="w-full pl-8 pr-3 py-1.5 rounded-xl border border-sand-200 text-xs focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Installments Table */}
+                  <div className="overflow-x-auto rounded-xl border border-sand-200 shadow-2xs bg-white">
+                    <table className="w-full text-left text-sm min-w-[980px]">
+                      <thead className="bg-sand-100/70 text-ink-700 text-xs font-semibold uppercase tracking-wider border-b border-sand-200">
+                        <tr>
+                          <th className="py-3 px-3.5">Student</th>
+                          <th className="py-3 px-3">Installment Milestone</th>
+                          <th className="py-3 px-3">Fixed Amount</th>
+                          <th className="py-3 px-3">Payment Status</th>
+                          <th className="py-3 px-3">Receipt Proof</th>
+                          <th className="py-3 px-3">Course Video Access</th>
+                          <th className="py-3 px-3 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-sand-100 text-ink-800">
+                        {filteredInstallments.map((inst) => {
+                          const student = students.find((s) => s.id === inst.studentId);
+                          const isRestricted = !!(student?.isVideoRestricted);
+                          const isOverdue = inst.status !== 'APPROVED' && inst.dueDate <= todayDateStr;
+
+                          return (
+                            <tr key={inst.id} className="hover:bg-sand-50/70 transition-colors">
+                              <td className="py-3.5 px-3.5">
+                                <div className="font-semibold text-ink-900">{inst.studentName || student?.name || 'Student'}</div>
+                                <div className="text-xs text-ink-500">{inst.studentEmail || student?.email || inst.studentId}</div>
+                                <span className="text-[10px] text-ink-400 bg-sand-100 px-1.5 py-0.2 rounded font-mono">{inst.studentId}</span>
+                              </td>
+
+                              <td className="py-3.5 px-3">
+                                <div className="font-semibold text-ink-800 text-xs flex items-center gap-1.5">
+                                  <span>{inst.title}</span>
+                                  <span className="text-[10px] font-mono font-bold text-primary-900 bg-primary-50 px-1.5 py-0.2 rounded border border-primary-200">
+                                    #{inst.challanNo || '23528335'}
+                                  </span>
+                                </div>
+                                <div className={`text-[11px] ${isOverdue ? 'text-red-600 font-bold' : 'text-ink-500'}`}>
+                                  Due: {inst.dueDate} {isOverdue && '(Overdue)'}
+                                </div>
+                                {inst.submittedAt && (
+                                  <div className="text-[10px] text-ink-400">
+                                    Submitted: {new Date(inst.submittedAt).toLocaleDateString()}
+                                  </div>
+                                )}
+                              </td>
+
+                              <td className="py-3.5 px-3 text-xs">
+                                <div className="font-bold text-ink-900 font-heading text-sm">
+                                  PKR {inst.amount?.toLocaleString()}
+                                </div>
+                                <span className="text-[10px] text-ink-400">Fixed Milestone</span>
+                              </td>
+
+                              <td className="py-3.5 px-3 whitespace-nowrap">
+                                {inst.status === 'APPROVED' && (
+                                  <div>
+                                    <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200">
+                                      <CheckCircle2 size={11} className="text-emerald-600" />
+                                      Approved
+                                    </span>
+                                    {inst.approvedByName && (
+                                      <div className="text-[10px] text-ink-500 font-medium mt-0.5">
+                                        Approved by <strong className="text-ink-800">{inst.approvedByName}</strong>
+                                        {inst.approvedAt && ` on ${new Date(inst.approvedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+
+                                {inst.status === 'UNDER_REVIEW' && (
+                                  <span className="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-300 animate-pulse">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                                    Verification Pending
+                                  </span>
+                                )}
+
+                                {inst.status === 'REJECTED' && (
+                                  <div>
+                                    <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-rose-50 text-rose-800 border border-rose-200">
+                                      <AlertTriangle size={11} className="text-rose-600" />
+                                      Rejected
+                                    </span>
+                                    {inst.rejectionReason && (
+                                      <div className="text-[10px] text-rose-600 max-w-[150px] truncate mt-0.5" title={inst.rejectionReason}>
+                                        Reason: {inst.rejectionReason}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+
+                                {inst.status === 'UNPAID' && (
+                                  <span className={`inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
+                                    isOverdue
+                                      ? 'bg-red-50 text-red-800 border-red-200'
+                                      : 'bg-sand-100 text-ink-600 border-sand-200'
+                                  }`}>
+                                    {isOverdue ? 'Overdue (Unpaid)' : 'Unpaid'}
+                                  </span>
+                                )}
+                              </td>
+
+                              <td className="py-3.5 px-3">
+                                {inst.receiptImageUrl ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setInspectingInst(inst);
+                                      setIsRejectingMode(false);
+                                      setRejectionReasonInput('');
+                                    }}
+                                    className="group flex items-center gap-2 p-1 rounded-lg hover:bg-sand-100 transition-colors cursor-pointer"
+                                    title="Click to inspect receipt screenshot"
+                                  >
+                                    <div className="w-10 h-10 rounded-md overflow-hidden bg-sand-200 border border-sand-300 shrink-0 relative">
+                                      <img
+                                        src={inst.receiptImageUrl}
+                                        alt="Receipt proof"
+                                        className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                                      />
+                                      <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                        <Eye size={12} className="text-white" />
+                                      </div>
+                                    </div>
+                                    <span className="text-[11px] font-semibold text-[#0B3324] underline underline-offset-2">Inspect</span>
+                                  </button>
+                                ) : (
+                                  <span className="text-[11px] text-ink-400 italic">No receipt</span>
+                                )}
+                              </td>
+
+                              <td className="py-3.5 px-3 whitespace-nowrap">
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleStudentVideo(inst.studentId, inst.studentName, isRestricted)}
+                                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold transition-all cursor-pointer border ${
+                                    isRestricted
+                                      ? 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100 shadow-2xs'
+                                      : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                                  }`}
+                                  title={
+                                    isRestricted
+                                      ? `Restricted by ${student?.restrictedByAdminName || 'Admin'}. Click to restore video access.`
+                                      : 'Video playback is active. Click to lock access.'
+                                  }
+                                >
+                                  {isRestricted ? (
+                                    <>
+                                      <Lock size={11} className="text-red-600" />
+                                      <span>Restricted</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Unlock size={11} className="text-emerald-600" />
+                                      <span>Active</span>
+                                    </>
+                                  )}
+                                </button>
+                                {isRestricted && student?.restrictedByAdminName && (
+                                  <div className="text-[9px] text-ink-400 mt-0.5">by {student.restrictedByAdminName}</div>
+                                )}
+                              </td>
+
+                              <td className="py-3.5 px-3 text-right whitespace-nowrap">
+                                {inst.status === 'UNDER_REVIEW' ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setInspectingInst(inst);
+                                      setIsRejectingMode(false);
+                                      setRejectionReasonInput('');
+                                    }}
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0B3324] hover:bg-[#072419] text-white text-xs font-bold transition-all cursor-pointer shadow-xs"
+                                  >
+                                    <CheckCircle2 size={13} className="text-emerald-400" />
+                                    <span>Inspect &amp; Verify</span>
+                                  </button>
+                                ) : inst.receiptImageUrl ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setInspectingInst(inst);
+                                      setIsRejectingMode(false);
+                                      setRejectionReasonInput('');
+                                    }}
+                                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white hover:bg-sand-100 text-ink-700 text-xs font-semibold border border-sand-300 transition-colors cursor-pointer"
+                                  >
+                                    <Eye size={12} />
+                                    <span>View Receipt</span>
+                                  </button>
+                                ) : (
+                                  <span className="text-[11px] text-ink-400">—</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+
+                        {filteredInstallments.length === 0 && (
+                          <tr>
+                            <td colSpan={7} className="py-10 text-center">
+                              <Receipt className="mx-auto h-8 w-8 text-ink-300 mb-2" />
+                              <p className="text-xs font-bold text-ink-700">No installments found</p>
+                              <p className="text-[11px] text-ink-500">There are no installment records matching your current filter.</p>
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* VIEW 2: COURSE INVOICES & TUITION (LEGACY) */}
+              {activeFeeView === 'invoices' && (
+                <div className="bg-white rounded-2xl border border-sand-200 p-6 space-y-6 shadow-xs">
               {/* Fee KPI Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div className="p-4 rounded-xl bg-sand-50 border border-sand-200">
@@ -2653,7 +3289,9 @@ export default function AdminDashboard() {
                 </table>
               </div>
             </div>
-          )}
+            )}
+          </div>
+        )}
 
           {/* Tab 5: Admissions & Review */}
           {activeTab === 'applications' && (
@@ -5032,6 +5670,441 @@ export default function AdminDashboard() {
             <button
               type="button"
               onClick={() => setScheduleToast(null)}
+              className="text-primary-300 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-colors"
+            >
+              <X size={15} />
+            </button>
+          </div>
+        )}
+
+        {/* ======================================================== */}
+        {/* 1. RECEIPT INSPECTION & VERIFICATION MODAL               */}
+        {/* ======================================================== */}
+        {inspectingInst && (
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-fadeIn">
+            <div className="bg-white rounded-2xl max-w-2xl w-full border border-sand-300 shadow-2xl overflow-hidden my-8">
+              {/* Modal Header */}
+              <div className="px-6 py-4 bg-sand-50 border-b border-sand-200 flex items-center justify-between">
+                <div>
+                  <h3 className="font-heading text-lg font-bold text-ink-900">
+                    Verify Payment Proof Receipt
+                  </h3>
+                  <p className="text-xs text-ink-500">
+                    Review uploaded transfer screenshot, verify amount, and update access permissions.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInspectingInst(null);
+                    setIsRejectingMode(false);
+                    setRejectionReasonInput('');
+                  }}
+                  className="p-1.5 rounded-lg text-ink-400 hover:text-ink-900 hover:bg-sand-200 transition-colors"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Modal Body */}
+              <div className="p-6 space-y-5 max-h-[75vh] overflow-y-auto">
+                {/* Student & Milestone Details Grid */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 rounded-xl bg-sand-50/70 border border-sand-200 text-xs">
+                  <div>
+                    <span className="text-ink-400 block text-[10px] uppercase font-bold">Student</span>
+                    <span className="font-bold text-ink-900 block truncate">{inspectingInst.studentName}</span>
+                    <span className="text-[10px] text-ink-500 block truncate">{inspectingInst.studentEmail}</span>
+                  </div>
+                  <div>
+                    <span className="text-ink-400 block text-[10px] uppercase font-bold">Milestone</span>
+                    <span className="font-bold text-ink-900 block">{inspectingInst.title}</span>
+                    <span className="text-[10px] text-ink-500 block">Due: {inspectingInst.dueDate}</span>
+                  </div>
+                  <div>
+                    <span className="text-ink-400 block text-[10px] uppercase font-bold">Fixed Amount</span>
+                    <span className="font-bold text-emerald-800 font-heading text-sm block">
+                      PKR {inspectingInst.amount?.toLocaleString()}
+                    </span>
+                    <span className="text-[10px] text-ink-500 block">Full Installment</span>
+                  </div>
+                  <div>
+                    <span className="text-ink-400 block text-[10px] uppercase font-bold">Status</span>
+                    <span className="inline-block mt-0.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                      {inspectingInst.status}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Auto-Unlock Information Callout */}
+                <div className="p-3.5 rounded-xl bg-emerald-50/90 border border-emerald-200 text-xs flex items-start gap-2.5">
+                  <CheckCircle2 size={16} className="text-emerald-700 shrink-0 mt-0.5" />
+                  <div className="text-emerald-900 leading-relaxed text-[11px]">
+                    <strong className="block font-bold">Automatic Video Access Unlock:</strong>
+                    Approving this receipt checks whether all installments due up to today for this student are now cleared. If no overdue dues remain, course video playback is <strong>automatically restored</strong>.
+                  </div>
+                </div>
+
+                {/* Admin Audit Stamp (if approved) */}
+                {inspectingInst.approvedByName && (
+                  <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-900 flex items-center gap-2">
+                    <CheckCircle2 size={15} className="text-emerald-600" />
+                    <span>
+                      Audit Record: Verified &amp; Approved by <strong>{inspectingInst.approvedByName}</strong>
+                      {inspectingInst.approvedAt && ` on ${new Date(inspectingInst.approvedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`}
+                    </span>
+                  </div>
+                )}
+
+                {/* Receipt Image Display */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-bold text-ink-800 flex items-center gap-1.5">
+                      <Image size={14} className="text-ink-500" />
+                      Uploaded Payment Screenshot
+                    </span>
+                    {inspectingInst.receiptImageUrl && (
+                      <a
+                        href={inspectingInst.receiptImageUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[11px] text-[#0B3324] font-bold hover:underline inline-flex items-center gap-1"
+                      >
+                        <ZoomIn size={12} />
+                        Open High-Resolution Original
+                      </a>
+                    )}
+                  </div>
+
+                  {inspectingInst.receiptImageUrl ? (
+                    <div className="rounded-xl border border-sand-300 bg-sand-100 overflow-hidden flex items-center justify-center p-2 max-h-[380px]">
+                      <img
+                        src={inspectingInst.receiptImageUrl}
+                        alt="Receipt preview"
+                        className="max-h-[360px] w-auto object-contain rounded-lg shadow-xs"
+                      />
+                    </div>
+                  ) : (
+                    <div className="p-8 text-center rounded-xl border border-dashed border-sand-300 bg-sand-50 text-xs text-ink-500">
+                      No receipt screenshot attached.
+                    </div>
+                  )}
+                </div>
+
+                {/* Rejection Form Drawer (if admin clicks Reject) */}
+                {isRejectingMode && (
+                  <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 space-y-3 animate-fadeIn">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-rose-900 flex items-center gap-1.5">
+                        <AlertTriangle size={14} className="text-rose-600" />
+                        Specify Rejection Reason (Required)
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setIsRejectingMode(false)}
+                        className="text-[11px] text-rose-700 hover:text-rose-900 underline"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                    <textarea
+                      rows={2}
+                      value={rejectionReasonInput}
+                      onChange={(e) => setRejectionReasonInput(e.target.value)}
+                      placeholder="e.g. Transaction ID unreadable, transfer amount mismatch, blurred bank statement..."
+                      className="w-full p-2.5 rounded-lg border border-rose-300 bg-white text-xs focus:outline-none focus:ring-2 focus:ring-rose-500/30 text-ink-900 placeholder:text-ink-400"
+                    />
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => handleRejectInstallmentAction(inspectingInst)}
+                        className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition-all shadow-xs cursor-pointer"
+                      >
+                        Confirm Rejection &amp; Notify Student
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Modal Footer Actions */}
+              <div className="px-6 py-4 bg-sand-50 border-t border-sand-200 flex flex-wrap items-center justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInspectingInst(null);
+                    setIsRejectingMode(false);
+                    setRejectionReasonInput('');
+                  }}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-ink-600 hover:text-ink-900 hover:bg-sand-200 transition-colors"
+                >
+                  Close
+                </button>
+
+                <div className="flex items-center gap-2.5">
+                  {!isRejectingMode && (
+                    <button
+                      type="button"
+                      onClick={() => setIsRejectingMode(true)}
+                      className="px-4 py-2 rounded-xl text-xs font-bold bg-white text-rose-700 border border-rose-200 hover:bg-rose-50 transition-colors cursor-pointer"
+                    >
+                      Reject Payment Proof
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => handleApproveInstallmentAction(inspectingInst)}
+                    className="inline-flex items-center gap-1.5 px-5 py-2 rounded-xl bg-[#0B3324] hover:bg-[#072419] text-white text-xs font-bold transition-all shadow-xs cursor-pointer"
+                  >
+                    <CheckCircle2 size={15} className="text-emerald-300" />
+                    <span>Approve Payment &amp; Verify</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ======================================================== */}
+        {/* 2. CREATE INSTALLMENTS MODAL                             */}
+        {/* ======================================================== */}
+        {showCreateInstallmentModal && (
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-fadeIn">
+            <div className="bg-white rounded-2xl max-w-lg w-full border border-sand-300 shadow-2xl overflow-hidden my-8">
+              <div className="px-6 py-4 bg-sand-50 border-b border-sand-200 flex items-center justify-between">
+                <div>
+                  <h3 className="font-heading text-lg font-bold text-ink-900">
+                    Create Fee Installments
+                  </h3>
+                  <p className="text-xs text-ink-500">
+                    Assign fixed installment milestone deadlines to single or all enrolled students.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowCreateInstallmentModal(false)}
+                  className="p-1.5 rounded-lg text-ink-400 hover:text-ink-900 hover:bg-sand-200 transition-colors"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <form onSubmit={handleCreateInstallmentsSubmit} className="p-6 space-y-4">
+                {/* Target Students Selection */}
+                <div>
+                  <label className="text-xs font-bold text-ink-800 block mb-1.5">
+                    Target Student Assignment
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className={`flex items-center gap-2 p-3 rounded-xl border text-xs font-semibold cursor-pointer transition-all ${
+                      createForm.studentSelection === 'all'
+                        ? 'bg-emerald-50/80 border-[#0B3324] text-[#0B3324]'
+                        : 'bg-sand-50 border-sand-200 text-ink-700 hover:bg-sand-100'
+                    }`}>
+                      <input
+                        type="radio"
+                        name="studentSelection"
+                        checked={createForm.studentSelection === 'all'}
+                        onChange={() => setCreateForm({ ...createForm, studentSelection: 'all' })}
+                        className="text-[#0B3324] focus:ring-[#0B3324]"
+                      />
+                      <span>All Students ({students.length})</span>
+                    </label>
+
+                    <label className={`flex items-center gap-2 p-3 rounded-xl border text-xs font-semibold cursor-pointer transition-all ${
+                      createForm.studentSelection === 'specific'
+                        ? 'bg-emerald-50/80 border-[#0B3324] text-[#0B3324]'
+                        : 'bg-sand-50 border-sand-200 text-ink-700 hover:bg-sand-100'
+                    }`}>
+                      <input
+                        type="radio"
+                        name="studentSelection"
+                        checked={createForm.studentSelection === 'specific'}
+                        onChange={() => setCreateForm({ ...createForm, studentSelection: 'specific' })}
+                        className="text-[#0B3324] focus:ring-[#0B3324]"
+                      />
+                      <span>Specific Students</span>
+                    </label>
+                  </div>
+
+                  {createForm.studentSelection === 'specific' && (
+                    <div className="mt-2.5 p-3 rounded-xl border border-sand-200 bg-sand-50/60 max-h-40 overflow-y-auto space-y-1.5">
+                      {students.map((std) => {
+                        const isChecked = createForm.selectedStudentIds.includes(std.id);
+                        return (
+                          <label key={std.id} className="flex items-center gap-2 text-xs text-ink-800 cursor-pointer hover:bg-sand-100 p-1 rounded">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={(e) => {
+                                const next = e.target.checked
+                                  ? [...createForm.selectedStudentIds, std.id]
+                                  : createForm.selectedStudentIds.filter((id) => id !== std.id);
+                                setCreateForm({ ...createForm, selectedStudentIds: next });
+                              }}
+                              className="rounded text-[#0B3324] focus:ring-[#0B3324]"
+                            />
+                            <span className="font-semibold">{std.name}</span>
+                            <span className="text-[10px] text-ink-400">({std.email})</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Installment Title */}
+                <div>
+                  <label className="text-xs font-bold text-ink-800 block mb-1">
+                    Installment Title / Milestone
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={createForm.title}
+                    onChange={(e) => setCreateForm({ ...createForm, title: e.target.value })}
+                    placeholder="e.g. Installment 1 - Semester 1, Registration Fee"
+                    className="w-full px-3 py-2 rounded-xl border border-sand-200 text-xs focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+                  />
+                </div>
+
+                {/* Fixed Amount */}
+                <div>
+                  <label className="text-xs font-bold text-ink-800 block mb-1">
+                    Fixed Amount (PKR)
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    required
+                    value={createForm.amount}
+                    onChange={(e) => setCreateForm({ ...createForm, amount: e.target.value })}
+                    placeholder="8000"
+                    className="w-full px-3 py-2 rounded-xl border border-sand-200 text-xs focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 font-mono"
+                  />
+                  <span className="text-[10px] text-ink-400 mt-0.5 block">
+                    Fixed installment amount — partial payments are not permitted.
+                  </span>
+                </div>
+
+                {/* Due Date */}
+                <div>
+                  <label className="text-xs font-bold text-ink-800 block mb-1">
+                    Payment Due Date
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={createForm.dueDate}
+                    onChange={(e) => setCreateForm({ ...createForm, dueDate: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl border border-sand-200 text-xs focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+                  />
+                </div>
+
+                <div className="pt-3 border-t border-sand-200 flex items-center justify-end gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setShowCreateInstallmentModal(false)}
+                    className="px-4 py-2 rounded-xl text-xs font-semibold text-ink-600 hover:text-ink-900 hover:bg-sand-100 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-2 rounded-xl bg-[#0B3324] hover:bg-[#072419] text-white text-xs font-bold transition-all shadow-sm cursor-pointer"
+                  >
+                    Create &amp; Assign Installments
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* ======================================================== */}
+        {/* 3. BULK RESTRICT OVERDUE CONFIRMATION MODAL             */}
+        {/* ======================================================== */}
+        {showBulkRestrictModal && (
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-fadeIn">
+            <div className="bg-white rounded-2xl max-w-md w-full border border-sand-300 shadow-2xl overflow-hidden my-8 p-6 space-y-4">
+              <div className="w-12 h-12 rounded-2xl bg-red-100 text-red-700 flex items-center justify-center mx-auto border border-red-200">
+                <ShieldAlert size={26} />
+              </div>
+
+              <div className="text-center space-y-1">
+                <h3 className="font-heading text-lg font-bold text-ink-900">
+                  Restrict Course Video Access?
+                </h3>
+                <p className="text-xs text-ink-600 leading-relaxed">
+                  This action will immediately restrict course video playback for all students with pending overdue installments (due date on or before today).
+                </p>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-red-50/80 border border-red-200 text-xs space-y-2">
+                <div className="font-bold text-red-900 flex items-center justify-between">
+                  <span>Eligible Overdue Accounts:</span>
+                  <span className="px-2 py-0.5 rounded-full bg-red-600 text-white font-extrabold text-[11px]">
+                    {overdueEligibleStudents.length} Students
+                  </span>
+                </div>
+                {overdueEligibleStudents.length > 0 ? (
+                  <ul className="divide-y divide-red-200/60 max-h-32 overflow-y-auto text-[11px] text-red-800">
+                    {overdueEligibleStudents.map((s) => (
+                      <li key={s.id} className="py-1 flex items-center justify-between">
+                        <span className="font-semibold">{s.name}</span>
+                        <span className="text-[10px] text-red-600 font-mono">{s.id}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-[11px] text-red-700 italic">No unrestricted overdue accounts found.</p>
+                )}
+              </div>
+
+              <div className="text-[11px] text-ink-500 leading-relaxed">
+                <em>Note: Approving a student's overdue fee receipt in the future will automatically unlock their video access.</em>
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowBulkRestrictModal(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-ink-600 hover:text-ink-900 hover:bg-sand-100 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmBulkRestrict}
+                  disabled={overdueEligibleStudents.length === 0}
+                  className="px-5 py-2 rounded-xl bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-xs font-bold transition-all shadow-sm cursor-pointer"
+                >
+                  Confirm &amp; Restrict Access
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ======================================================== */}
+        {/* 4. ACCOUNTS FLOATING TOAST NOTIFICATION                 */}
+        {/* ======================================================== */}
+        {accountsToast && (
+          <div className="fixed bottom-6 right-6 z-50 max-w-md bg-[#0B3324] text-white p-4 rounded-2xl shadow-2xl border border-emerald-800 flex items-start gap-3 animate-slideIn">
+            <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center shrink-0 mt-0.5">
+              {accountsToast.type === 'error' ? (
+                <AlertTriangle size={18} className="text-rose-400" />
+              ) : (
+                <CheckCircle2 size={18} className="text-emerald-400" />
+              )}
+            </div>
+            <div className="flex-1 text-xs leading-relaxed">
+              <span className="font-bold text-emerald-300 block mb-0.5">{accountsToast.title}</span>
+              <p className="text-sand-100">{accountsToast.message}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setAccountsToast(null)}
               className="text-primary-300 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-colors"
             >
               <X size={15} />

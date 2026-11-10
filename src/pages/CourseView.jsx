@@ -13,7 +13,7 @@
  */
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   BookOpen,
@@ -26,6 +26,7 @@ import {
   CheckCircle,
   Video,
   ExternalLink,
+  Lock,
 } from 'lucide-react';
 
 import Layout from '../components/layout/Layout';
@@ -40,9 +41,22 @@ import Card from '../components/ui/Card';
 import Avatar from '../components/ui/Avatar';
 
 import { courseDetail as defaultCourseDetail, courseFormats, enrolledCourses } from '../data/mockData';
-import { getCourseDetailById, saveCourseDetail, updateCourseProgress } from '../services/courseStorage';
+import { getCourseDetailById, saveCourseDetail, updateCourseProgress, getStudentVideoRestriction } from '../services/courseStorage';
 
 export default function CourseView() {
+  const [restriction, setRestriction] = useState(() => getStudentVideoRestriction());
+
+  useEffect(() => {
+    const handleRestrictionUpdate = () => {
+      setRestriction(getStudentVideoRestriction());
+    };
+    window.addEventListener('ilm-video-restriction-updated', handleRestrictionUpdate);
+    window.addEventListener('storage', handleRestrictionUpdate);
+    return () => {
+      window.removeEventListener('ilm-video-restriction-updated', handleRestrictionUpdate);
+      window.removeEventListener('storage', handleRestrictionUpdate);
+    };
+  }, []);
   const { id } = useParams();
   const navigate = useNavigate();
 
@@ -221,7 +235,29 @@ export default function CourseView() {
         </div>
 
         {/* Main Content Area */}
-        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 transition-all duration-300">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 transition-all duration-300 space-y-4">
+          {restriction.isVideoRestricted && (
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl bg-gradient-to-r from-red-950 via-red-900 to-red-950 text-white border border-red-500/40 shadow-sm animate-fadeIn">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-red-800/80 border border-red-500/50 flex items-center justify-center shrink-0 text-red-200">
+                  <Lock size={18} />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold font-heading">Course Video Playback Blocked</h4>
+                  <p className="text-xs text-red-200">
+                    Your video lecture access is currently restricted due to overdue fee installments. Pay your overdue dues to automatically restore access.
+                  </p>
+                </div>
+              </div>
+              <Link
+                to="/accounts"
+                className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-ink-950 text-xs font-bold shrink-0 transition-colors cursor-pointer shadow-xs"
+              >
+                <span>View Accounts &amp; Pay Dues →</span>
+              </Link>
+            </div>
+          )}
+
           <div className="flex flex-col lg:flex-row gap-6 items-start">
             {/* Curriculum Sidebar (handles both desktop sticky sidebar & mobile drawer) */}
             <CurriculumSidebar
