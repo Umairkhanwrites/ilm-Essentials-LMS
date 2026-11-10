@@ -17,7 +17,9 @@ import {
   GraduationCap,
 } from 'lucide-react';
 import {
-  getScheduleSlots,
+  isStudentEnrolledInFoundations,
+  getStudentScheduleSlots,
+  getEnrolledCourses,
   formatSlotTimeRange,
   formatTime12h,
 } from '../../services/courseStorage';
@@ -35,7 +37,9 @@ const DAYS_OF_WEEK = [
 export default function AcademicTimetableModal({ isOpen, onClose }) {
   if (!isOpen) return null;
 
-  const [slots] = useState(() => getScheduleSlots());
+  const isFoundationsEnrolled = useMemo(() => isStudentEnrolledInFoundations(), []);
+  const enrolledCourses = useMemo(() => getEnrolledCourses(), []);
+  const [slots] = useState(() => getStudentScheduleSlots());
   const [selectedModality, setSelectedModality] = useState('all');
   const [selectedDay, setSelectedDay] = useState('all');
   const [viewMode, setViewMode] = useState('table'); // 'table', 'agenda', or 'weekly'
@@ -192,197 +196,283 @@ export default function AcademicTimetableModal({ isOpen, onClose }) {
 
         {/* Content Area */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
-          {viewMode === 'table' && (
-            /* MODE 0: OFFICIAL TIMETABLE TABLE */
-            <div className="bg-white rounded-2xl border border-sand-200 shadow-2xs overflow-hidden">
-              {/* Heading Banner Before Table */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-5 py-4 bg-gradient-to-r from-emerald-50/60 via-sand-50/40 to-white border-b border-sand-200">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-emerald-100/80 text-emerald-900 border border-emerald-200 flex items-center justify-center shrink-0">
-                    <GraduationCap size={20} />
-                  </div>
-                  <div>
-                    <h2 className="text-base sm:text-lg font-heading font-bold text-ink-900 leading-tight">
-                      Ilm Foundations
-                    </h2>
-                    <p className="text-xs text-ink-600 mt-0.5">
-                      8-Month Certificate Programme &bull; Tuesday, Wednesday &amp; Thursday (6:30 PM – 9:00 PM PKT)
-                    </p>
-                  </div>
-                </div>
-                <div className="hidden sm:flex items-center gap-1.5 text-xs text-ink-600 font-medium bg-white px-3 py-1.5 rounded-lg border border-sand-200 shadow-2xs">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                  <span>Live Classes</span>
-                </div>
+          {!isFoundationsEnrolled && slots.length === 0 ? (
+            <div className="bg-sand-50/50 rounded-2xl border border-sand-200 p-8 text-center max-w-lg mx-auto space-y-4">
+              <div className="w-12 h-12 mx-auto rounded-xl bg-sand-100 border border-sand-200 text-ink-700 flex items-center justify-center">
+                <Calendar size={24} className="text-primary-800" />
               </div>
-
-              <div className="overflow-x-auto">
-                <table className="w-full text-center border-collapse">
-                  <thead>
-                    <tr className="border-b border-sand-200 bg-sand-50/70 text-ink-900">
-                      <th className="py-4 px-4 sm:px-6 text-left font-heading font-bold text-xs sm:text-sm text-ink-700 w-1/4 sm:w-1/5 border-r border-sand-200/80">
-                        Time Slot
-                      </th>
-                      <th className="py-4 px-4 sm:px-6 font-heading font-bold text-sm sm:text-base text-ink-900 w-1/4 border-r border-sand-200/80">
-                        Tuesday
-                      </th>
-                      <th className="py-4 px-4 sm:px-6 font-heading font-bold text-sm sm:text-base text-ink-900 w-1/4 border-r border-sand-200/80">
-                        Wednesday
-                      </th>
-                      <th className="py-4 px-4 sm:px-6 font-heading font-bold text-sm sm:text-base text-ink-900 w-1/4">
-                        Thursday
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-sand-200">
-                    {/* Row 1: 6:30 PM - 7:30 PM */}
-                    <tr className="hover:bg-sand-50/40 transition-colors">
-                      <td className="py-6 px-4 sm:px-6 text-left font-bold text-xs sm:text-sm text-ink-900 bg-sand-50/40 border-r border-sand-200/80 whitespace-nowrap">
-                        6:30 PM - 7:30 PM
-                      </td>
-                      {/* Tuesday: Qur'ānic Arabic */}
-                      <td className="py-6 px-4 sm:px-6 align-middle border-r border-sand-200/80">
-                        <div className="flex flex-col items-center justify-center space-y-1">
-                          <span className="font-heading font-bold text-sm sm:text-base text-ink-900">
-                            Qur'ānic Arabic
-                          </span>
-                          <span className="text-xs sm:text-sm text-ink-600 italic">
-                            Dr. Mutee Ur Rehman
-                          </span>
-                          <a
-                            href="https://meet.google.com/cbh-ywhg-upu"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800 hover:text-emerald-950 underline underline-offset-2"
-                          >
-                            Launch Meet <ExternalLink size={11} />
-                          </a>
-                        </div>
-                      </td>
-                      {/* Wednesday: Fiqh */}
-                      <td className="py-6 px-4 sm:px-6 align-middle border-r border-sand-200/80">
-                        <div className="flex flex-col items-center justify-center space-y-1">
-                          <span className="font-heading font-bold text-sm sm:text-base text-ink-900">
-                            Fiqh
-                          </span>
-                          <span className="text-xs sm:text-sm text-ink-600 italic">
-                            Dr. Hafiz Muhammad Zubair
-                          </span>
-                          <a
-                            href="https://meet.google.com/cbh-ywhg-upu"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800 hover:text-emerald-950 underline underline-offset-2"
-                          >
-                            Launch Meet <ExternalLink size={11} />
-                          </a>
-                        </div>
-                      </td>
-                      {/* Thursday: Why Islam */}
-                      <td className="py-6 px-4 sm:px-6 align-middle">
-                        <div className="flex flex-col items-center justify-center space-y-1">
-                          <span className="font-heading font-bold text-sm sm:text-base text-ink-900">
-                            Why Islam
-                          </span>
-                          <span className="text-xs sm:text-sm text-ink-600 italic">
-                            Sir Ahmed Khan
-                          </span>
-                          <a
-                            href="https://meet.google.com/cbh-ywhg-upu"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800 hover:text-emerald-950 underline underline-offset-2"
-                          >
-                            Launch Meet <ExternalLink size={11} />
-                          </a>
-                        </div>
-                      </td>
-                    </tr>
-
-                    {/* Row 2: 7:30 PM - 8:00 PM (Break) */}
-                    <tr className="bg-sand-50/60">
-                      <td className="py-4 px-4 sm:px-6 text-left font-bold text-xs sm:text-sm text-ink-900 bg-sand-100/40 border-r border-sand-200/80 whitespace-nowrap">
-                        7:30 PM - 8:00 PM
-                      </td>
-                      <td className="py-4 px-4 sm:px-6 text-xs sm:text-sm text-ink-500 font-medium border-r border-sand-200/80">
-                        Break
-                      </td>
-                      <td className="py-4 px-4 sm:px-6 text-xs sm:text-sm text-ink-500 font-medium border-r border-sand-200/80">
-                        Break
-                      </td>
-                      <td className="py-4 px-4 sm:px-6 text-xs sm:text-sm text-ink-500 font-medium">
-                        Break
-                      </td>
-                    </tr>
-
-                    {/* Row 3: 8:00 PM - 9:00 PM */}
-                    <tr className="hover:bg-sand-50/40 transition-colors">
-                      <td className="py-6 px-4 sm:px-6 text-left font-bold text-xs sm:text-sm text-ink-900 bg-sand-50/40 border-r border-sand-200/80 whitespace-nowrap">
-                        8:00 PM - 9:00 PM
-                      </td>
-                      {/* Tuesday: Tajwīd */}
-                      <td className="py-6 px-4 sm:px-6 align-middle border-r border-sand-200/80">
-                        <div className="flex flex-col items-center justify-center space-y-1">
-                          <span className="font-heading font-bold text-sm sm:text-base text-ink-900">
-                            Tajwīd
-                          </span>
-                          <span className="text-xs sm:text-sm text-ink-600 italic">
-                            Qari Salman Saleem
-                          </span>
-                          <a
-                            href="https://meet.google.com/cbh-ywhg-upu"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800 hover:text-emerald-950 underline underline-offset-2"
-                          >
-                            Launch Meet <ExternalLink size={11} />
-                          </a>
-                        </div>
-                      </td>
-                      {/* Wednesday: Tafsīr */}
-                      <td className="py-6 px-4 sm:px-6 align-middle border-r border-sand-200/80">
-                        <div className="flex flex-col items-center justify-center space-y-1">
-                          <span className="font-heading font-bold text-sm sm:text-base text-ink-900">
-                            Tafsīr
-                          </span>
-                          <span className="text-xs sm:text-sm text-ink-600 italic">
-                            Shaykh Hamid Kamal UD DIn
-                          </span>
-                          <a
-                            href="https://meet.google.com/cbh-ywhg-upu"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800 hover:text-emerald-950 underline underline-offset-2"
-                          >
-                            Launch Meet <ExternalLink size={11} />
-                          </a>
-                        </div>
-                      </td>
-                      {/* Thursday: Sīrah */}
-                      <td className="py-6 px-4 sm:px-6 align-middle">
-                        <div className="flex flex-col items-center justify-center space-y-1">
-                          <span className="font-heading font-bold text-sm sm:text-base text-ink-900">
-                            Sīrah
-                          </span>
-                          <span className="text-xs sm:text-sm text-ink-600 italic">
-                            Sir Ali Ahmed Saeed
-                          </span>
-                          <a
-                            href="https://meet.google.com/cbh-ywhg-upu"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800 hover:text-emerald-950 underline underline-offset-2"
-                          >
-                            Launch Meet <ExternalLink size={11} />
-                          </a>
-                        </div>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
+              <div className="space-y-1.5">
+                <h3 className="font-heading font-bold text-base text-ink-900">
+                  No Live Timetable for Your Enrolled Courses
+                </h3>
+                <p className="text-xs text-ink-600 leading-relaxed">
+                  {enrolledCourses.length > 0 ? (
+                    <>
+                      You are enrolled in{' '}
+                      <span className="font-semibold text-ink-900">
+                        {enrolledCourses.map((c) => c.title).join(', ')}
+                      </span>
+                      . These courses feature on-demand recorded lessons.
+                    </>
+                  ) : (
+                    <>You are not enrolled in any courses with a live timetable.</>
+                  )}
+                </p>
+              </div>
+              <div className="p-3 rounded-lg bg-white border border-sand-200 text-xs text-ink-600 text-left flex items-start gap-2.5">
+                <GraduationCap size={16} className="text-primary-800 shrink-0 mt-0.5" />
+                <p>
+                  The weekly live timetable and Google Meet sessions are reserved exclusively for students enrolled in the <strong>Ilm Foundations 8-Month Certificate Programme</strong>.
+                </p>
               </div>
             </div>
-          )}
+          ) : viewMode === 'table' ? (
+            isFoundationsEnrolled ? (
+              /* MODE 0: OFFICIAL TIMETABLE TABLE */
+              <div className="bg-white rounded-2xl border border-sand-200 shadow-2xs overflow-hidden">
+                {/* Heading Banner Before Table */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-5 py-4 bg-gradient-to-r from-emerald-50/60 via-sand-50/40 to-white border-b border-sand-200">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-emerald-100/80 text-emerald-900 border border-emerald-200 flex items-center justify-center shrink-0">
+                      <GraduationCap size={20} />
+                    </div>
+                    <div>
+                      <h2 className="text-base sm:text-lg font-heading font-bold text-ink-900 leading-tight">
+                        Ilm Foundations
+                      </h2>
+                      <p className="text-xs text-ink-600 mt-0.5">
+                        8-Month Certificate Programme &bull; Tuesday, Wednesday &amp; Thursday (6:30 PM – 9:00 PM PKT)
+                      </p>
+                    </div>
+                  </div>
+                  <div className="hidden sm:flex items-center gap-1.5 text-xs text-ink-600 font-medium bg-white px-3 py-1.5 rounded-lg border border-sand-200 shadow-2xs">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span>Live Classes</span>
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-center border-collapse">
+                    <thead>
+                      <tr className="border-b border-sand-200 bg-sand-50/70 text-ink-900">
+                        <th className="py-4 px-4 sm:px-6 text-left font-heading font-bold text-xs sm:text-sm text-ink-700 w-1/4 sm:w-1/5 border-r border-sand-200/80">
+                          Time Slot
+                        </th>
+                        <th className="py-4 px-4 sm:px-6 font-heading font-bold text-sm sm:text-base text-ink-900 w-1/4 border-r border-sand-200/80">
+                          Tuesday
+                        </th>
+                        <th className="py-4 px-4 sm:px-6 font-heading font-bold text-sm sm:text-base text-ink-900 w-1/4 border-r border-sand-200/80">
+                          Wednesday
+                        </th>
+                        <th className="py-4 px-4 sm:px-6 font-heading font-bold text-sm sm:text-base text-ink-900 w-1/4">
+                          Thursday
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-sand-200">
+                      {/* Row 1: 6:30 PM - 7:30 PM */}
+                      <tr className="hover:bg-sand-50/40 transition-colors">
+                        <td className="py-6 px-4 sm:px-6 text-left font-bold text-xs sm:text-sm text-ink-900 bg-sand-50/40 border-r border-sand-200/80 whitespace-nowrap">
+                          6:30 PM - 7:30 PM
+                        </td>
+                        {/* Tuesday: Qur'ānic Arabic */}
+                        <td className="py-6 px-4 sm:px-6 align-middle border-r border-sand-200/80">
+                          <div className="flex flex-col items-center justify-center space-y-1">
+                            <span className="font-heading font-bold text-sm sm:text-base text-ink-900">
+                              Qur'ānic Arabic
+                            </span>
+                            <span className="text-xs sm:text-sm text-ink-600 italic">
+                              Dr. Mutee Ur Rehman
+                            </span>
+                            <a
+                              href="https://meet.google.com/cbh-ywhg-upu"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800 hover:text-emerald-950 underline underline-offset-2"
+                            >
+                              Launch Meet <ExternalLink size={11} />
+                            </a>
+                          </div>
+                        </td>
+                        {/* Wednesday: Fiqh */}
+                        <td className="py-6 px-4 sm:px-6 align-middle border-r border-sand-200/80">
+                          <div className="flex flex-col items-center justify-center space-y-1">
+                            <span className="font-heading font-bold text-sm sm:text-base text-ink-900">
+                              Fiqh
+                            </span>
+                            <span className="text-xs sm:text-sm text-ink-600 italic">
+                              Dr. Hafiz Muhammad Zubair
+                            </span>
+                            <a
+                              href="https://meet.google.com/cbh-ywhg-upu"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800 hover:text-emerald-950 underline underline-offset-2"
+                            >
+                              Launch Meet <ExternalLink size={11} />
+                            </a>
+                          </div>
+                        </td>
+                        {/* Thursday: Why Islam */}
+                        <td className="py-6 px-4 sm:px-6 align-middle">
+                          <div className="flex flex-col items-center justify-center space-y-1">
+                            <span className="font-heading font-bold text-sm sm:text-base text-ink-900">
+                              Why Islam
+                            </span>
+                            <span className="text-xs sm:text-sm text-ink-600 italic">
+                              Sir Ahmed Khan
+                            </span>
+                            <a
+                              href="https://meet.google.com/cbh-ywhg-upu"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800 hover:text-emerald-950 underline underline-offset-2"
+                            >
+                              Launch Meet <ExternalLink size={11} />
+                            </a>
+                          </div>
+                        </td>
+                      </tr>
+
+                      {/* Row 2: 7:30 PM - 8:00 PM (Break) */}
+                      <tr className="bg-sand-50/60">
+                        <td className="py-4 px-4 sm:px-6 text-left font-bold text-xs sm:text-sm text-ink-900 bg-sand-100/40 border-r border-sand-200/80 whitespace-nowrap">
+                          7:30 PM - 8:00 PM
+                        </td>
+                        <td className="py-4 px-4 sm:px-6 text-xs sm:text-sm text-ink-500 font-medium border-r border-sand-200/80">
+                          Break
+                        </td>
+                        <td className="py-4 px-4 sm:px-6 text-xs sm:text-sm text-ink-500 font-medium border-r border-sand-200/80">
+                          Break
+                        </td>
+                        <td className="py-4 px-4 sm:px-6 text-xs sm:text-sm text-ink-500 font-medium">
+                          Break
+                        </td>
+                      </tr>
+
+                      {/* Row 3: 8:00 PM - 9:00 PM */}
+                      <tr className="hover:bg-sand-50/40 transition-colors">
+                        <td className="py-6 px-4 sm:px-6 text-left font-bold text-xs sm:text-sm text-ink-900 bg-sand-50/40 border-r border-sand-200/80 whitespace-nowrap">
+                          8:00 PM - 9:00 PM
+                        </td>
+                        {/* Tuesday: Tajwīd */}
+                        <td className="py-6 px-4 sm:px-6 align-middle border-r border-sand-200/80">
+                          <div className="flex flex-col items-center justify-center space-y-1">
+                            <span className="font-heading font-bold text-sm sm:text-base text-ink-900">
+                              Tajwīd
+                            </span>
+                            <span className="text-xs sm:text-sm text-ink-600 italic">
+                              Qari Salman Saleem
+                            </span>
+                            <a
+                              href="https://meet.google.com/cbh-ywhg-upu"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800 hover:text-emerald-950 underline underline-offset-2"
+                            >
+                              Launch Meet <ExternalLink size={11} />
+                            </a>
+                          </div>
+                        </td>
+                        {/* Wednesday: Tafsīr */}
+                        <td className="py-6 px-4 sm:px-6 align-middle border-r border-sand-200/80">
+                          <div className="flex flex-col items-center justify-center space-y-1">
+                            <span className="font-heading font-bold text-sm sm:text-base text-ink-900">
+                              Tafsīr
+                            </span>
+                            <span className="text-xs sm:text-sm text-ink-600 italic">
+                              Shaykh Hamid Kamal UD DIn
+                            </span>
+                            <a
+                              href="https://meet.google.com/cbh-ywhg-upu"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800 hover:text-emerald-950 underline underline-offset-2"
+                            >
+                              Launch Meet <ExternalLink size={11} />
+                            </a>
+                          </div>
+                        </td>
+                        {/* Thursday: Sīrah */}
+                        <td className="py-6 px-4 sm:px-6 align-middle">
+                          <div className="flex flex-col items-center justify-center space-y-1">
+                            <span className="font-heading font-bold text-sm sm:text-base text-ink-900">
+                              Sīrah
+                            </span>
+                            <span className="text-xs sm:text-sm text-ink-600 italic">
+                              Sir Ali Ahmed Saeed
+                            </span>
+                            <a
+                              href="https://meet.google.com/cbh-ywhg-upu"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800 hover:text-emerald-950 underline underline-offset-2"
+                            >
+                              Launch Meet <ExternalLink size={11} />
+                            </a>
+                          </div>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : (
+              /* Enrolled Courses Schedule Table */
+              <div className="bg-white rounded-2xl border border-sand-200 shadow-2xs overflow-hidden">
+                <div className="p-4 bg-sand-50 border-b border-sand-200">
+                  <h3 className="font-heading font-bold text-ink-900 text-sm">
+                    Enrolled Courses Schedule
+                  </h3>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className="border-b border-sand-200 bg-sand-50/50 font-bold text-ink-700">
+                        <th className="p-3">Day &amp; Time</th>
+                        <th className="p-3">Course</th>
+                        <th className="p-3">Instructor</th>
+                        <th className="p-3">Modality</th>
+                        <th className="p-3 text-right">Join Link</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-sand-200">
+                      {slots.map((slot) => {
+                        const isOnline = slot.modality ? slot.modality.includes('online') : true;
+                        return (
+                          <tr key={slot.id} className="hover:bg-sand-50/40">
+                            <td className="p-3 font-semibold text-ink-900 whitespace-nowrap">
+                              {slot.dayOfWeek} • {formatSlotTimeRange(slot.startTime, slot.endTime)}
+                            </td>
+                            <td className="p-3 font-medium text-ink-900">{slot.courseTitle}</td>
+                            <td className="p-3 text-ink-600">{slot.instructorName}</td>
+                            <td className="p-3">
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium ${isOnline ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800'}`}>
+                                {isOnline ? <Video size={10} /> : <MapPin size={10} />}
+                                {isOnline ? 'Online' : 'Onsite'}
+                              </span>
+                            </td>
+                            <td className="p-3 text-right">
+                              {isOnline && slot.meetLink ? (
+                                <a
+                                  href={slot.meetLink}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-emerald-800 font-semibold underline"
+                                >
+                                  Join Meet
+                                </a>
+                              ) : '—'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )
+          ) : null}
 
           {/* MODE 1: AGENDA LIST VIEW */}
           {viewMode === 'agenda' && (

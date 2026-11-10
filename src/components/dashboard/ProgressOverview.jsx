@@ -36,16 +36,30 @@ const categories = [
 ];
 
 export default function ProgressOverview() {
-  const [activeTab, setActiveTab] = useState('foundations');
   const [courses, setCourses] = useState(() => getEnrolledCourses());
+
+  const hasFoundations = courses.some((c) => c.category === 'foundations');
+  const hasIntensives = courses.some((c) => c.category === 'intensives');
+
+  // Intelligently default to 'intensives' if the student only has intensives courses
+  const [activeTab, setActiveTab] = useState(() => (!hasFoundations && hasIntensives ? 'intensives' : 'foundations'));
 
   useEffect(() => {
     // Refresh courses on mount
-    setCourses(getEnrolledCourses());
+    const currentCourses = getEnrolledCourses();
+    setCourses(currentCourses);
+
+    const foundationsCount = currentCourses.filter((c) => c.category === 'foundations').length;
+    const intensivesCount = currentCourses.filter((c) => c.category === 'intensives').length;
+
+    if (foundationsCount === 0 && intensivesCount > 0) {
+      setActiveTab('intensives');
+    }
 
     // Listen for real-time progress updates when user marks lessons complete
     const handleProgressUpdate = () => {
-      setCourses(getEnrolledCourses());
+      const refreshed = getEnrolledCourses();
+      setCourses(refreshed);
     };
 
     window.addEventListener('ilm-course-progress-updated', handleProgressUpdate);
@@ -106,11 +120,46 @@ export default function ProgressOverview() {
           transition={{ duration: 0.2 }}
         >
           {filteredCourses.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-sand-300 p-8 text-center bg-white">
-              <BookOpen className="mx-auto h-8 w-8 text-sand-400 mb-2" />
-              <p className="text-sm font-semibold text-ink-700">
-                No courses enrolled in this track
-              </p>
+            <div className="rounded-2xl border border-dashed border-sand-300 p-8 sm:p-10 text-center bg-white space-y-3">
+              {activeTab === 'foundations' ? (
+                <>
+                  <GraduationCap className="mx-auto h-10 w-10 text-sand-400 mb-2" />
+                  <h4 className="font-heading font-bold text-base text-ink-900">
+                    Not Enrolled in Ilm Foundations
+                  </h4>
+                  <p className="text-xs sm:text-sm text-ink-600 max-w-md mx-auto leading-relaxed">
+                    You are not currently enrolled in the 8-Month Certificate Programme. Explore the comprehensive classical curriculum covering Qur'ānic Arabic, Tajwīd, Fiqh, Tafsīr, Why Islām, and Sīrah.
+                  </p>
+                  <div className="pt-2">
+                    <Link
+                      to="/courses"
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#0B3324] hover:bg-[#072318] text-white text-xs font-semibold transition-colors shadow-2xs"
+                    >
+                      <span>Explore Ilm Foundations Curriculum</span>
+                      <ArrowRight size={13} />
+                    </Link>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <Zap className="mx-auto h-10 w-10 text-sand-400 mb-2" />
+                  <h4 className="font-heading font-bold text-base text-ink-900">
+                    No Modular Intensives Enrolled
+                  </h4>
+                  <p className="text-xs sm:text-sm text-ink-600 max-w-md mx-auto leading-relaxed">
+                    Discover specialized masterclasses and deep-dive workshops taught by leading scholars and guest lecturers.
+                  </p>
+                  <div className="pt-2">
+                    <Link
+                      to="/courses"
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#0B3324] hover:bg-[#072318] text-white text-xs font-semibold transition-colors shadow-2xs"
+                    >
+                      <span>Browse Intensives Catalog</span>
+                      <ArrowRight size={13} />
+                    </Link>
+                  </div>
+                </>
+              )}
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">

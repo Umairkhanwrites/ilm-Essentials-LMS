@@ -1,7 +1,7 @@
 /**
  * CourseView — Individual Course Interface (Learning Environment)
  *
- * Provides a theater-mode capable media player, collapsible syllabus
+ * Provides a responsive media player, collapsible syllabus
  * sidebar (CurriculumSidebar), course header, and tabbed panels for:
  * 1. Overview (Course description, instructor bio, objectives)
  * 2. Resources (Downloadable slides, notes, e-Library link)
@@ -76,7 +76,6 @@ export default function CourseView() {
   }, [allLessons]);
 
   const [currentLesson, setCurrentLesson] = useState(defaultLesson);
-  const [theaterMode, setTheaterMode] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -171,16 +170,6 @@ export default function CourseView() {
     }));
   }, []);
 
-  const toggleTheaterMode = useCallback(() => {
-    setTheaterMode((prev) => {
-      const next = !prev;
-      if (next) {
-        setIsSidebarCollapsed(true);
-      }
-      return next;
-    });
-  }, []);
-
   // Tabs setup
   const tabItems = useMemo(
     () => [
@@ -232,13 +221,7 @@ export default function CourseView() {
         </div>
 
         {/* Main Content Area */}
-        <div
-          className={
-            theaterMode
-              ? 'w-full px-2 sm:px-4 py-4 sm:py-6 transition-all duration-300'
-              : 'max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 transition-all duration-300'
-          }
-        >
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 transition-all duration-300">
           <div className="flex flex-col lg:flex-row gap-6 items-start">
             {/* Curriculum Sidebar (handles both desktop sticky sidebar & mobile drawer) */}
             <CurriculumSidebar
@@ -252,7 +235,7 @@ export default function CourseView() {
                 setIsMobileDrawerOpen(false);
               }}
               onToggleLessonCompletion={handleToggleLessonCompletion}
-              isCollapsed={theaterMode || isSidebarCollapsed}
+              isCollapsed={isSidebarCollapsed}
               onToggle={() => setIsSidebarCollapsed((prev) => !prev)}
               isMobileOpen={isMobileDrawerOpen}
               onMobileClose={() => setIsMobileDrawerOpen(false)}
@@ -260,29 +243,11 @@ export default function CourseView() {
 
             {/* Right: Media Player & Content Panels */}
             <div className="flex-1 min-w-0 w-full space-y-4 sm:space-y-6">
-              {/* Theater Mode Exit Bar (if active) */}
-              {theaterMode && (
-                <div className="flex items-center justify-between bg-primary-950 text-sand-100 px-4 py-2 rounded-xl text-xs">
-                  <span className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-gold-400" />
-                    Theater Mode Active — Full Width Experience
-                  </span>
-                  <button
-                    onClick={toggleTheaterMode}
-                    className="text-gold-400 hover:text-gold-300 underline font-medium cursor-pointer"
-                  >
-                    Exit Theater Mode
-                  </button>
-                </div>
-              )}
-
               {/* Media Player */}
               <div className="bg-black rounded-xl sm:rounded-2xl overflow-hidden shadow-elevated">
                 <MediaPlayer
                   currentLesson={currentLesson}
                   isLive={false}
-                  theaterMode={theaterMode}
-                  onTheaterToggle={toggleTheaterMode}
                 />
               </div>
 

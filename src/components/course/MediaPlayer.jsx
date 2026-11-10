@@ -6,17 +6,14 @@
  * 2. YouTube & Vimeo embeds
  * 3. Reading Module Canvas (for text-based lessons)
  * 4. Assessment Module Canvas (for interactive quizzes)
- * 5. Full-width Theater Mode toggle & Live class indicator
+ * 5. Live class indicator
  *
  * @param {object}   currentLesson       - Active lesson object { id, title, type, duration, videoUrl, … }
  * @param {boolean}  isLive              - Whether this is a live session
- * @param {boolean}  theaterMode         - Current theater-mode state
- * @param {function} onTheaterToggle     - Callback to toggle theater mode
  */
 import React, { useState } from 'react';
 import clsx from 'clsx';
 import {
-  MonitorPlay,
   BookOpen,
   FileCheck,
   Video,
@@ -30,8 +27,6 @@ import { getEmbedVideoUrl } from '../../services/courseStorage';
 export default function MediaPlayer({
   currentLesson,
   isLive = false,
-  theaterMode = false,
-  onTheaterToggle,
 }) {
   const [iframeLoaded, setIframeLoaded] = useState(false);
 
@@ -42,12 +37,7 @@ export default function MediaPlayer({
   // ---- 1. READING LESSON CANVAS ----
   if (lessonType === 'reading') {
     return (
-      <div
-        className={clsx(
-          'relative w-full bg-gradient-to-br from-[#0B3324] via-[#0F422F] to-[#072318] rounded-xl overflow-hidden shadow-elevated select-none text-white',
-          theaterMode ? 'rounded-none' : ''
-        )}
-      >
+      <div className="relative w-full bg-gradient-to-br from-[#0B3324] via-[#0F422F] to-[#072318] rounded-xl overflow-hidden shadow-elevated select-none text-white">
         <div className="relative w-full" style={{ paddingBottom: '45%' }}>
           <div className="absolute inset-0 p-6 sm:p-10 flex flex-col justify-between">
             {/* Top Bar */}
@@ -61,18 +51,6 @@ export default function MediaPlayer({
                   • {currentLesson?.duration || '20 min read'}
                 </span>
               </div>
-
-              {onTheaterToggle && (
-                <button
-                  type="button"
-                  onClick={onTheaterToggle}
-                  className="flex items-center gap-1.5 text-xs text-sand-200 hover:text-white bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
-                  title="Toggle Theater Mode"
-                >
-                  <MonitorPlay size={14} />
-                  <span>{theaterMode ? 'Exit Theater' : 'Theater Mode'}</span>
-                </button>
-              )}
             </div>
 
             {/* Center Content */}
@@ -102,12 +80,7 @@ export default function MediaPlayer({
   // ---- 2. ASSESSMENT / QUIZ LESSON CANVAS ----
   if (lessonType === 'assessment') {
     return (
-      <div
-        className={clsx(
-          'relative w-full bg-gradient-to-br from-[#122B20] via-[#0B3324] to-[#071C14] rounded-xl overflow-hidden shadow-elevated select-none text-white',
-          theaterMode ? 'rounded-none' : ''
-        )}
-      >
+      <div className="relative w-full bg-gradient-to-br from-[#122B20] via-[#0B3324] to-[#071C14] rounded-xl overflow-hidden shadow-elevated select-none text-white">
         <div className="relative w-full" style={{ paddingBottom: '45%' }}>
           <div className="absolute inset-0 p-6 sm:p-10 flex flex-col justify-between">
             {/* Top Bar */}
@@ -121,18 +94,6 @@ export default function MediaPlayer({
                   • {currentLesson?.duration || '25 min'}
                 </span>
               </div>
-
-              {onTheaterToggle && (
-                <button
-                  type="button"
-                  onClick={onTheaterToggle}
-                  className="flex items-center gap-1.5 text-xs text-sand-200 hover:text-white bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
-                  title="Toggle Theater Mode"
-                >
-                  <MonitorPlay size={14} />
-                  <span>{theaterMode ? 'Exit Theater' : 'Theater Mode'}</span>
-                </button>
-              )}
             </div>
 
             {/* Center Content */}
@@ -160,12 +121,7 @@ export default function MediaPlayer({
 
   // ---- 3. VIDEO LECTURE PLAYER (BUNNY.NET STREAM / YOUTUBE / VIMEO) ----
   return (
-    <div
-      className={clsx(
-        'relative w-full bg-black rounded-xl overflow-hidden shadow-elevated select-none group',
-        theaterMode ? 'rounded-none' : ''
-      )}
-    >
+    <div className="relative w-full bg-black rounded-xl overflow-hidden shadow-elevated select-none group">
       {/* 16:9 Aspect Ratio Container */}
       <div className="relative w-full" style={{ paddingBottom: '56.25%' }}>
         {/* Top Control Overlay (Hover Visible) */}
@@ -174,27 +130,6 @@ export default function MediaPlayer({
             <p className="text-white text-xs sm:text-sm font-semibold truncate drop-shadow-sm">
               {currentLesson?.title || 'Lesson Video'}
             </p>
-          </div>
-
-          <div className="flex items-center gap-2 pointer-events-auto shrink-0">
-            {onTheaterToggle && (
-              <button
-                type="button"
-                onClick={onTheaterToggle}
-                className={clsx(
-                  'flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg transition-all cursor-pointer shadow-xs',
-                  theaterMode
-                    ? 'bg-gold-400 text-primary-950 font-bold'
-                    : 'bg-black/60 hover:bg-black/90 text-white/90 border border-white/20'
-                )}
-                title="Toggle Theater Mode"
-              >
-                <MonitorPlay size={13} />
-                <span className="hidden sm:inline">
-                  {theaterMode ? 'Exit Theater' : 'Theater'}
-                </span>
-              </button>
-            )}
           </div>
         </div>
 

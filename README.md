@@ -30,7 +30,7 @@ The platform includes two dedicated account types with pre-configured demo crede
 - **Upcoming Schedule**: Next live sessions with direct "Join Session" actions.
 
 ### 2. Individual Course Interface (Learning Environment — `/course/:id`)
-- **Theater-Mode Media Player**: Custom controls (play/pause, volume, speed cycle 1x/1.5x/2x, fullscreen, theater toggle) with "LIVE" badge indicator.
+- **Media Player Canvas**: Custom responsive player for Bunny.net stream embeds, YouTube, Vimeo, reading assignments, and quizzes.
 - **Curriculum Sidebar**: Collapsible syllabus tree with accordion modules, lesson type icons (video, reading, assessment), and completion checkboxes. Responsive mobile drawer.
 - **Tabs**:
   - **Overview**: Course description, syllabus learning objectives, and instructor biography card.

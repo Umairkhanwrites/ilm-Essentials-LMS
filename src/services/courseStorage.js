@@ -49,6 +49,12 @@ export function getEnrolledCourses() {
       }
     }
 
+    // If the student is not enrolled in Ilm Foundations, exclude Foundations courses
+    const isFoundations = isStudentEnrolledInFoundations();
+    if (!isFoundations) {
+      baseList = baseList.filter((c) => c.category !== 'foundations');
+    }
+
     // Merge with authoritative courseDetailsMap and real-time lesson progress stored in STORAGE_KEY_DETAILS
     const rawDetails = localStorage.getItem(STORAGE_KEY_DETAILS);
     const detailsMap = rawDetails ? JSON.parse(rawDetails) : {};
@@ -1673,6 +1679,95 @@ export function getScheduleSlots() {
 }
 
 /**
+ * Determine whether a student is enrolled in the Ilm Foundations programme
+ */
+export function isStudentEnrolledInFoundations(studentId = null) {
+  try {
+    let targetUser = null;
+    const rawUser = localStorage.getItem('ilm_lms_user');
+    if (rawUser) {
+      targetUser = JSON.parse(rawUser);
+    }
+
+    // Administrators have full access
+    if (targetUser?.role === 'admin') {
+      return true;
+    }
+
+    // 1. Check user object explicitly
+    if (targetUser?.program && targetUser.program.toLowerCase().includes('foundations')) {
+      return true;
+    }
+
+    // 2. Check student record from all students list
+    const allStudents = getAllStudents();
+    const effectiveId = studentId || targetUser?.id;
+    const effectiveEmail = targetUser?.email?.toLowerCase();
+
+    const matchedStudent = allStudents.find(
+      (s) => (effectiveId && s.id === effectiveId) || (effectiveEmail && s.email?.toLowerCase() === effectiveEmail)
+    );
+
+    if (matchedStudent) {
+      if (matchedStudent.program && matchedStudent.program.toLowerCase().includes('foundations')) {
+        return true;
+      }
+      // If student has a specific non-foundations program (e.g. "The Prophetic Biography" or "Intensive")
+      if (matchedStudent.program && !matchedStudent.program.toLowerCase().includes('foundations')) {
+        return false;
+      }
+    }
+
+    // 3. Check current student's enrolled courses list
+    const enrolledList = getEnrolledCourses();
+    const hasFoundationsCourses = enrolledList.some(
+      (c) => c.category === 'foundations' || (c.program && c.program.toLowerCase().includes('foundations'))
+    );
+
+    return hasFoundationsCourses;
+  } catch (err) {
+    console.error('Failed to verify Ilm Foundations enrollment:', err);
+    return false;
+  }
+}
+
+/**
+ * Retrieve schedule slots filtered by the student's enrolled courses / program.
+ * Strictly restricts Ilm Foundations slots to students enrolled in Ilm Foundations.
+ */
+export function getStudentScheduleSlots(studentId = null) {
+  try {
+    const allSlots = getScheduleSlots();
+    const activeSlots = allSlots.filter((s) => s.status !== 'cancelled');
+    const isFoundations = isStudentEnrolledInFoundations(studentId);
+    const enrolled = getEnrolledCourses();
+    const enrolledIds = new Set(enrolled.map((c) => c.id));
+    const enrolledTitles = new Set(enrolled.map((c) => (c.title || '').toLowerCase().trim()));
+
+    return activeSlots.filter((slot) => {
+      const isSlotFoundations =
+        (slot.cohortId && slot.cohortId.includes('foundations')) ||
+        (slot.cohortName && slot.cohortName.toLowerCase().includes('foundations')) ||
+        (slot.courseId && slot.courseId.startsWith('crs_found_')) ||
+        ['Qur\'ānic Arabic', 'Tajwīd', 'Fiqh', 'Tafsīr', 'Why Islam', 'Why Islām?', 'Sīrah'].includes(slot.courseTitle);
+
+      if (isSlotFoundations) {
+        return isFoundations;
+      }
+
+      // If slot is for another course, verify student is enrolled in that specific course
+      if (slot.courseId && enrolledIds.has(slot.courseId)) return true;
+      if (slot.courseTitle && enrolledTitles.has(slot.courseTitle.toLowerCase().trim())) return true;
+
+      return false;
+    });
+  } catch (err) {
+    console.error('Failed to get student schedule slots:', err);
+    return [];
+  }
+}
+
+/**
  * Real-time conflict detection between proposed slot and existing schedule
  * Checks:
  * 1. Instructor clash on the same day during overlapping time
@@ -1839,36 +1934,88 @@ export function recordScheduleNotification(broadcastData) {
   } catch (err) {
     console.error('Failed to save schedule notification:', err);
   }
+
+  // Also bridge into student in-app notifications if channels include 'in_app'
+  if (broadcastData.channels?.includes('in_app')) {
+    const isFoundations =
+      broadcastData.cohortId?.includes('foundations') ||
+      broadcastData.cohortName?.toLowerCase().includes('foundations') ||
+      broadcastData.courseId?.startsWith('crs_found_');
+
+    const inAppNotif = {
+      id: `notif_sch_bridge_${Date.now()}`,
+      type: 'schedule_update',
+      cohortId: broadcastData.cohortId || 'foundations_sem1',
+      cohortName: broadcastData.cohortName || 'Ilm Foundations',
+      courseId: broadcastData.courseId,
+      courseTitle: broadcastData.courseTitle,
+      isFoundations,
+      message: broadcastData.changeSummary || `Timetable update for ${broadcastData.courseTitle || broadcastData.cohortName}`,
+      time: 'Just now',
+      timestamp: Date.now(),
+      read: false,
+      link: '/schedule',
+    };
+    const studentNotifs = getStudentNotifications();
+    saveStudentNotifications([inAppNotif, ...studentNotifs]);
+  }
+
   return { newRecord, updatedNotifs: updated };
 }
 
 /**
  * Retrieve unified student notifications with persistence in localStorage.
  * Automatically cleanses any corrupted dummy entries (e.g. [undefined] undefined).
+ * Filters notifications strictly according to the student's enrolled program/courses.
  */
-export function getStudentNotifications() {
+export function getStudentNotifications(studentId = null) {
   try {
+    let list = [];
     const raw = localStorage.getItem(STORAGE_KEY_STUDENT_NOTIFICATIONS);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
-        // Strip out any corrupted or dummy undefined notifications
-        const cleaned = parsed.filter(
+        list = parsed.filter(
           (n) => n && n.message && !n.message.includes('undefined') && !n.message.includes('[undefined]')
         );
-        if (cleaned.length !== parsed.length) {
-          localStorage.setItem(STORAGE_KEY_STUDENT_NOTIFICATIONS, JSON.stringify(cleaned));
-        }
-        return cleaned;
       }
+    } else {
+      list = (defaultNotifications || []).filter(
+        (n) => n && n.message && !n.message.includes('undefined')
+      );
+      localStorage.setItem(STORAGE_KEY_STUDENT_NOTIFICATIONS, JSON.stringify(list));
     }
 
-    // Default clean initial notifications (filtered of any invalid entries)
-    const initialList = (defaultNotifications || []).filter(
-      (n) => n && n.message && !n.message.includes('undefined')
-    );
-    localStorage.setItem(STORAGE_KEY_STUDENT_NOTIFICATIONS, JSON.stringify(initialList));
-    return initialList;
+    // Filter notifications strictly according to student's enrolled courses/program
+    const isFoundations = isStudentEnrolledInFoundations(studentId);
+    const enrolledCourses = getEnrolledCourses();
+    const enrolledCourseIds = new Set(enrolledCourses.map((c) => c.id));
+
+    return list.filter((n) => {
+      // Is this notification related to Ilm Foundations / live sessions?
+      const isFoundationsNotif =
+        n.isFoundations ||
+        n.cohortId?.includes('foundations') ||
+        n.cohortName?.toLowerCase().includes('foundations') ||
+        (n.courseId && n.courseId.startsWith('crs_found_')) ||
+        (n.message && (
+          n.message.toLowerCase().includes('foundations') ||
+          n.message.toLowerCase().includes('usūl al-fiqh') ||
+          n.message.toLowerCase().includes('qur\'ānic arabic') ||
+          n.message.toLowerCase().includes('tajwīd')
+        ));
+
+      if (isFoundationsNotif) {
+        return isFoundations;
+      }
+
+      // If notification is tied to a specific courseId
+      if (n.courseId && !enrolledCourseIds.has(n.courseId)) {
+        return false;
+      }
+
+      return true;
+    });
   } catch (err) {
     console.error('Failed to load student notifications:', err);
     return [];
@@ -1936,15 +2083,15 @@ export function isStudentEnrolledInCourse(courseId, studentId = null) {
     return true;
   }
 
-  // 2. Check if the course is an Ilm Foundations course (all foundations students enrolled)
+  // 2. Check if the course is an Ilm Foundations course — strictly restricted to foundations students
   const allCourses = getAllCourses();
   const foundCourse = allCourses.find((c) => c.id === courseId);
   if (foundCourse && foundCourse.category === 'foundations') {
-    return true;
+    return isStudentEnrolledInFoundations(studentId);
   }
   const detail = getCourseDetailById(courseId);
   if (detail && detail.category === 'foundations') {
-    return true;
+    return isStudentEnrolledInFoundations(studentId);
   }
 
   // 3. Check enrollment map
@@ -1958,7 +2105,7 @@ export function isStudentEnrolledInCourse(courseId, studentId = null) {
           const rawUser = localStorage.getItem('ilm_lms_user');
           const currentUser = rawUser ? JSON.parse(rawUser) : null;
           const targetId = currentUser?.id || 'usr_001';
-          return studentIds.includes(targetId) || studentIds.includes('usr_001') || (currentUser?.email && studentIds.includes(currentUser.email));
+          return studentIds.includes(targetId) || (currentUser?.email && studentIds.includes(currentUser.email));
         }
         return studentIds.includes(studentId);
       }
@@ -1967,8 +2114,7 @@ export function isStudentEnrolledInCourse(courseId, studentId = null) {
     console.error('Failed to inspect course enrollments:', e);
   }
 
-  // 4. Default to true for current student to ensure new curriculum notifications are delivered
-  return true;
+  return false;
 }
 
 /**

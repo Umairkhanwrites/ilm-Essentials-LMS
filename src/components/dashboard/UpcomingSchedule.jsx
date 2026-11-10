@@ -9,7 +9,11 @@ import {
   CalendarDays,
 } from 'lucide-react';
 import clsx from 'clsx';
-import { getScheduleSlots, formatSlotTimeRange, timeToMinutes } from '../../services/courseStorage';
+import {
+  getStudentScheduleSlots,
+  formatSlotTimeRange,
+  timeToMinutes
+} from '../../services/courseStorage';
 
 function getSlotDistance(dayOfWeek) {
   const dayOrder = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -47,7 +51,7 @@ export default function UpcomingSchedule() {
 
   function buildSessions() {
     try {
-      const scheduleSlots = getScheduleSlots();
+      const scheduleSlots = getStudentScheduleSlots();
       const activeSlots = scheduleSlots.filter((s) => s.status !== 'cancelled');
 
       // Sort with closest day relative to today first
