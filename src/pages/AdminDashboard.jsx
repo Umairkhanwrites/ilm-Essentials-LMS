@@ -81,6 +81,7 @@ import {
   Unlock,
   Image,
   ZoomIn,
+  Star,
 } from 'lucide-react';
 
 import Layout from '../components/layout/Layout';
@@ -143,6 +144,7 @@ import {
   getStudentVideoRestriction,
   setStudentVideoRestriction,
   restrictAllOverdueStudents,
+  restoreAllRestrictedStudents,
   createInstallments,
   uploadInstallmentReceipt,
   approveInstallment,
@@ -488,13 +490,34 @@ export default function AdminDashboard() {
   const [isRejectingMode, setIsRejectingMode] = useState(false);
   const [showCreateInstallmentModal, setShowCreateInstallmentModal] = useState(false);
   const [showBulkRestrictModal, setShowBulkRestrictModal] = useState(false);
-  const [createForm, setCreateForm] = useState({
-    studentSelection: 'all',
-    selectedStudentIds: [],
-    title: 'Installment 1',
-    amount: 8000,
-    dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+  const [showBulkRestoreModal, setShowBulkRestoreModal] = useState(false);
+  // Installment Plan Builder Form State
+  const [createPlanMode, setCreatePlanMode] = useState('plan'); // 'plan' | 'single'
+  const [targetStudentMode, setTargetStudentMode] = useState('all'); // 'all' | 'program' | 'specific'
+  const [selectedProgramFilter, setSelectedProgramFilter] = useState('all');
+  const [selectedStudentIds, setSelectedStudentIds] = useState([]);
+  const [studentSearchInModal, setStudentSearchInModal] = useState('');
+
+  // Plan Generator Config
+  const [planTotalFee, setPlanTotalFee] = useState(45000);
+  const [planInstallmentCount, setPlanInstallmentCount] = useState(3);
+  const [planIntervalDays, setPlanIntervalDays] = useState(30);
+
+  // Dynamic Milestones List (2, 3, 4, etc.)
+  const [milestones, setMilestones] = useState(() => {
+    const today = Date.now();
+    return [
+      { id: 'm1', title: 'Installment 1 — Registration & Tuition', amount: 15000, dueDate: new Date(today + 14 * 86400000).toISOString().split('T')[0] },
+      { id: 'm2', title: 'Installment 2 — Midterm Dues', amount: 15000, dueDate: new Date(today + 44 * 86400000).toISOString().split('T')[0] },
+      { id: 'm3', title: 'Installment 3 — Final Dues', amount: 15000, dueDate: new Date(today + 74 * 86400000).toISOString().split('T')[0] },
+    ];
   });
+
+  // Single Installment State
+  const [singleTitle, setSingleTitle] = useState('Installment 1');
+  const [singleAmount, setSingleAmount] = useState(15000);
+  const [singleDueDate, setSingleDueDate] = useState(() => new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0]);
+
   const [accountsToast, setAccountsToast] = useState(null);
 
   // Accounts Global Ledger Summary
@@ -522,11 +545,20 @@ export default function AdminDashboard() {
 
       if (installmentQueueTab === 'review') return inst.status === 'UNDER_REVIEW';
       if (installmentQueueTab === 'overdue') return inst.status !== 'APPROVED' && inst.dueDate <= todayDateStr;
+      if (installmentQueueTab === 'restricted') {
+        const student = students.find((s) => s.id === inst.studentId || (inst.studentId === 'usr_001' && s.id === 'std_001'));
+        return Boolean(student?.isVideoRestricted);
+      }
       if (installmentQueueTab === 'approved') return inst.status === 'APPROVED';
       if (installmentQueueTab === 'rejected') return inst.status === 'REJECTED';
       return true; // 'all'
     });
-  }, [feeInstallments, installmentQueueTab, installmentSearch, todayDateStr]);
+  }, [feeInstallments, installmentQueueTab, installmentSearch, students, todayDateStr]);
+
+  // List of all currently restricted students
+  const restrictedStudentsList = useMemo(() => {
+    return students.filter((s) => Boolean(s.isVideoRestricted));
+  }, [students]);
 
   // Count of students eligible for overdue bulk restriction
   const overdueEligibleStudents = useMemo(() => {
@@ -627,51 +659,158 @@ export default function AdminDashboard() {
     setTimeout(() => setAccountsToast(null), 5000);
   };
 
-  // Create Installments Submit
-  const handleCreateInstallmentsSubmit = (e) => {
-    e.preventDefault();
-    const title = createForm.title.trim();
-    const amount = Number(createForm.amount);
-    const dueDate = createForm.dueDate;
+  // Bulk Restore All Restricted Students Action
+  const handleConfirmBulkRestore = () => {
+    const adminName = user?.name || 'Administrator';
+    const result = restoreAllRestrictedStudents(adminName);
+    setStudents(getAllStudents());
+    setShowBulkRestoreModal(false);
 
-    if (!title || !amount || !dueDate) {
-      alert('Please fill in all required fields (title, amount, and due date).');
+    setAccountsToast({
+      type: 'success',
+      title: 'Course Video Access Restored',
+      message: `Restored course video access for ${result.restoredCount} student account(s). In-app notifications sent.`,
+    });
+    setTimeout(() => setAccountsToast(null), 5000);
+  };
+
+  // Target students calculation for installment plan assignment
+  const targetStudentList = useMemo(() => {
+    if (targetStudentMode === 'all') return students;
+    if (targetStudentMode === 'program') {
+      if (selectedProgramFilter === 'all') return students;
+      return students.filter((s) => (s.program || '').toLowerCase().includes(selectedProgramFilter.toLowerCase()));
+    }
+    return students.filter((s) => selectedStudentIds.includes(s.id));
+  }, [students, targetStudentMode, selectedProgramFilter, selectedStudentIds]);
+
+  // Auto-split plan into equal installments with spaced due dates
+  const handleAutoSplitPlan = (count, total = planTotalFee, intervalDays = planIntervalDays) => {
+    const num = Math.max(1, Number(count) || 1);
+    const tot = Math.max(0, Number(total) || 0);
+    const baseAmt = Math.floor(tot / num);
+    const remainder = tot - baseAmt * num;
+    const now = Date.now();
+
+    const standardTitles3 = [
+      'Installment 1 — Registration & Tuition',
+      'Installment 2 — Midterm Dues',
+      'Installment 3 — Final Dues',
+    ];
+    const standardTitles2 = [
+      'Installment 1 — Term 1 Tuition',
+      'Installment 2 — Term 2 Tuition',
+    ];
+    const standardTitles4 = [
+      'Installment 1 — Q1 Dues',
+      'Installment 2 — Q2 Dues',
+      'Installment 3 — Q3 Dues',
+      'Installment 4 — Q4 Dues',
+    ];
+
+    const generated = Array.from({ length: num }, (_, idx) => {
+      const partAmt = idx === num - 1 ? baseAmt + remainder : baseAmt;
+      const daysOffset = 14 + idx * intervalDays;
+      const dueDate = new Date(now + daysOffset * 86400000).toISOString().split('T')[0];
+      let t = `Installment ${idx + 1}`;
+      if (num === 3 && standardTitles3[idx]) t = standardTitles3[idx];
+      else if (num === 2 && standardTitles2[idx]) t = standardTitles2[idx];
+      else if (num === 4 && standardTitles4[idx]) t = standardTitles4[idx];
+
+      return {
+        id: `m_${Date.now()}_${idx}`,
+        title: t,
+        amount: partAmt,
+        dueDate,
+      };
+    });
+
+    setPlanInstallmentCount(num);
+    setPlanTotalFee(tot);
+    setMilestones(generated);
+  };
+
+  const handleAddMilestoneRow = () => {
+    const nextIdx = milestones.length + 1;
+    const lastDueDate = milestones.length > 0 ? new Date(milestones[milestones.length - 1].dueDate) : new Date();
+    const nextDueDate = new Date(lastDueDate.getTime() + (planIntervalDays || 30) * 86400000).toISOString().split('T')[0];
+    setMilestones((prev) => [
+      ...prev,
+      {
+        id: `m_${Date.now()}_${nextIdx}`,
+        title: `Installment ${nextIdx}`,
+        amount: Math.round(planTotalFee / Math.max(1, prev.length + 1)) || 10000,
+        dueDate: nextDueDate,
+      },
+    ]);
+  };
+
+  const handleRemoveMilestoneRow = (idxToRemove) => {
+    if (milestones.length <= 1) {
+      alert('You must maintain at least one installment milestone.');
       return;
     }
+    setMilestones((prev) => prev.filter((_, idx) => idx !== idxToRemove));
+  };
 
-    let targetIds = [];
-    if (createForm.studentSelection === 'all') {
-      targetIds = students.map((s) => s.id);
-    } else {
-      targetIds = createForm.selectedStudentIds;
-    }
+  const handleUpdateMilestone = (idx, field, value) => {
+    setMilestones((prev) =>
+      prev.map((item, i) => (i === idx ? { ...item, [field]: value } : item))
+    );
+  };
 
-    if (targetIds.length === 0) {
+  // Create Installments & Multi-Installment Plans Submit
+  const handleCreateInstallmentsSubmit = (e) => {
+    e.preventDefault();
+
+    if (targetStudentList.length === 0) {
       alert('Please select at least one student.');
       return;
     }
 
-    const created = createInstallments({
+    let payloadMilestones = [];
+    if (createPlanMode === 'plan') {
+      if (milestones.length === 0) {
+        alert('Please add at least one installment milestone.');
+        return;
+      }
+      for (let i = 0; i < milestones.length; i++) {
+        const m = milestones[i];
+        if (!m.title.trim() || !Number(m.amount) || !m.dueDate) {
+          alert(`Please fill in all fields for Installment #${i + 1} (title, amount, and due date).`);
+          return;
+        }
+      }
+      payloadMilestones = milestones.map((m) => ({
+        title: m.title.trim(),
+        amount: Number(m.amount),
+        dueDate: m.dueDate,
+      }));
+    } else {
+      if (!singleTitle.trim() || !Number(singleAmount) || !singleDueDate) {
+        alert('Please fill in title, amount, and due date.');
+        return;
+      }
+      payloadMilestones = [{
+        title: singleTitle.trim(),
+        amount: Number(singleAmount),
+        dueDate: singleDueDate,
+      }];
+    }
+
+    const targetIds = targetStudentList.map((s) => s.id);
+    const result = createInstallments({
       studentIds: targetIds,
-      title,
-      amount,
-      dueDate,
+      milestones: payloadMilestones,
     });
 
     setFeeInstallments(getFeeInstallments());
     setShowCreateInstallmentModal(false);
-    setCreateForm({
-      studentSelection: 'all',
-      selectedStudentIds: [],
-      title: 'Installment 1',
-      amount: 8000,
-      dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    });
 
     setAccountsToast({
       type: 'success',
-      title: 'Installments Created',
-      message: `Successfully created and assigned ${created.length} installment record(s).`,
+      title: 'Installment Plan Created & Assigned!',
+      message: `Successfully created ${result.newInstallments.length} installment records (${payloadMilestones.length} milestone(s) each) across ${targetIds.length} student(s).`,
     });
     setTimeout(() => setAccountsToast(null), 5000);
   };
@@ -951,40 +1090,6 @@ export default function AdminDashboard() {
       return c.category === courseCategoryFilter;
     });
   }, [courses, courseCategoryFilter]);
-
-  // Dynamic KPI stats reflecting active courses and student records
-  const dynamicStats = useMemo(() => {
-    const activeCount = courses.filter((c) => c.status === 'Active').length;
-    const foundationsCount = courses.filter((c) => c.category === 'foundations').length;
-    const intensivesCount = courses.filter((c) => c.category === 'intensives').length;
-
-    return [
-      {
-        label: 'Total Enrolled Students',
-        value: '1,248',
-        icon: 'Users',
-        change: '+12% this semester',
-      },
-      {
-        label: 'Course Offerings',
-        value: courses.length,
-        icon: 'BookOpen',
-        change: `${activeCount} Active • ${foundationsCount} Foundations, ${intensivesCount} Intensives`,
-      },
-      {
-        label: 'Pending Applications',
-        value: '38',
-        icon: 'FileCheck',
-        change: 'Requires review',
-      },
-      {
-        label: 'Tuition Revenue',
-        value: 'PKR 3.4M',
-        icon: 'CreditCard',
-        change: '+18% vs last cycle',
-      },
-    ];
-  }, [courses]);
 
   // Handle fee status toggle
   const toggleFeeStatus = (studentId) => {
@@ -1303,15 +1408,6 @@ export default function AdminDashboard() {
     return Array.from(new Set([...defaultCats, ...activeCats]));
   }, [libraryList]);
 
-  const libraryMetrics = useMemo(() => {
-    const totalTitles = libraryList.length;
-    const featuredCount = libraryList.filter((i) => i.featured).length;
-    const categoryCount = new Set(libraryList.map((i) => i.category)).size;
-    const totalPages = libraryList.reduce((acc, i) => acc + (Number(i.pages) || 0), 0);
-    return { totalTitles, featuredCount, categoryCount, totalPages };
-  }, [libraryList]);
-
-
   // ==========================================
   // DAILY REFLECTIONS & QUOTES STATE & ACTIONS
   // ==========================================
@@ -1458,22 +1554,22 @@ export default function AdminDashboard() {
               </div>
 
               {/* Admin Actions & Profile */}
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2.5">
                 <Link
                   to="/admin/courses/new"
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gold-500 hover:bg-gold-400 text-primary-950 text-xs font-bold transition-all shadow-sm cursor-pointer"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-white text-xs font-semibold border border-white/15 transition-all shadow-2xs cursor-pointer"
                 >
-                  <Plus size={15} />
-                  Create Course
+                  <Plus size={14} />
+                  <span>Create Course</span>
                 </Link>
 
                 <button
                   onClick={handleAdminLogout}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 hover:bg-red-500/20 text-white text-xs font-semibold border border-white/15 transition-colors cursor-pointer"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-white/80 hover:text-white text-xs font-medium border border-white/10 transition-colors cursor-pointer"
                   title="Log out of administrator session"
                 >
                   <LogOut size={14} />
-                  Log Out
+                  <span>Log Out</span>
                 </button>
               </div>
             </div>
@@ -1482,41 +1578,6 @@ export default function AdminDashboard() {
 
         {/* Main Admin Content */}
         <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 pt-8 space-y-8">
-          {/* Key Metric Overview Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {dynamicStats.map((stat, idx) => {
-              const iconMap = {
-                Users,
-                BookOpen,
-                FileCheck,
-                CreditCard,
-              };
-              const IconComp = iconMap[stat.icon] || BookOpen;
-
-              return (
-                <div
-                  key={idx}
-                  className="bg-white rounded-2xl border border-sand-200 p-5 shadow-xs hover:shadow-card transition-shadow"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-ink-500">{stat.label}</span>
-                    <div className="h-8 w-8 rounded-lg bg-primary-50 flex items-center justify-center">
-                      <IconComp className="h-4 w-4 text-primary-700" />
-                    </div>
-                  </div>
-                  <div className="mt-3">
-                    <h3 className="text-2xl font-bold text-ink-900 font-heading">
-                      {stat.value}
-                    </h3>
-                    <p className="text-xs text-primary-700 font-medium mt-1">
-                      {stat.change}
-                    </p>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
           {/* Two-Column Admin Layout: Left Navigation Sidebar + Right Workspace */}
           <div className="flex flex-col lg:flex-row items-start gap-6">
             {/* Left Vertical Navigation Sidebar */}
@@ -1531,13 +1592,13 @@ export default function AdminDashboard() {
                   {[
                     { id: 'courses', label: 'Course Management', icon: BookOpen, count: courses.length },
                     { id: 'pathways', label: 'Academic Pathways', icon: Compass, count: pathways.length },
-                    { id: 'library', label: 'e-Library Catalog', icon: Library, count: libraryList.length },
-                    { id: 'quotes', label: 'Daily Quotes & Reflections', icon: Quote, count: quotesList.length },
-                    { id: 'students', label: 'Student Accounts', icon: Users, count: students.length },
-                    { id: 'instructors', label: 'Faculty & Instructors', icon: GraduationCap, count: instructors.length },
-                    { id: 'fees', label: 'Accounts & Fee Management', icon: CreditCard, count: accountsSummary.pendingCount },
-                    { id: 'applications', label: 'Admissions & Review', icon: FileCheck, count: 38 },
-                    { id: 'schedules', label: 'Class Schedule Planner', icon: Calendar, count: activeWeeklySlots.length },
+                    { id: 'library', label: 'e-Library', icon: Library, count: libraryList.length },
+                    { id: 'quotes', label: 'Quotes', icon: Quote, count: quotesList.length },
+                    { id: 'students', label: 'Students', icon: Users, count: students.length },
+                    { id: 'instructors', label: 'Faculty', icon: GraduationCap, count: instructors.length },
+                    { id: 'fees', label: 'Accounts', icon: CreditCard, count: accountsSummary.pendingCount },
+                    { id: 'applications', label: 'Admissions', icon: FileCheck, count: 38 },
+                    { id: 'schedules', label: 'Schedule', icon: Calendar, count: activeWeeklySlots.length },
                   ].map((tab) => {
                     const IconComp = tab.icon;
                     const isActive = activeTab === tab.id;
@@ -1583,7 +1644,34 @@ export default function AdminDashboard() {
               {/* Tab 1: Course Management */}
               {activeTab === 'courses' && (
                 <div className="bg-white rounded-2xl border border-sand-200 p-6 space-y-6 shadow-xs">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  {/* Header & Course Offerings Metric */}
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-sand-200/80">
+                    <div>
+                      <h2 className="text-xl sm:text-2xl font-heading font-bold text-ink-900 tracking-tight">
+                        Course Management
+                      </h2>
+                      <p className="text-xs text-ink-500 mt-1">
+                        Manage semester courses, instructor assignments, delivery modes, and student rosters.
+                      </p>
+                    </div>
+
+                    <div className="bg-sand-50 border border-sand-200/80 rounded-xl px-4 py-2.5 flex items-center gap-3 shrink-0">
+                      <div className="h-8 w-8 rounded-lg bg-emerald-100 text-emerald-800 flex items-center justify-center shrink-0">
+                        <BookOpen size={16} />
+                      </div>
+                      <div>
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-ink-400">Course Offerings</div>
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-lg font-bold text-ink-900 font-heading">{courses.length}</span>
+                          <span className="text-[11px] text-emerald-800 font-medium">
+                            {courses.filter((c) => c.status === 'Active').length} Active • {courses.filter((c) => c.category === 'foundations').length} Foundations, {courses.filter((c) => c.category === 'intensives').length} Intensives
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div className="flex flex-wrap items-center gap-2">
                   <button
                     onClick={() => setCourseCategoryFilter('all')}
@@ -1646,7 +1734,7 @@ export default function AdminDashboard() {
                         : 'Online';
 
                       const formatColor = isHybrid
-                        ? 'bg-purple-100 text-purple-900 border-purple-200'
+                        ? 'bg-gold-100/90 text-gold-900 border-gold-300'
                         : isOnsite
                         ? 'bg-amber-100 text-amber-900 border-amber-200'
                         : 'bg-emerald-100 text-emerald-900 border-emerald-200';
@@ -1655,41 +1743,15 @@ export default function AdminDashboard() {
                         <tr key={c.id} className="hover:bg-sand-50/70 transition-colors">
                           <td className="py-3.5 px-4 min-w-[220px]">
                             <div className="font-bold text-ink-900 text-sm">{c.title}</div>
-                            <div className="flex items-center gap-1.5 mt-1 text-xs">
-                              {c.semester ? (
-                                <span className="font-semibold text-emerald-800 bg-emerald-100/70 px-1.5 py-0.5 rounded text-[11px]">
-                                  {typeof c.semester === 'number' ? `Semester ${c.semester}` : c.semester}
-                                </span>
-                              ) : (
-                                <span className="text-emerald-800 font-medium">
-                                  {c.category === 'foundations' ? '8-Month Certificate' : 'Masterclass Intensive'}
-                                </span>
-                              )}
-                              {(c.startDate || c.duration) && (
-                                <>
-                                  <span className="text-sand-400">•</span>
-                                  <span className="text-ink-500 font-normal">
-                                    {c.startDate ? `${c.startDate} (${c.duration || '8 Weeks'})` : c.duration || '8 Weeks'}
-                                  </span>
-                                </>
-                              )}
-                            </div>
                           </td>
                           <td className="py-3.5 px-3 min-w-[140px] whitespace-nowrap">
                             <div className="font-medium text-xs text-ink-800">{c.instructor}</div>
                           </td>
                           <td className="py-3.5 px-3 whitespace-nowrap">
-                            <div className="space-y-1">
-                              <span className={`inline-flex items-center gap-1 text-xs px-2.5 py-0.5 rounded-md font-semibold border ${formatColor}`}>
-                                <FormatIcon size={12} />
-                                {formatLabel}
-                              </span>
-                              {isOnsite && c.venue && (
-                                <div className="text-[10px] text-amber-700 truncate max-w-[130px]" title={c.venue}>
-                                  {c.venue}
-                                </div>
-                              )}
-                            </div>
+                            <span className={`inline-flex items-center gap-1 text-xs px-2.5 py-0.5 rounded-md font-semibold border ${formatColor}`}>
+                              <FormatIcon size={12} />
+                              {formatLabel}
+                            </span>
                           </td>
                           <td className="py-3.5 px-3 whitespace-nowrap">
                             <div className="text-xs font-semibold text-ink-800">
@@ -1704,19 +1766,35 @@ export default function AdminDashboard() {
                           </td>
                           <td className="py-3.5 px-3 whitespace-nowrap">
                             <div className="font-semibold text-xs text-ink-900">
-                              {c.category === 'foundations' ? (
-                                <>
-                                  <div>{c.fee || 'PKR 30,000'}</div>
-                                  <div className="text-[10px] font-normal text-emerald-700">
-                                    {c.semester ? `${typeof c.semester === 'number' ? `Semester ${c.semester}` : c.semester} Tuition` : 'Semester Tuition'}
-                                  </div>
-                                </>
-                              ) : (
-                                <>
-                                  <div>{c.fee || 'PKR 12,000'}</div>
-                                  <div className="text-[10px] font-normal text-ink-500">Per Course</div>
-                                </>
-                              )}
+                              {(() => {
+                                const isFoundations =
+                                  c.category === 'foundations' ||
+                                  c.fee === 'Included in Ilm Foundations Program' ||
+                                  c.fee === 'Ilm Foundations';
+
+                                const feeTitle = isFoundations
+                                  ? 'Ilm Foundations'
+                                  : (c.fee && c.fee !== 'Included in Ilm Foundations Program' ? c.fee : 'PKR 12,000');
+
+                                const semesterSubtitle = c.semester
+                                  ? (typeof c.semester === 'number'
+                                      ? `Semester ${c.semester}`
+                                      : (String(c.semester).trim().toLowerCase().startsWith('semester')
+                                          ? String(c.semester).trim()
+                                          : `Semester ${c.semester}`))
+                                  : (isFoundations
+                                      ? (c.subtitle && c.subtitle.toLowerCase().includes('semester 2') ? 'Semester 2' : 'Semester 1')
+                                      : 'Per Course');
+
+                                return (
+                                  <>
+                                    <div>{feeTitle}</div>
+                                    <div className={`text-[10px] font-normal ${isFoundations ? 'text-emerald-700' : 'text-ink-500'}`}>
+                                      {semesterSubtitle}
+                                    </div>
+                                  </>
+                                );
+                              })()}
                             </div>
                           </td>
                           <td className="py-3.5 px-3 whitespace-nowrap min-w-[90px]">
@@ -1756,8 +1834,10 @@ export default function AdminDashboard() {
                               </Link>
                               <Link
                                 to={`/course/${c.id}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
                                 className="p-1.5 rounded-lg text-ink-500 hover:text-primary-800 hover:bg-sand-100 transition-colors"
-                                title="Preview course room as student"
+                                title="Preview course room as student (Opens in new tab)"
                               >
                                 <Eye size={14} />
                               </Link>
@@ -1786,9 +1866,9 @@ export default function AdminDashboard() {
               {/* Header & Search / Add Toolbar */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                  <h3 className="font-heading text-lg font-bold text-ink-900">
-                    Academic Pathways &amp; Curriculum Tracks
-                  </h3>
+                  <h2 className="text-xl sm:text-2xl font-heading font-bold text-ink-900 tracking-tight">
+                    Academic Pathways
+                  </h2>
                 </div>
                 <div className="flex items-center gap-3">
                   <div className="relative w-56 sm:w-64">
@@ -1812,26 +1892,6 @@ export default function AdminDashboard() {
                 </div>
               </div>
 
-              {/* Pathways Summary KPIs */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="p-4 rounded-xl bg-sand-50 border border-sand-200">
-                  <span className="text-xs text-ink-500 font-semibold uppercase tracking-wider block">Total Pathways</span>
-                  <div className="text-2xl font-bold font-heading text-ink-900 mt-1">{pathways.length} Active Tracks</div>
-                </div>
-                <div className="p-4 rounded-xl bg-emerald-50/70 border border-emerald-200/60">
-                  <span className="text-xs text-emerald-800 font-semibold uppercase tracking-wider block">Cohort Certificate Tracks</span>
-                  <div className="text-2xl font-bold font-heading text-emerald-950 mt-1">
-                    {pathways.filter((p) => p.type === 'cohort' || p.tuitionModel === 'bundled').length} Programs
-                  </div>
-                </div>
-                <div className="p-4 rounded-xl bg-amber-50/70 border border-amber-200/60">
-                  <span className="text-xs text-amber-800 font-semibold uppercase tracking-wider block">Modular Masterclass Tracks</span>
-                  <div className="text-2xl font-bold font-heading text-amber-950 mt-1">
-                    {pathways.filter((p) => p.type !== 'cohort' && p.tuitionModel !== 'bundled').length} Tracks
-                  </div>
-                </div>
-              </div>
-
               {/* Grid of Pathway Cards */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                 {filteredPathways.map((p) => {
@@ -1843,27 +1903,45 @@ export default function AdminDashboard() {
                       key={p.id || p.slug}
                       className="rounded-2xl border border-sand-200 bg-white p-5 flex flex-col justify-between hover:shadow-card transition-all"
                     >
-                      <div className="space-y-3">
-                        {/* Card Top: Icon */}
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="h-10 w-10 rounded-xl bg-primary-50 border border-primary-200/60 flex items-center justify-center text-primary-900">
-                            <Compass size={20} />
+                      <div className="space-y-4">
+                        {/* Pathway Header Row: Icon + Title + Count + Quick Actions */}
+                        <div className="flex items-start justify-between gap-3 pb-3 border-b border-sand-100">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="h-11 w-11 rounded-xl bg-primary-50 border border-primary-200/70 flex items-center justify-center text-primary-900 shrink-0 shadow-2xs">
+                              <Compass size={20} />
+                            </div>
+                            <div className="min-w-0">
+                              <h3 className="font-heading font-bold text-ink-900 text-base sm:text-lg leading-tight tracking-tight truncate" title={p.name}>
+                                {p.name}
+                              </h3>
+                              <span className="text-xs text-ink-500 font-medium mt-0.5 block">
+                                {pathwayCourses.length} {pathwayCourses.length === 1 ? 'Course' : 'Courses'}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1 shrink-0 pt-0.5">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEditPathway(p)}
+                              className="p-1.5 rounded-lg text-ink-400 hover:text-ink-900 hover:bg-sand-100 transition-colors cursor-pointer"
+                              title="Edit pathway"
+                            >
+                              <Edit3 size={14} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeletePathway(p.id || p.slug, p.name)}
+                              className="p-1.5 rounded-lg text-ink-300 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
+                              title="Delete pathway"
+                            >
+                              <Trash2 size={14} />
+                            </button>
                           </div>
                         </div>
 
-                        {/* Title & Subtitle */}
-                        <div>
-                          <h4 className="font-heading font-bold text-ink-900 text-base">{p.name}</h4>
-                          {p.subtitle && (
-                            <p className="text-xs text-primary-800 font-medium mt-0.5">{p.subtitle}</p>
-                          )}
-                        </div>
-
                         {/* Assigned Courses Section */}
-                        <div className="pt-2 space-y-2">
-                          <span className="text-[11px] font-bold text-ink-500 uppercase tracking-wider block">
-                            Constituent Courses ({pathwayCourses.length})
-                          </span>
+                        <div className="space-y-2">
 
                           {isMultiSemester ? (
                             <div className="space-y-2">
@@ -1881,9 +1959,6 @@ export default function AdminDashboard() {
                                         <span className="text-ink-900 font-bold">{semName}</span>
                                         <span className="text-[10px] text-ink-400 font-normal">({semCourses.length} courses)</span>
                                       </div>
-                                      <span className="font-bold text-emerald-800 bg-emerald-100/90 px-2 py-0.5 rounded text-[10px] border border-emerald-200">
-                                        PKR {(p.defaultTuitionFee || 30000).toLocaleString()} / semester
-                                      </span>
                                     </div>
                                     <ol className="space-y-1.5">
                                       {semCourses.map((crs, cIdx) => (
@@ -1931,32 +2006,14 @@ export default function AdminDashboard() {
                       </div>
 
                       {/* Card Footer Actions */}
-                      <div className="pt-4 mt-4 border-t border-sand-200 flex items-center justify-between">
+                      <div className="pt-3 mt-3 border-t border-sand-100 flex items-center justify-between">
                         <Link
                           to="/admin/courses/new"
-                          className="text-xs font-semibold text-primary-800 hover:text-primary-950 inline-flex items-center gap-1"
+                          className="text-xs font-bold text-primary-900 hover:text-primary-950 inline-flex items-center gap-1.5 transition-colors cursor-pointer"
                         >
-                          <Plus size={13} />
-                          Add Course to Track
+                          <Plus size={14} />
+                          <span>Add Course</span>
                         </Link>
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => handleOpenEditPathway(p)}
-                            className="p-1.5 rounded-lg text-ink-600 hover:text-ink-950 hover:bg-sand-100 transition-colors cursor-pointer"
-                            title="Edit pathway details"
-                          >
-                            <Edit3 size={14} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeletePathway(p.id || p.slug, p.name)}
-                            className="p-1.5 rounded-lg text-ink-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
-                            title="Delete pathway"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
                       </div>
                     </div>
                   );
@@ -1971,29 +2028,51 @@ export default function AdminDashboard() {
             </div>
           )}
 
-          {/* Tab 3: Student Accounts */}
+          {/* Tab 3: Students */}
           {activeTab === 'students' && (
             <div className="bg-white rounded-2xl border border-sand-200 p-6 space-y-6 shadow-xs">
-              {/* Search Bar & Add Student Button */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div className="relative flex-1 max-w-md">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-ink-400" />
-                  <input
-                    type="text"
-                    value={studentSearch}
-                    onChange={(e) => setStudentSearch(e.target.value)}
-                    placeholder="Search by student name, email, or program..."
-                    className="w-full pl-9 pr-4 py-2 rounded-xl border border-sand-200 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
-                  />
+              {/* Header Toolbar */}
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-sand-200/80">
+                <div>
+                  <h2 className="text-xl sm:text-2xl font-heading font-bold text-ink-900 tracking-tight">
+                    Students
+                  </h2>
+                  <p className="text-xs text-ink-500 mt-0.5">
+                    Showing <strong className="text-ink-800">{filteredStudents.length}</strong> enrolled students
+                  </p>
                 </div>
+
+                <div className="bg-sand-50 border border-sand-200/80 rounded-xl px-4 py-2 flex items-center gap-3 shrink-0">
+                  <div className="h-8 w-8 rounded-lg bg-emerald-100 text-emerald-800 flex items-center justify-center shrink-0">
+                    <Users size={16} />
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-ink-400">Total Enrolled Students</div>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-lg font-bold text-ink-900 font-heading">1,248</span>
+                      <span className="text-[11px] text-emerald-700 font-medium">+12% this semester</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Search & Actions Bar */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-end gap-4">
                 <div className="flex items-center gap-3">
-                  <div className="text-xs text-ink-500">
-                    Showing <strong className="text-ink-800">{filteredStudents.length}</strong> student accounts
+                  <div className="relative w-64 sm:w-72">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-ink-400" />
+                    <input
+                      type="text"
+                      value={studentSearch}
+                      onChange={(e) => setStudentSearch(e.target.value)}
+                      placeholder="Search students..."
+                      className="w-full pl-9 pr-4 py-2 rounded-xl border border-sand-200 text-xs focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+                    />
                   </div>
                   <button
                     type="button"
                     onClick={handleOpenAddStudent}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-primary-900 hover:bg-primary-800 text-white text-xs font-bold transition-all shadow-sm cursor-pointer"
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-primary-900 hover:bg-primary-800 text-white text-xs font-bold transition-all shadow-sm cursor-pointer whitespace-nowrap"
                   >
                     <UserPlus size={14} />
                     Add New Student
@@ -2053,7 +2132,7 @@ export default function AdminDashboard() {
                                 : std.feeStatus === 'Partial'
                                 ? 'bg-amber-100 text-amber-800'
                                 : std.feeStatus === 'Waived'
-                                ? 'bg-purple-100 text-purple-800'
+                                ? 'bg-sand-200 text-ink-700 border border-sand-300'
                                 : 'bg-red-100 text-red-800'
                             }`}
                           >
@@ -2061,32 +2140,42 @@ export default function AdminDashboard() {
                           </span>
                         </td>
                         <td className="py-3.5 px-3 whitespace-nowrap">
-                          <button
-                            type="button"
-                            onClick={() => handleToggleStudentVideo(std.id, std.name, !!std.isVideoRestricted)}
-                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold transition-all cursor-pointer border ${
-                              std.isVideoRestricted
-                                ? 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100 shadow-2xs'
-                                : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
-                            }`}
-                            title={
-                              std.isVideoRestricted
-                                ? `Restricted by ${std.restrictedByAdminName || 'Admin'}. Click to unlock video access.`
-                                : 'Video access is active. Click to restrict video access.'
-                            }
-                          >
-                            {std.isVideoRestricted ? (
-                              <>
+                          {std.isVideoRestricted ? (
+                            <div className="flex items-center gap-2">
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-red-50 text-red-700 border border-red-200 shadow-2xs">
                                 <Lock size={11} className="text-red-600" />
                                 <span>Restricted</span>
-                              </>
-                            ) : (
-                              <>
-                                <Unlock size={11} className="text-emerald-600" />
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleToggleStudentVideo(std.id, std.name, true)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-700 hover:bg-emerald-800 text-white transition-all shadow-2xs cursor-pointer"
+                                title={`Restricted by ${std.restrictedByAdminName || 'Admin'}. Click to restore video access.`}
+                              >
+                                <Unlock size={11} />
+                                <span>Restore Access</span>
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                <CheckCircle2 size={11} className="text-emerald-600" />
                                 <span>Active</span>
-                              </>
-                            )}
-                          </button>
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleToggleStudentVideo(std.id, std.name, false)}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium text-ink-500 hover:text-red-700 hover:bg-red-50 border border-sand-200 transition-all cursor-pointer"
+                                title="Video access is active. Click to restrict video access."
+                              >
+                                <Lock size={10} />
+                                <span>Restrict</span>
+                              </button>
+                            </div>
+                          )}
+                          {std.isVideoRestricted && std.restrictedByAdminName && (
+                            <div className="text-[9px] text-ink-400 mt-0.5">by {std.restrictedByAdminName}</div>
+                          )}
                         </td>
                         <td className="py-3.5 px-3 text-right whitespace-nowrap">
                           <div className="flex items-center justify-end gap-1.5">
@@ -2123,29 +2212,34 @@ export default function AdminDashboard() {
             </div>
           )}
 
-          {/* Tab 3: Faculty & Instructors */}
+          {/* Tab 3: Faculty */}
           {activeTab === 'instructors' && (
             <div className="bg-white rounded-2xl border border-sand-200 p-6 space-y-6 shadow-xs">
               {/* Header Toolbar */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div className="relative flex-1 max-w-md">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-ink-400" />
-                  <input
-                    type="text"
-                    value={instructorSearch}
-                    onChange={(e) => setInstructorSearch(e.target.value)}
-                    placeholder="Search by scholar name, title, specialization, or email..."
-                    className="w-full pl-9 pr-4 py-2 rounded-xl border border-sand-200 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
-                  />
+                <div>
+                  <h2 className="text-xl sm:text-2xl font-heading font-bold text-ink-900 tracking-tight">
+                    Faculty
+                  </h2>
+                  <p className="text-xs text-ink-500 mt-0.5">
+                    Showing <strong className="text-ink-800">{filteredInstructors.length}</strong> faculty scholars
+                  </p>
                 </div>
                 <div className="flex items-center gap-3">
-                  <div className="text-xs text-ink-500">
-                    Showing <strong className="text-ink-800">{filteredInstructors.length}</strong> faculty scholars
+                  <div className="relative w-64 sm:w-72">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-ink-400" />
+                    <input
+                      type="text"
+                      value={instructorSearch}
+                      onChange={(e) => setInstructorSearch(e.target.value)}
+                      placeholder="Search faculty..."
+                      className="w-full pl-9 pr-4 py-2 rounded-xl border border-sand-200 text-xs focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+                    />
                   </div>
                   <button
                     type="button"
                     onClick={handleOpenAddInstructor}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gold-500 hover:bg-gold-400 text-primary-950 text-xs font-bold transition-all shadow-sm cursor-pointer"
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-primary-900 hover:bg-primary-800 text-white text-xs font-bold transition-all shadow-sm cursor-pointer whitespace-nowrap"
                   >
                     <Plus size={14} />
                     Add Faculty Member
@@ -2263,7 +2357,7 @@ export default function AdminDashboard() {
               <div className="bg-white rounded-2xl border border-sand-200 p-6 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                   <div className="flex items-center gap-2.5">
-                    <h2 className="font-heading text-xl font-bold text-ink-900">Accounts &amp; Fee Management</h2>
+                    <h2 className="font-heading text-xl font-bold text-ink-900">Accounts</h2>
                     {accountsSummary.pendingCount > 0 && (
                       <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300 animate-pulse">
                         <span className="w-1.5 h-1.5 rounded-full bg-amber-600"></span>
@@ -2274,6 +2368,16 @@ export default function AdminDashboard() {
                   <p className="text-xs text-ink-500 mt-1">
                     Verify payment receipts, create fee installments, and control course video access permissions.
                   </p>
+                  <div className="mt-2.5 inline-flex items-center gap-2.5 bg-sand-50 border border-sand-200/80 rounded-xl px-3 py-1.5">
+                    <div className="h-6 w-6 rounded-md bg-emerald-100 text-emerald-800 flex items-center justify-center shrink-0">
+                      <CreditCard size={13} />
+                    </div>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-ink-400">Tuition Revenue:</span>
+                      <span className="text-sm font-bold text-ink-900 font-heading">PKR 3.4M</span>
+                      <span className="text-[11px] text-emerald-700 font-medium">+18% vs last cycle</span>
+                    </div>
+                  </div>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2.5">
@@ -2293,6 +2397,22 @@ export default function AdminDashboard() {
                     )}
                   </button>
 
+                  {/* Bulk Restore Action (visible whenever any student accounts are restricted) */}
+                  {restrictedStudentsList.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowBulkRestoreModal(true)}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold border border-emerald-300 transition-all cursor-pointer shadow-2xs"
+                      title="Restore course video playback for all currently restricted students"
+                    >
+                      <Unlock size={14} className="text-emerald-700" />
+                      <span>Restore Access to All</span>
+                      <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-extrabold bg-emerald-700 text-white">
+                        {restrictedStudentsList.length}
+                      </span>
+                    </button>
+                  )}
+
                   {/* Create Installments Action */}
                   <button
                     type="button"
@@ -2300,7 +2420,7 @@ export default function AdminDashboard() {
                     className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#0B3324] hover:bg-[#072419] text-white text-xs font-bold transition-all shadow-sm cursor-pointer"
                   >
                     <Plus size={14} />
-                    <span>+ Create Installments</span>
+                    <span>Create Installment Plan</span>
                   </button>
                 </div>
               </div>
@@ -2370,15 +2490,15 @@ export default function AdminDashboard() {
                       <span className="text-[10px] text-amber-700">Unpaid &amp; under review</span>
                     </div>
 
-                    <div className="p-4 rounded-xl bg-indigo-50/80 border border-indigo-200 shadow-2xs">
+                    <div className="p-4 rounded-xl bg-gold-50/90 border border-gold-200 shadow-2xs">
                       <div className="flex items-center justify-between">
-                        <span className="text-[11px] text-indigo-800 font-bold uppercase tracking-wider">Pending Review</span>
-                        <Receipt size={16} className="text-indigo-600" />
+                        <span className="text-[11px] text-gold-900 font-bold uppercase tracking-wider">Pending Review</span>
+                        <Receipt size={16} className="text-gold-700" />
                       </div>
-                      <div className="text-xl font-bold font-heading text-indigo-950 mt-1">
+                      <div className="text-xl font-bold font-heading text-gold-950 mt-1">
                         {accountsSummary.pendingCount} Receipts
                       </div>
-                      <span className="text-[10px] text-indigo-700">Needs admin approval</span>
+                      <span className="text-[10px] text-gold-800">Needs admin approval</span>
                     </div>
 
                     <div className="p-4 rounded-xl bg-red-50/80 border border-red-200 shadow-2xs">
@@ -2392,7 +2512,15 @@ export default function AdminDashboard() {
                       <span className="text-[10px] text-red-700">Due date passed</span>
                     </div>
 
-                    <div className="p-4 rounded-xl bg-rose-50/80 border border-rose-200 shadow-2xs">
+                    <div
+                      onClick={() => setInstallmentQueueTab('restricted')}
+                      className={`p-4 rounded-xl border shadow-2xs cursor-pointer transition-all ${
+                        installmentQueueTab === 'restricted'
+                          ? 'bg-rose-100/90 border-rose-400 ring-2 ring-rose-400/30'
+                          : 'bg-rose-50/80 border-rose-200 hover:bg-rose-100/70'
+                      }`}
+                      title="Click to view all restricted student records"
+                    >
                       <div className="flex items-center justify-between">
                         <span className="text-[11px] text-rose-800 font-bold uppercase tracking-wider">Restricted Students</span>
                         <Lock size={16} className="text-rose-600" />
@@ -2400,7 +2528,10 @@ export default function AdminDashboard() {
                       <div className="text-xl font-bold font-heading text-rose-950 mt-1">
                         {accountsSummary.restrictedStudentsCount} Students
                       </div>
-                      <span className="text-[10px] text-rose-700">Course video blocked</span>
+                      <div className="flex items-center justify-between mt-0.5">
+                        <span className="text-[10px] text-rose-700">Course video blocked</span>
+                        <span className="text-[10px] font-bold text-rose-800 underline underline-offset-1">Filter list &rarr;</span>
+                      </div>
                     </div>
                   </div>
 
@@ -2410,6 +2541,7 @@ export default function AdminDashboard() {
                       {[
                         { id: 'review', label: 'Pending Review', count: feeInstallments.filter((i) => i.status === 'UNDER_REVIEW').length, badgeColor: 'bg-amber-100 text-amber-900 border-amber-300' },
                         { id: 'overdue', label: 'Overdue / Unpaid', count: feeInstallments.filter((i) => i.status !== 'APPROVED' && i.dueDate <= todayDateStr).length, badgeColor: 'bg-red-100 text-red-900 border-red-200' },
+                        { id: 'restricted', label: 'Restricted Students', count: restrictedStudentsList.length, badgeColor: 'bg-rose-100 text-rose-900 border-rose-200' },
                         { id: 'approved', label: 'Approved', count: feeInstallments.filter((i) => i.status === 'APPROVED').length, badgeColor: 'bg-emerald-100 text-emerald-900 border-emerald-200' },
                         { id: 'rejected', label: 'Rejected', count: feeInstallments.filter((i) => i.status === 'REJECTED').length, badgeColor: 'bg-rose-100 text-rose-900 border-rose-200' },
                         { id: 'all', label: 'All Installments', count: feeInstallments.length, badgeColor: 'bg-sand-200 text-ink-800' },
@@ -2576,67 +2708,87 @@ export default function AdminDashboard() {
                               </td>
 
                               <td className="py-3.5 px-3 whitespace-nowrap">
-                                <button
-                                  type="button"
-                                  onClick={() => handleToggleStudentVideo(inst.studentId, inst.studentName, isRestricted)}
-                                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold transition-all cursor-pointer border ${
-                                    isRestricted
-                                      ? 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100 shadow-2xs'
-                                      : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
-                                  }`}
-                                  title={
-                                    isRestricted
-                                      ? `Restricted by ${student?.restrictedByAdminName || 'Admin'}. Click to restore video access.`
-                                      : 'Video playback is active. Click to lock access.'
-                                  }
-                                >
-                                  {isRestricted ? (
-                                    <>
+                                {isRestricted ? (
+                                  <div className="flex items-center gap-2">
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-red-50 text-red-700 border border-red-200 shadow-2xs">
                                       <Lock size={11} className="text-red-600" />
                                       <span>Restricted</span>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Unlock size={11} className="text-emerald-600" />
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleToggleStudentVideo(inst.studentId, inst.studentName, true)}
+                                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-700 hover:bg-emerald-800 text-white transition-all shadow-xs cursor-pointer"
+                                      title="Restore course video playback for this student"
+                                    >
+                                      <Unlock size={11} />
+                                      <span>Restore Access</span>
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center gap-2">
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                      <CheckCircle2 size={11} className="text-emerald-600" />
                                       <span>Active</span>
-                                    </>
-                                  )}
-                                </button>
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleToggleStudentVideo(inst.studentId, inst.studentName, false)}
+                                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium text-ink-500 hover:text-red-700 hover:bg-red-50 border border-sand-200 transition-all cursor-pointer"
+                                      title="Manually lock course video playback for this student"
+                                    >
+                                      <Lock size={10} />
+                                      <span>Restrict</span>
+                                    </button>
+                                  </div>
+                                )}
                                 {isRestricted && student?.restrictedByAdminName && (
                                   <div className="text-[9px] text-ink-400 mt-0.5">by {student.restrictedByAdminName}</div>
                                 )}
                               </td>
 
                               <td className="py-3.5 px-3 text-right whitespace-nowrap">
-                                {inst.status === 'UNDER_REVIEW' ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setInspectingInst(inst);
-                                      setIsRejectingMode(false);
-                                      setRejectionReasonInput('');
-                                    }}
-                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0B3324] hover:bg-[#072419] text-white text-xs font-bold transition-all cursor-pointer shadow-xs"
-                                  >
-                                    <CheckCircle2 size={13} className="text-emerald-400" />
-                                    <span>Inspect &amp; Verify</span>
-                                  </button>
-                                ) : inst.receiptImageUrl ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setInspectingInst(inst);
-                                      setIsRejectingMode(false);
-                                      setRejectionReasonInput('');
-                                    }}
-                                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white hover:bg-sand-100 text-ink-700 text-xs font-semibold border border-sand-300 transition-colors cursor-pointer"
-                                  >
-                                    <Eye size={12} />
-                                    <span>View Receipt</span>
-                                  </button>
-                                ) : (
-                                  <span className="text-[11px] text-ink-400">—</span>
-                                )}
+                                <div className="flex items-center justify-end gap-1.5">
+                                  {isRestricted && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleToggleStudentVideo(inst.studentId, inst.studentName, true)}
+                                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold border border-emerald-300 transition-colors cursor-pointer shadow-2xs"
+                                      title="Restore video access for this student"
+                                    >
+                                      <Unlock size={12} className="text-emerald-700" />
+                                      <span>Restore Access</span>
+                                    </button>
+                                  )}
+                                  {inst.status === 'UNDER_REVIEW' ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setInspectingInst(inst);
+                                        setIsRejectingMode(false);
+                                        setRejectionReasonInput('');
+                                      }}
+                                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0B3324] hover:bg-[#072419] text-white text-xs font-bold transition-all cursor-pointer shadow-xs"
+                                    >
+                                      <CheckCircle2 size={13} className="text-emerald-400" />
+                                      <span>Inspect &amp; Verify</span>
+                                    </button>
+                                  ) : inst.receiptImageUrl ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setInspectingInst(inst);
+                                        setIsRejectingMode(false);
+                                        setRejectionReasonInput('');
+                                      }}
+                                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white hover:bg-sand-100 text-ink-700 text-xs font-semibold border border-sand-300 transition-colors cursor-pointer"
+                                    >
+                                      <Eye size={12} />
+                                      <span>View Receipt</span>
+                                    </button>
+                                  ) : !isRestricted ? (
+                                    <span className="text-[11px] text-ink-400">—</span>
+                                  ) : null}
+                                </div>
                               </td>
                             </tr>
                           );
@@ -2941,7 +3093,7 @@ export default function AdminDashboard() {
                                     : fee.status === 'Pending'
                                     ? 'bg-gold-100 text-gold-800'
                                     : fee.status === 'Waived'
-                                    ? 'bg-purple-100 text-purple-800'
+                                    ? 'bg-sand-200 text-ink-700 border border-sand-300'
                                     : 'bg-red-100 text-red-800'
                                 }`}
                               >
@@ -3293,21 +3445,31 @@ export default function AdminDashboard() {
           </div>
         )}
 
-          {/* Tab 5: Admissions & Review */}
+          {/* Tab 5: Admissions */}
           {activeTab === 'applications' && (
             <div className="bg-white rounded-2xl border border-sand-200 p-6 space-y-6 shadow-xs">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-sand-200/80">
                 <div>
-                  <h3 className="font-heading text-lg font-bold text-ink-900">
-                    Incoming Student Applications (Semester 2 Intake)
-                  </h3>
-                  <p className="text-xs text-ink-500">
+                  <h2 className="text-xl sm:text-2xl font-heading font-bold text-ink-900 tracking-tight">
+                    Admissions
+                  </h2>
+                  <p className="text-xs text-ink-500 mt-1">
                     Review candidate qualifications, education background, and campus preferences.
                   </p>
                 </div>
-                <span className="text-xs bg-amber-100 text-amber-900 font-semibold px-3 py-1 rounded-full">
-                  38 Applications Pending Review
-                </span>
+
+                <div className="bg-amber-50 border border-amber-200/80 rounded-xl px-4 py-2 flex items-center gap-3 shrink-0">
+                  <div className="h-8 w-8 rounded-lg bg-amber-100 text-amber-800 flex items-center justify-center shrink-0">
+                    <FileCheck size={16} />
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-amber-900">Pending Applications</div>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-lg font-bold text-ink-900 font-heading">38</span>
+                      <span className="text-[11px] text-amber-800 font-semibold">Requires review</span>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -3358,16 +3520,26 @@ export default function AdminDashboard() {
 
                     <div className="flex items-center justify-end gap-2 pt-2 border-t border-sand-100">
                       <button
-                        onClick={() => alert(`Application for ${app.name} marked for interview.`)}
-                        className="px-3 py-1.5 rounded-lg bg-sand-100 hover:bg-sand-200 text-xs font-semibold text-ink-700 transition-colors"
+                        type="button"
+                        onClick={() => setAccountsToast({
+                          type: 'success',
+                          title: 'Interview Scheduled',
+                          message: `Candidate ${app.name} has been queued for faculty interview.`
+                        })}
+                        className="px-3 py-1.5 rounded-lg bg-sand-100 hover:bg-sand-200 text-xs font-semibold text-ink-700 transition-colors cursor-pointer"
                       >
                         Schedule Interview
                       </button>
                       <button
-                        onClick={() => alert(`Application for ${app.name} Approved!`)}
-                        className="px-3 py-1.5 rounded-lg bg-primary-900 hover:bg-primary-800 text-xs font-semibold text-white transition-colors"
+                        type="button"
+                        onClick={() => setAccountsToast({
+                          type: 'success',
+                          title: 'Application Approved',
+                          message: `Application for ${app.name} approved. Welcome packet issued.`
+                        })}
+                        className="px-3 py-1.5 rounded-lg bg-primary-900 hover:bg-primary-800 text-xs font-semibold text-white transition-colors cursor-pointer"
                       >
-                        Approve & Enroll
+                        Approve &amp; Enroll
                       </button>
                     </div>
                   </div>
@@ -3390,9 +3562,9 @@ export default function AdminDashboard() {
                       {activeWeeklySlots.length} Active Weekly Sessions
                     </span>
                   </div>
-                  <h3 className="font-heading text-xl font-bold text-ink-900 mt-1">
-                    Live Session &amp; On-Campus Timetable
-                  </h3>
+                  <h2 className="text-xl sm:text-2xl font-heading font-bold text-ink-900 tracking-tight mt-1">
+                    Schedule
+                  </h2>
                   <p className="text-xs text-ink-500 mt-0.5">
                     Schedule lectures across Google Meet and Lahore DHA Phase 6 campus with automated student broadcast notifications.
                   </p>
@@ -3404,7 +3576,7 @@ export default function AdminDashboard() {
                   className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-[#0B3324] hover:bg-[#072318] text-white rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer shrink-0"
                 >
                   <Plus size={15} />
-                  <span>+ Add New Lecture Slot</span>
+                  <span>Add New Lecture Slot</span>
                 </button>
               </div>
 
@@ -3422,10 +3594,10 @@ export default function AdminDashboard() {
 
                 <div className="bg-white p-4 rounded-2xl border border-sand-200 shadow-2xs flex items-center justify-between">
                   <div>
-                    <span className="text-xs text-blue-700 font-semibold uppercase tracking-wider block">Google Meet (Online)</span>
-                    <div className="text-2xl font-bold font-heading text-blue-950 mt-1">{onlineMeetSlotsCount} Slots</div>
+                    <span className="text-xs text-primary-900 font-semibold uppercase tracking-wider block">Google Meet (Online)</span>
+                    <div className="text-2xl font-bold font-heading text-primary-950 mt-1">{onlineMeetSlotsCount} Slots</div>
                   </div>
-                  <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-700">
+                  <div className="w-10 h-10 rounded-xl bg-primary-50 border border-primary-200 flex items-center justify-center text-primary-900">
                     <Video size={18} />
                   </div>
                 </div>
@@ -3594,8 +3766,8 @@ export default function AdminDashboard() {
                                     <div className="flex flex-wrap items-center gap-2">
                                       {/* Modality Badge */}
                                       {isOnline ? (
-                                        <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-800 border border-blue-200 inline-flex items-center gap-1.5">
-                                          <Video size={12} className="text-blue-700" />
+                                        <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-primary-50 text-primary-900 border border-primary-200 inline-flex items-center gap-1.5">
+                                          <Video size={12} className="text-primary-700" />
                                           Google Meet (Live Online)
                                         </span>
                                       ) : (
@@ -3655,7 +3827,7 @@ export default function AdminDashboard() {
                                   <div className="pt-2 border-t border-sand-100 flex flex-wrap items-center justify-between gap-3 text-xs">
                                     {isOnline ? (
                                       <div className="flex items-center gap-2">
-                                        <span className="text-[11px] text-blue-900 bg-blue-50/80 px-2 py-1 rounded border border-blue-200 select-all font-medium">
+                                        <span className="text-[11px] text-primary-950 bg-primary-50/70 px-2 py-1 rounded border border-primary-200 select-all font-medium">
                                           {slot.meetLink || 'meet.google.com/ilm-live-class'}
                                         </span>
                                         <button
@@ -3671,7 +3843,7 @@ export default function AdminDashboard() {
                                             href={slot.meetLink}
                                             target="_blank"
                                             rel="noopener noreferrer"
-                                            className="text-[11px] px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded font-bold transition-colors inline-flex items-center gap-1"
+                                            className="text-[11px] px-2.5 py-1 bg-[#0B3324] hover:bg-[#072419] text-white rounded font-bold transition-colors inline-flex items-center gap-1 shadow-2xs"
                                           >
                                             <span>Launch Meet</span>
                                             <ExternalLink size={11} />
@@ -3796,8 +3968,8 @@ export default function AdminDashboard() {
                                       isCancelled
                                         ? 'border-red-300 border-dashed opacity-75'
                                         : isOnline
-                                        ? 'border-l-4 border-l-blue-600 border-sand-200'
-                                        : 'border-l-4 border-l-emerald-600 border-sand-200'
+                                        ? 'border-l-4 border-l-primary-800 border-sand-200'
+                                        : 'border-l-4 border-l-gold-500 border-sand-200'
                                     }`}
                                   >
                                     <div className="flex items-center justify-between text-[10px] text-ink-500 mb-1">
@@ -3819,7 +3991,7 @@ export default function AdminDashboard() {
                                         {slot.instructorName.split(' ')[0]}
                                       </span>
                                       {isOnline ? (
-                                        <span className="text-blue-700 font-bold flex items-center gap-0.5">
+                                        <span className="text-primary-800 font-bold flex items-center gap-0.5">
                                           <Video size={10} />
                                           Online
                                         </span>
@@ -3973,18 +4145,11 @@ export default function AdminDashboard() {
           {activeTab === 'library' && (
             <div className="space-y-6 animate-fadeIn">
               {/* Header Banner & Action Button */}
-              <div className="bg-white rounded-2xl border border-sand-200 p-5 sm:p-6 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="bg-white rounded-2xl border border-sand-200 p-5 sm:p-6 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                  <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-gold-100 text-gold-800 text-[11px] font-bold tracking-wide uppercase mb-2">
-                    <Library size={13} />
-                    Digital Repository & Reading Materials
-                  </div>
                   <h2 className="text-xl sm:text-2xl font-heading font-bold text-ink-900 tracking-tight">
-                    e-Library Catalog Management
+                    e-Library
                   </h2>
-                  <p className="text-xs sm:text-sm text-ink-500 mt-1 max-w-2xl">
-                    Publish, edit, feature, and manage Islamic reference texts, curriculum companion textbooks, and downloadable study materials for students.
-                  </p>
                 </div>
 
                 <div className="flex items-center gap-2.5 shrink-0">
@@ -4004,53 +4169,6 @@ export default function AdminDashboard() {
                     <Plus size={16} />
                     <span>Add Resource</span>
                   </button>
-                </div>
-              </div>
-
-              {/* Quick KPI Overview */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="bg-white rounded-2xl border border-sand-200 p-4 shadow-xs">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-ink-400">Total Resources</span>
-                    <div className="w-8 h-8 rounded-xl bg-primary-100 text-primary-900 flex items-center justify-center">
-                      <BookOpen size={16} />
-                    </div>
-                  </div>
-                  <p className="text-2xl font-heading font-bold text-ink-900">{libraryMetrics.totalTitles}</p>
-                  <p className="text-[11px] text-ink-500 mt-1">Cataloged in repository</p>
-                </div>
-
-                <div className="bg-white rounded-2xl border border-sand-200 p-4 shadow-xs">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-ink-400">Featured Titles</span>
-                    <div className="w-8 h-8 rounded-xl bg-gold-100 text-gold-700 flex items-center justify-center">
-                      <Star size={16} className="fill-gold-500 text-gold-600" />
-                    </div>
-                  </div>
-                  <p className="text-2xl font-heading font-bold text-gold-700">{libraryMetrics.featuredCount}</p>
-                  <p className="text-[11px] text-ink-500 mt-1">Highlighted on e-Library home</p>
-                </div>
-
-                <div className="bg-white rounded-2xl border border-sand-200 p-4 shadow-xs">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-ink-400">Active Subjects</span>
-                    <div className="w-8 h-8 rounded-xl bg-sand-200 text-ink-700 flex items-center justify-center">
-                      <Layers size={16} />
-                    </div>
-                  </div>
-                  <p className="text-2xl font-heading font-bold text-ink-900">{libraryMetrics.categoryCount}</p>
-                  <p className="text-[11px] text-ink-500 mt-1">Disciplines & fields</p>
-                </div>
-
-                <div className="bg-white rounded-2xl border border-sand-200 p-4 shadow-xs">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-ink-400">Total Pages</span>
-                    <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center">
-                      <FileText size={16} />
-                    </div>
-                  </div>
-                  <p className="text-2xl font-heading font-bold text-ink-900">{libraryMetrics.totalPages.toLocaleString()}</p>
-                  <p className="text-[11px] text-ink-500 mt-1">Pages across all works</p>
                 </div>
               </div>
 
@@ -4132,10 +4250,8 @@ export default function AdminDashboard() {
                     <thead>
                       <tr className="bg-sand-50/80 border-b border-sand-200 text-ink-500 font-bold uppercase tracking-wider text-[10px]">
                         <th className="py-3.5 px-4">Title & Details</th>
-                        <th className="py-3.5 px-3">Subject / Type</th>
                         <th className="py-3.5 px-3">Pages & Size</th>
                         <th className="py-3.5 px-3 text-center">Featured</th>
-                        <th className="py-3.5 px-3">Status</th>
                         <th className="py-3.5 px-3">Access Links</th>
                         <th className="py-3.5 px-4 text-right">Actions</th>
                       </tr>
@@ -4143,7 +4259,7 @@ export default function AdminDashboard() {
                     <tbody className="divide-y divide-sand-100">
                       {filteredLibraryItems.length === 0 ? (
                         <tr>
-                          <td colSpan={7} className="py-12 text-center text-ink-400">
+                          <td colSpan={5} className="py-12 text-center text-ink-400">
                             <div className="w-12 h-12 rounded-2xl bg-sand-100 flex items-center justify-center mx-auto mb-3 text-ink-400">
                               <BookOpen size={22} />
                             </div>
@@ -4182,25 +4298,6 @@ export default function AdminDashboard() {
                                     <p className="text-[11px] text-ink-500 truncate mt-0.5">
                                       {item.author || 'Author unspecified'}
                                     </p>
-                                    {item.description && (
-                                      <p className="text-[10px] text-ink-400 line-clamp-1 mt-0.5">
-                                        {item.description}
-                                      </p>
-                                    )}
-                                  </div>
-                                </div>
-                              </td>
-
-                              {/* Category & Type */}
-                              <td className="py-3.5 px-3">
-                                <div className="space-y-1">
-                                  <span className="inline-block px-2 py-0.5 rounded-md text-[10px] font-bold bg-primary-50 text-primary-900 border border-primary-200">
-                                    {item.category}
-                                  </span>
-                                  <div>
-                                    <span className="inline-block px-2 py-0.5 rounded-md text-[10px] font-medium bg-sand-100 text-ink-600">
-                                      {typeLabel}
-                                    </span>
                                   </div>
                                 </div>
                               </td>
@@ -4232,18 +4329,6 @@ export default function AdminDashboard() {
                                     className={isFeatured ? 'fill-amber-400 text-amber-500' : ''}
                                   />
                                 </button>
-                              </td>
-
-                              {/* Status */}
-                              <td className="py-3.5 px-3 whitespace-nowrap">
-                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                  item.status === 'draft'
-                                    ? 'bg-amber-100 text-amber-800'
-                                    : 'bg-emerald-100 text-emerald-800'
-                                }`}>
-                                  <span className={`w-1.5 h-1.5 rounded-full ${item.status === 'draft' ? 'bg-amber-500' : 'bg-emerald-500'}`} />
-                                  {item.status === 'draft' ? 'Draft' : 'Published'}
-                                </span>
                               </td>
 
                               {/* Access Links */}
@@ -4313,17 +4398,13 @@ export default function AdminDashboard() {
           {activeTab === 'quotes' && (
             <div className="space-y-6 animate-fadeIn">
               {/* Header Banner & Action Button */}
-              <div className="bg-white rounded-2xl border border-sand-200 p-5 sm:p-6 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="bg-white rounded-2xl border border-sand-200 p-5 sm:p-6 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                  <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-gold-100 text-gold-800 text-[11px] font-bold tracking-wide uppercase mb-2">
-                    <Quote size={13} />
-                    Daily Reflections & Quotes
-                  </div>
                   <h2 className="text-xl sm:text-2xl font-heading font-bold text-ink-900 tracking-tight">
-                    Daily Inscriptions & Wisdom
+                    Quotes
                   </h2>
-                  <p className="text-xs sm:text-sm text-ink-500 mt-1 max-w-2xl">
-                    Manage the authentic Hadith, Quranic ayahs, and scholarly reflections displayed on the student dashboard hero card.
+                  <p className="text-xs text-ink-500 mt-1 max-w-2xl">
+                    Authentic Hadith, Quranic ayahs, and scholarly reflections displayed on the student dashboard hero card.
                   </p>
                 </div>
 
@@ -4332,71 +4413,60 @@ export default function AdminDashboard() {
                     to="/dashboard"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl border border-sand-300 text-xs font-semibold text-ink-700 hover:bg-sand-100 transition-colors cursor-pointer"
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-sand-300 text-xs font-semibold text-ink-700 hover:bg-sand-100 transition-colors cursor-pointer"
                   >
-                    <ExternalLink size={14} />
+                    <ExternalLink size={13} />
                     <span>View Student Dashboard</span>
                   </Link>
                   <button
                     onClick={handleOpenAddQuoteModal}
-                    className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-primary-900 text-white text-xs font-semibold hover:bg-primary-800 transition-all shadow-sm cursor-pointer"
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-primary-900 text-white text-xs font-semibold hover:bg-primary-800 transition-all shadow-2xs cursor-pointer"
                   >
-                    <Plus size={16} />
+                    <Plus size={15} />
                     <span>Add Quote</span>
                   </button>
                 </div>
               </div>
 
               {/* Top Row: KPIs and Live Student Preview */}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
                 {/* 2 Cols: KPIs */}
                 <div className="lg:col-span-2 grid grid-cols-2 sm:grid-cols-3 gap-4">
-                  <div className="bg-white rounded-2xl border border-sand-200 p-4 shadow-xs">
+                  <div className="bg-white rounded-2xl border border-sand-200/80 p-4 shadow-2xs">
                     <div className="flex items-center justify-between mb-2">
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-ink-400">Total Quotes</span>
-                      <div className="w-8 h-8 rounded-xl bg-primary-100 text-primary-900 flex items-center justify-center">
-                        <Quote size={16} />
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-ink-400">Total Quotes</span>
+                      <div className="w-7 h-7 rounded-lg bg-sand-100 text-primary-900 flex items-center justify-center">
+                        <Quote size={14} />
                       </div>
                     </div>
                     <p className="text-2xl font-heading font-bold text-ink-900">{quotesMetrics.total}</p>
-                    <p className="text-[11px] text-ink-500 mt-1">In platform database</p>
+                    <p className="text-[11px] text-ink-400 mt-1">In platform database</p>
                   </div>
 
-                  <div className="bg-white rounded-2xl border border-sand-200 p-4 shadow-xs">
+                  <div className="bg-white rounded-2xl border border-sand-200/80 p-4 shadow-2xs">
                     <div className="flex items-center justify-between mb-2">
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-ink-400">Active Pool</span>
-                      <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center">
-                        <CheckCircle2 size={16} />
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-ink-400">Active Pool</span>
+                      <div className="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center">
+                        <CheckCircle2 size={14} />
                       </div>
                     </div>
                     <p className="text-2xl font-heading font-bold text-emerald-800">{quotesMetrics.active}</p>
-                    <p className="text-[11px] text-ink-500 mt-1">Rotating daily</p>
+                    <p className="text-[11px] text-ink-400 mt-1">Rotating daily</p>
                   </div>
 
-                  <div className="bg-white rounded-2xl border border-sand-200 p-4 shadow-xs col-span-2 sm:col-span-1">
+                  <div className="bg-white rounded-2xl border border-sand-200/80 p-4 shadow-2xs col-span-2 sm:col-span-1">
                     <div className="flex items-center justify-between mb-2">
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-ink-400">Today's Display</span>
-                      <div className="w-8 h-8 rounded-xl bg-gold-100 text-gold-700 flex items-center justify-center">
-                        <Star size={16} className={quotesMetrics.pinnedQuote ? 'fill-gold-500 text-gold-600' : 'text-gold-600'} />
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-ink-400">Today's Display</span>
+                      <div className="w-7 h-7 rounded-lg bg-gold-50 text-gold-700 flex items-center justify-center">
+                        <Star size={14} className={quotesMetrics.pinnedQuote ? 'fill-gold-500 text-gold-600' : 'text-gold-600'} />
                       </div>
                     </div>
                     <p className="text-sm font-heading font-bold text-ink-900 truncate">
                       {quotesMetrics.pinnedQuote ? quotesMetrics.pinnedQuote.source : 'Daily Rotation'}
                     </p>
-                    <p className="text-[11px] text-ink-500 mt-1">
-                      {quotesMetrics.pinnedQuote ? 'Admin Pinned Reflection' : 'Automated Calendar Seed'}
+                    <p className="text-[11px] text-ink-400 mt-1">
+                      {quotesMetrics.pinnedQuote ? 'Admin Pinned' : 'Automated Calendar'}
                     </p>
-                  </div>
-
-                  {/* Word Limit Guideline Callout */}
-                  <div className="col-span-2 sm:col-span-3 bg-sand-100/70 border border-sand-200 rounded-2xl p-4 flex items-start gap-3">
-                    <div className="w-7 h-7 rounded-lg bg-primary-900 text-gold-400 flex items-center justify-center shrink-0 mt-0.5">
-                      <Sparkles size={14} />
-                    </div>
-                    <div className="text-xs text-ink-700 leading-relaxed">
-                      <strong className="font-semibold text-ink-900 block mb-0.5">Card UI Constraints (Enforced automatically):</strong>
-                      Quotes are restricted to a maximum of <strong>40 words</strong> and citations to <strong>8 words</strong> to ensure the student hero banner renders without clipping or overflow.
-                    </div>
                   </div>
                 </div>
 
@@ -5478,7 +5548,7 @@ export default function AdminDashboard() {
                       }
                       className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all ${
                         pathwayFormData.programStructure === 'single_course'
-                          ? 'border-purple-600 bg-purple-50/70 ring-2 ring-purple-500/20'
+                          ? 'border-gold-600 bg-gold-50/70 ring-2 ring-gold-500/20'
                           : 'border-sand-200 bg-white hover:bg-sand-50/60'
                       }`}
                     >
@@ -5613,6 +5683,413 @@ export default function AdminDashboard() {
             </div>
           </div>
         )}
+
+        {/* ======================================================== */}
+        {/* E-LIBRARY ADD / EDIT RESOURCE MODAL                     */}
+        {/* ======================================================== */}
+        {isLibraryModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink-950/60 backdrop-blur-xs">
+            <div className="bg-white rounded-2xl border border-sand-200 shadow-2xl w-full max-w-xl overflow-hidden animate-scaleIn max-h-[90vh] flex flex-col">
+              <div className="p-5 border-b border-sand-200 flex items-center justify-between bg-sand-50/60">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-primary-100 text-primary-900 flex items-center justify-center">
+                    <Library size={16} />
+                  </div>
+                  <div>
+                    <h3 className="font-heading font-bold text-base text-ink-900">
+                      {editingLibraryItem ? 'Edit Library Resource' : 'Add New Library Resource'}
+                    </h3>
+                    <p className="text-xs text-ink-500">
+                      Publish reference texts, course textbooks, or downloadable materials
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsLibraryModalOpen(false)}
+                  className="text-ink-400 hover:text-ink-700 p-1.5 rounded-lg hover:bg-sand-100 transition-colors cursor-pointer"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <form onSubmit={handleSaveLibrarySubmit} className="p-5 space-y-4 overflow-y-auto flex-1 text-xs">
+                {libraryFormError && (
+                  <div className="p-3 rounded-xl bg-red-50 text-red-800 border border-red-200 text-xs flex items-center gap-2">
+                    <AlertTriangle size={14} className="shrink-0" />
+                    <span>{libraryFormError}</span>
+                  </div>
+                )}
+
+                <div className="space-y-1">
+                  <label className="font-semibold text-ink-700">Resource Title *</label>
+                  <input
+                    type="text"
+                    required
+                    value={libraryFormData.title}
+                    onChange={(e) => setLibraryFormData({ ...libraryFormData, title: e.target.value })}
+                    placeholder="e.g. Tafsir Ibn Kathir — Abridged"
+                    className="w-full px-3 py-2 border border-sand-300 rounded-xl bg-white text-ink-900 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-600"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="font-semibold text-ink-700">Author / Scholar</label>
+                    <input
+                      type="text"
+                      value={libraryFormData.author}
+                      onChange={(e) => setLibraryFormData({ ...libraryFormData, author: e.target.value })}
+                      placeholder="e.g. Imam Ibn Kathir"
+                      className="w-full px-3 py-2 border border-sand-300 rounded-xl bg-white text-ink-900 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="font-semibold text-ink-700">Subject / Category</label>
+                    <input
+                      type="text"
+                      value={libraryFormData.category}
+                      onChange={(e) => setLibraryFormData({ ...libraryFormData, category: e.target.value })}
+                      placeholder="e.g. Tafsir, Hadith, Fiqh, Arabic"
+                      className="w-full px-3 py-2 border border-sand-300 rounded-xl bg-white text-ink-900 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="space-y-1">
+                    <label className="font-semibold text-ink-700">Resource Type</label>
+                    <select
+                      value={libraryFormData.type}
+                      onChange={(e) => setLibraryFormData({ ...libraryFormData, type: e.target.value })}
+                      className="w-full px-3 py-2 border border-sand-300 rounded-xl bg-white text-ink-700 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                    >
+                      <option value="reference">Reference Work</option>
+                      <option value="textbook">Textbook</option>
+                      <option value="course-material">Study Material</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="font-semibold text-ink-700">Pages</label>
+                    <input
+                      type="number"
+                      value={libraryFormData.pages}
+                      onChange={(e) => setLibraryFormData({ ...libraryFormData, pages: e.target.value })}
+                      placeholder="e.g. 450"
+                      className="w-full px-3 py-2 border border-sand-300 rounded-xl bg-white text-ink-900 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="font-semibold text-ink-700">Status</label>
+                    <select
+                      value={libraryFormData.status}
+                      onChange={(e) => setLibraryFormData({ ...libraryFormData, status: e.target.value })}
+                      className="w-full px-3 py-2 border border-sand-300 rounded-xl bg-white text-ink-700 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                    >
+                      <option value="published">Published</option>
+                      <option value="draft">Draft</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="font-semibold text-ink-700">File Size</label>
+                    <input
+                      type="text"
+                      value={libraryFormData.fileSize}
+                      onChange={(e) => setLibraryFormData({ ...libraryFormData, fileSize: e.target.value })}
+                      placeholder="e.g. 12.5 MB"
+                      className="w-full px-3 py-2 border border-sand-300 rounded-xl bg-white text-ink-900 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="font-semibold text-ink-700">Language</label>
+                    <input
+                      type="text"
+                      value={libraryFormData.language}
+                      onChange={(e) => setLibraryFormData({ ...libraryFormData, language: e.target.value })}
+                      placeholder="e.g. Arabic / English"
+                      className="w-full px-3 py-2 border border-sand-300 rounded-xl bg-white text-ink-900 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="font-semibold text-ink-700">PDF Download URL</label>
+                  <input
+                    type="url"
+                    value={libraryFormData.downloadUrl}
+                    onChange={(e) => setLibraryFormData({ ...libraryFormData, downloadUrl: e.target.value })}
+                    placeholder="https://archive.org/... or cloud PDF link"
+                    className="w-full px-3 py-2 border border-sand-300 rounded-xl bg-white text-ink-900 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="font-semibold text-ink-700">Online Reading URL (Optional)</label>
+                  <input
+                    type="url"
+                    value={libraryFormData.externalUrl}
+                    onChange={(e) => setLibraryFormData({ ...libraryFormData, externalUrl: e.target.value })}
+                    placeholder="https://sunnah.com/... or web reader link"
+                    className="w-full px-3 py-2 border border-sand-300 rounded-xl bg-white text-ink-900 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="font-semibold text-ink-700">Description</label>
+                  <textarea
+                    rows={3}
+                    value={libraryFormData.description}
+                    onChange={(e) => setLibraryFormData({ ...libraryFormData, description: e.target.value })}
+                    placeholder="Brief summary or curriculum note for students..."
+                    className="w-full px-3 py-2 border border-sand-300 rounded-xl bg-white text-ink-900 focus:outline-none focus:ring-2 focus:ring-primary-500/20 resize-none"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2 pt-1">
+                  <input
+                    type="checkbox"
+                    id="lib_featured"
+                    checked={libraryFormData.featured}
+                    onChange={(e) => setLibraryFormData({ ...libraryFormData, featured: e.target.checked })}
+                    className="w-4 h-4 text-primary-900 rounded border-sand-300 focus:ring-primary-500 cursor-pointer"
+                  />
+                  <label htmlFor="lib_featured" className="text-xs font-semibold text-ink-800 cursor-pointer">
+                    Feature this resource on the e-Library homepage
+                  </label>
+                </div>
+
+                <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-sand-200">
+                  <button
+                    type="button"
+                    onClick={() => setIsLibraryModalOpen(false)}
+                    className="px-4 py-2 rounded-xl text-xs font-bold text-ink-600 hover:bg-sand-100 transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-2 rounded-xl bg-primary-900 hover:bg-primary-800 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
+                  >
+                    {editingLibraryItem ? 'Update Resource' : 'Save Resource'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* E-LIBRARY DELETE CONFIRMATION MODAL */}
+        {isLibraryDeleteModalOpen && libraryItemToDelete && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink-950/60 backdrop-blur-xs">
+            <div className="bg-white rounded-2xl border border-sand-200 shadow-2xl w-full max-w-sm overflow-hidden p-5 space-y-4 animate-scaleIn">
+              <div className="w-10 h-10 rounded-2xl bg-red-100 text-red-600 flex items-center justify-center mx-auto">
+                <Trash2 size={20} />
+              </div>
+              <div className="text-center space-y-1">
+                <h3 className="font-heading font-bold text-base text-ink-900">Delete Library Resource</h3>
+                <p className="text-xs text-ink-500">
+                  Are you sure you want to remove <strong className="text-ink-800">{libraryItemToDelete.title}</strong> from the catalog? This action cannot be undone.
+                </p>
+              </div>
+              <div className="flex items-center justify-center gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsLibraryDeleteModalOpen(false);
+                    setLibraryItemToDelete(null);
+                  }}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-ink-600 hover:bg-sand-100 transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmDeleteLibrary}
+                  className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold transition-colors cursor-pointer"
+                >
+                  Delete Resource
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ======================================================== */}
+        {/* DAILY QUOTE ADD / EDIT MODAL                            */}
+        {/* ======================================================== */}
+        {isQuoteModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink-950/60 backdrop-blur-xs">
+            <div className="bg-white rounded-2xl border border-sand-200 shadow-2xl w-full max-w-lg overflow-hidden animate-scaleIn max-h-[90vh] flex flex-col">
+              <div className="p-5 border-b border-sand-200 flex items-center justify-between bg-sand-50/60">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-gold-100 text-gold-800 flex items-center justify-center">
+                    <Quote size={16} />
+                  </div>
+                  <div>
+                    <h3 className="font-heading font-bold text-base text-ink-900">
+                      {editingQuote ? 'Edit Wisdom Quote' : 'Add New Daily Inscription'}
+                    </h3>
+                    <p className="text-xs text-ink-500">
+                      Displayed on student dashboard hero banner (Max 40 words)
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsQuoteModalOpen(false)}
+                  className="text-ink-400 hover:text-ink-700 p-1.5 rounded-lg hover:bg-sand-100 transition-colors cursor-pointer"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <form onSubmit={handleSaveQuoteSubmit} className="p-5 space-y-4 overflow-y-auto flex-1 text-xs">
+                {quoteFormError && (
+                  <div className="p-3 rounded-xl bg-red-50 text-red-800 border border-red-200 text-xs flex items-center gap-2">
+                    <AlertTriangle size={14} className="shrink-0" />
+                    <span>{quoteFormError}</span>
+                  </div>
+                )}
+
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <label className="font-semibold text-ink-700">Quote Text *</label>
+                    <span className={`text-[10px] font-bold ${countWords(quoteFormData.text) > 40 ? 'text-red-600' : 'text-ink-400'}`}>
+                      {countWords(quoteFormData.text)} / 40 words
+                    </span>
+                  </div>
+                  <textarea
+                    rows={4}
+                    required
+                    value={quoteFormData.text}
+                    onChange={(e) => setQuoteFormData({ ...quoteFormData, text: e.target.value })}
+                    placeholder="e.g. The seeking of knowledge is obligatory for every Muslim."
+                    className="w-full px-3 py-2 border border-sand-300 rounded-xl bg-white text-ink-900 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-600 resize-none text-xs leading-relaxed"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <label className="font-semibold text-ink-700">Reference / Citation *</label>
+                      <span className={`text-[10px] font-bold ${countWords(quoteFormData.source) > 8 ? 'text-red-600' : 'text-ink-400'}`}>
+                        {countWords(quoteFormData.source)} / 8 words
+                      </span>
+                    </div>
+                    <input
+                      type="text"
+                      required
+                      value={quoteFormData.source}
+                      onChange={(e) => setQuoteFormData({ ...quoteFormData, source: e.target.value })}
+                      placeholder="e.g. Sunan Ibn Majah 224"
+                      className="w-full px-3 py-2 border border-sand-300 rounded-xl bg-white text-ink-900 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="font-semibold text-ink-700">Category / Classification</label>
+                    <select
+                      value={quoteFormData.type}
+                      onChange={(e) => setQuoteFormData({ ...quoteFormData, type: e.target.value })}
+                      className="w-full px-3 py-2 border border-sand-300 rounded-xl bg-white text-ink-700 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                    >
+                      <option value="hadith">Hadith</option>
+                      <option value="quran">Quran Ayah</option>
+                      <option value="scholarly">Scholarly Wisdom</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="space-y-2 pt-2 border-t border-sand-100">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="quote_pinned"
+                      checked={quoteFormData.pinned}
+                      onChange={(e) => setQuoteFormData({ ...quoteFormData, pinned: e.target.checked })}
+                      className="w-4 h-4 text-primary-900 rounded border-sand-300 focus:ring-primary-500 cursor-pointer"
+                    />
+                    <label htmlFor="quote_pinned" className="text-xs font-semibold text-ink-800 cursor-pointer">
+                      Pin as today's active wisdom on student hero banner
+                    </label>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="quote_active"
+                      checked={quoteFormData.active}
+                      onChange={(e) => setQuoteFormData({ ...quoteFormData, active: e.target.checked })}
+                      className="w-4 h-4 text-primary-900 rounded border-sand-300 focus:ring-primary-500 cursor-pointer"
+                    />
+                    <label htmlFor="quote_active" className="text-xs font-semibold text-ink-800 cursor-pointer">
+                      Include in daily automated rotation pool
+                    </label>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-sand-200">
+                  <button
+                    type="button"
+                    onClick={() => setIsQuoteModalOpen(false)}
+                    className="px-4 py-2 rounded-xl text-xs font-bold text-ink-600 hover:bg-sand-100 transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-2 rounded-xl bg-primary-900 hover:bg-primary-800 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
+                  >
+                    {editingQuote ? 'Update Quote' : 'Save Quote'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* DAILY QUOTE DELETE CONFIRMATION MODAL */}
+        {isQuoteDeleteModalOpen && quoteToDelete && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink-950/60 backdrop-blur-xs">
+            <div className="bg-white rounded-2xl border border-sand-200 shadow-2xl w-full max-w-sm overflow-hidden p-5 space-y-4 animate-scaleIn">
+              <div className="w-10 h-10 rounded-2xl bg-red-100 text-red-600 flex items-center justify-center mx-auto">
+                <Trash2 size={20} />
+              </div>
+              <div className="text-center space-y-1">
+                <h3 className="font-heading font-bold text-base text-ink-900">Delete Wisdom Quote</h3>
+                <p className="text-xs text-ink-500">
+                  Are you sure you want to remove this quote from the database?
+                </p>
+                <p className="text-[11px] text-ink-700 italic border-l-2 border-sand-300 pl-2 mt-2">
+                  "{quoteToDelete.text}"
+                </p>
+              </div>
+              <div className="flex items-center justify-center gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsQuoteDeleteModalOpen(false);
+                    setQuoteToDelete(null);
+                  }}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-ink-600 hover:bg-sand-100 transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmDeleteQuote}
+                  className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold transition-colors cursor-pointer"
+                >
+                  Delete Quote
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* UNIFIED SLIDE-OVER BILLING DRAWER */}
         <BillingDrawer
           feeRecord={selectedDrawerFee}
@@ -5744,6 +6221,55 @@ export default function AdminDashboard() {
                   </div>
                 </div>
 
+                {/* Course Video Access Permission & Instant Unlock */}
+                {(() => {
+                  const targetStudent = students.find((s) => s.id === inspectingInst.studentId || (inspectingInst.studentId === 'usr_001' && s.id === 'std_001'));
+                  const isRestricted = Boolean(targetStudent?.isVideoRestricted);
+                  return (
+                    <div className="p-3.5 rounded-xl bg-sand-50/80 border border-sand-200 text-xs flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2.5">
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${isRestricted ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-800'}`}>
+                          {isRestricted ? <Lock size={15} /> : <Unlock size={15} />}
+                        </div>
+                        <div>
+                          <div className="font-bold text-ink-900 text-[12px] flex items-center gap-1.5">
+                            <span>Course Video Access:</span>
+                            <span className={`px-2 py-0.2 rounded-full text-[10px] font-extrabold ${isRestricted ? 'bg-red-100 text-red-800 border border-red-200' : 'bg-emerald-100 text-emerald-800 border border-emerald-200'}`}>
+                              {isRestricted ? 'Restricted' : 'Active'}
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-ink-500 mt-0.5">
+                            {isRestricted
+                              ? `Student course video player is currently locked${targetStudent?.restrictedByAdminName ? ` by ${targetStudent.restrictedByAdminName}` : ''}.`
+                              : 'Student currently has full video playback access.'}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleToggleStudentVideo(inspectingInst.studentId, inspectingInst.studentName, isRestricted)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-2xs cursor-pointer inline-flex items-center gap-1.5 ${
+                          isRestricted
+                            ? 'bg-emerald-700 hover:bg-emerald-800 text-white'
+                            : 'bg-white hover:bg-red-50 text-red-700 border border-red-200'
+                        }`}
+                      >
+                        {isRestricted ? (
+                          <>
+                            <Unlock size={12} />
+                            <span>Restore Access Now</span>
+                          </>
+                        ) : (
+                          <>
+                            <Lock size={12} />
+                            <span>Restrict Video</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  );
+                })()}
+
                 {/* Admin Audit Stamp (if approved) */}
                 {inspectingInst.approvedByName && (
                   <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-900 flex items-center gap-2">
@@ -5866,160 +6392,543 @@ export default function AdminDashboard() {
         )}
 
         {/* ======================================================== */}
-        {/* 2. CREATE INSTALLMENTS MODAL                             */}
+        {/* 2. CREATE FEE INSTALLMENTS & PAYMENT PLANS MODAL         */}
         {/* ======================================================== */}
-        {showCreateInstallmentModal && (
-          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-fadeIn">
-            <div className="bg-white rounded-2xl max-w-lg w-full border border-sand-300 shadow-2xl overflow-hidden my-8">
-              <div className="px-6 py-4 bg-sand-50 border-b border-sand-200 flex items-center justify-between">
-                <div>
-                  <h3 className="font-heading text-lg font-bold text-ink-900">
-                    Create Fee Installments
-                  </h3>
-                  <p className="text-xs text-ink-500">
-                    Assign fixed installment milestone deadlines to single or all enrolled students.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowCreateInstallmentModal(false)}
-                  className="p-1.5 rounded-lg text-ink-400 hover:text-ink-900 hover:bg-sand-200 transition-colors"
-                >
-                  <X size={18} />
-                </button>
-              </div>
+        {showCreateInstallmentModal && (() => {
+          const totalMilestoneSum = milestones.reduce((sum, m) => sum + (Number(m.amount) || 0), 0);
+          const uniquePrograms = Array.from(new Set(students.map((s) => s.program).filter(Boolean)));
+          const filteredStudentsForModal = students.filter((std) => {
+            if (!studentSearchInModal) return true;
+            const q = studentSearchInModal.toLowerCase();
+            return (std.name || '').toLowerCase().includes(q) || (std.email || '').toLowerCase().includes(q) || (std.program || '').toLowerCase().includes(q);
+          });
+          const totalChallansToCreate = targetStudentList.length * (createPlanMode === 'plan' ? milestones.length : 1);
 
-              <form onSubmit={handleCreateInstallmentsSubmit} className="p-6 space-y-4">
-                {/* Target Students Selection */}
-                <div>
-                  <label className="text-xs font-bold text-ink-800 block mb-1.5">
-                    Target Student Assignment
-                  </label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <label className={`flex items-center gap-2 p-3 rounded-xl border text-xs font-semibold cursor-pointer transition-all ${
-                      createForm.studentSelection === 'all'
-                        ? 'bg-emerald-50/80 border-[#0B3324] text-[#0B3324]'
-                        : 'bg-sand-50 border-sand-200 text-ink-700 hover:bg-sand-100'
-                    }`}>
-                      <input
-                        type="radio"
-                        name="studentSelection"
-                        checked={createForm.studentSelection === 'all'}
-                        onChange={() => setCreateForm({ ...createForm, studentSelection: 'all' })}
-                        className="text-[#0B3324] focus:ring-[#0B3324]"
-                      />
-                      <span>All Students ({students.length})</span>
-                    </label>
-
-                    <label className={`flex items-center gap-2 p-3 rounded-xl border text-xs font-semibold cursor-pointer transition-all ${
-                      createForm.studentSelection === 'specific'
-                        ? 'bg-emerald-50/80 border-[#0B3324] text-[#0B3324]'
-                        : 'bg-sand-50 border-sand-200 text-ink-700 hover:bg-sand-100'
-                    }`}>
-                      <input
-                        type="radio"
-                        name="studentSelection"
-                        checked={createForm.studentSelection === 'specific'}
-                        onChange={() => setCreateForm({ ...createForm, studentSelection: 'specific' })}
-                        className="text-[#0B3324] focus:ring-[#0B3324]"
-                      />
-                      <span>Specific Students</span>
-                    </label>
-                  </div>
-
-                  {createForm.studentSelection === 'specific' && (
-                    <div className="mt-2.5 p-3 rounded-xl border border-sand-200 bg-sand-50/60 max-h-40 overflow-y-auto space-y-1.5">
-                      {students.map((std) => {
-                        const isChecked = createForm.selectedStudentIds.includes(std.id);
-                        return (
-                          <label key={std.id} className="flex items-center gap-2 text-xs text-ink-800 cursor-pointer hover:bg-sand-100 p-1 rounded">
-                            <input
-                              type="checkbox"
-                              checked={isChecked}
-                              onChange={(e) => {
-                                const next = e.target.checked
-                                  ? [...createForm.selectedStudentIds, std.id]
-                                  : createForm.selectedStudentIds.filter((id) => id !== std.id);
-                                setCreateForm({ ...createForm, selectedStudentIds: next });
-                              }}
-                              className="rounded text-[#0B3324] focus:ring-[#0B3324]"
-                            />
-                            <span className="font-semibold">{std.name}</span>
-                            <span className="text-[10px] text-ink-400">({std.email})</span>
-                          </label>
-                        );
-                      })}
+          return (
+            <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-fadeIn">
+              <div className="bg-white rounded-2xl max-w-3xl w-full border border-sand-300 shadow-2xl overflow-hidden my-6 flex flex-col max-h-[92vh]">
+                {/* Modal Header */}
+                <div className="px-6 py-4 bg-sand-50 border-b border-sand-200 flex items-center justify-between shrink-0">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-[#0B3324]/10 text-[#0B3324] flex items-center justify-center shrink-0 border border-[#0B3324]/20">
+                      <Layers size={20} />
                     </div>
-                  )}
-                </div>
-
-                {/* Installment Title */}
-                <div>
-                  <label className="text-xs font-bold text-ink-800 block mb-1">
-                    Installment Title / Milestone
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={createForm.title}
-                    onChange={(e) => setCreateForm({ ...createForm, title: e.target.value })}
-                    placeholder="e.g. Installment 1 - Semester 1, Registration Fee"
-                    className="w-full px-3 py-2 rounded-xl border border-sand-200 text-xs focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
-                  />
-                </div>
-
-                {/* Fixed Amount */}
-                <div>
-                  <label className="text-xs font-bold text-ink-800 block mb-1">
-                    Fixed Amount (PKR)
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    required
-                    value={createForm.amount}
-                    onChange={(e) => setCreateForm({ ...createForm, amount: e.target.value })}
-                    placeholder="8000"
-                    className="w-full px-3 py-2 rounded-xl border border-sand-200 text-xs focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 font-mono"
-                  />
-                  <span className="text-[10px] text-ink-400 mt-0.5 block">
-                    Fixed installment amount — partial payments are not permitted.
-                  </span>
-                </div>
-
-                {/* Due Date */}
-                <div>
-                  <label className="text-xs font-bold text-ink-800 block mb-1">
-                    Payment Due Date
-                  </label>
-                  <input
-                    type="date"
-                    required
-                    value={createForm.dueDate}
-                    onChange={(e) => setCreateForm({ ...createForm, dueDate: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl border border-sand-200 text-xs focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
-                  />
-                </div>
-
-                <div className="pt-3 border-t border-sand-200 flex items-center justify-end gap-2.5">
+                    <div>
+                      <h3 className="font-heading text-lg font-bold text-ink-900">
+                        Create Fee Installments &amp; Payment Plans
+                      </h3>
+                      <p className="text-xs text-ink-500">
+                        Configure multi-stage installment plans (e.g. 2, 3, or 4 installments) or single custom milestones with scheduled deadlines.
+                      </p>
+                    </div>
+                  </div>
                   <button
                     type="button"
                     onClick={() => setShowCreateInstallmentModal(false)}
-                    className="px-4 py-2 rounded-xl text-xs font-semibold text-ink-600 hover:text-ink-900 hover:bg-sand-100 transition-colors"
+                    className="p-1.5 rounded-lg text-ink-400 hover:text-ink-900 hover:bg-sand-200 transition-colors cursor-pointer"
                   >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-5 py-2 rounded-xl bg-[#0B3324] hover:bg-[#072419] text-white text-xs font-bold transition-all shadow-sm cursor-pointer"
-                  >
-                    Create &amp; Assign Installments
+                    <X size={18} />
                   </button>
                 </div>
-              </form>
+
+                <form onSubmit={handleCreateInstallmentsSubmit} className="p-6 overflow-y-auto space-y-6 flex-1">
+                  {/* Step 1: Mode Switcher (Multi-Installment Plan vs Single Milestone) */}
+                  <div>
+                    <label className="text-xs font-bold text-ink-800 uppercase tracking-wider block mb-2">
+                      Installment Configuration Mode
+                    </label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <button
+                        type="button"
+                        onClick={() => setCreatePlanMode('plan')}
+                        className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex items-start gap-3 ${
+                          createPlanMode === 'plan'
+                            ? 'bg-[#0B3324]/5 border-[#0B3324] ring-2 ring-[#0B3324]/20 shadow-xs'
+                            : 'bg-sand-50/70 border-sand-200 hover:bg-sand-100 text-ink-600'
+                        }`}
+                      >
+                        <div className={`p-2 rounded-lg ${createPlanMode === 'plan' ? 'bg-[#0B3324] text-white' : 'bg-sand-200 text-ink-600'}`}>
+                          <Split size={16} />
+                        </div>
+                        <div>
+                          <div className="font-bold text-xs text-ink-900 flex items-center gap-1.5">
+                            <span>Multi-Installment Plan</span>
+                            <span className="text-[10px] px-1.5 py-0.2 rounded font-extrabold bg-emerald-100 text-emerald-800">
+                              Recommended
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-ink-500 mt-0.5">
+                            Auto-split total program fee into 2, 3, 4, or custom milestones with progressive due dates.
+                          </p>
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setCreatePlanMode('single')}
+                        className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex items-start gap-3 ${
+                          createPlanMode === 'single'
+                            ? 'bg-[#0B3324]/5 border-[#0B3324] ring-2 ring-[#0B3324]/20 shadow-xs'
+                            : 'bg-sand-50/70 border-sand-200 hover:bg-sand-100 text-ink-600'
+                        }`}
+                      >
+                        <div className={`p-2 rounded-lg ${createPlanMode === 'single' ? 'bg-[#0B3324] text-white' : 'bg-sand-200 text-ink-600'}`}>
+                          <Receipt size={16} />
+                        </div>
+                        <div>
+                          <div className="font-bold text-xs text-ink-900">
+                            Single Milestone Installment
+                          </div>
+                          <p className="text-[11px] text-ink-500 mt-0.5">
+                            Create a single standalone installment challan (e.g. registration fee or late exam fee).
+                          </p>
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Step 2: Target Students Assignment */}
+                  <div className="p-4 rounded-xl bg-sand-50/70 border border-sand-200 space-y-3">
+                    <label className="text-xs font-bold text-ink-800 uppercase tracking-wider block">
+                      Target Student Assignment
+                    </label>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <label className={`flex items-center gap-2 p-2.5 rounded-xl border text-xs font-semibold cursor-pointer transition-all ${
+                        targetStudentMode === 'all'
+                          ? 'bg-white border-[#0B3324] text-[#0B3324] shadow-xs ring-1 ring-[#0B3324]'
+                          : 'bg-white/60 border-sand-200 text-ink-700 hover:bg-white'
+                      }`}>
+                        <input
+                          type="radio"
+                          name="targetStudentMode"
+                          checked={targetStudentMode === 'all'}
+                          onChange={() => setTargetStudentMode('all')}
+                          className="text-[#0B3324] focus:ring-[#0B3324]"
+                        />
+                        <span>All Students ({students.length})</span>
+                      </label>
+
+                      <label className={`flex items-center gap-2 p-2.5 rounded-xl border text-xs font-semibold cursor-pointer transition-all ${
+                        targetStudentMode === 'program'
+                          ? 'bg-white border-[#0B3324] text-[#0B3324] shadow-xs ring-1 ring-[#0B3324]'
+                          : 'bg-white/60 border-sand-200 text-ink-700 hover:bg-white'
+                      }`}>
+                        <input
+                          type="radio"
+                          name="targetStudentMode"
+                          checked={targetStudentMode === 'program'}
+                          onChange={() => setTargetStudentMode('program')}
+                          className="text-[#0B3324] focus:ring-[#0B3324]"
+                        />
+                        <span>By Program / Cohort</span>
+                      </label>
+
+                      <label className={`flex items-center gap-2 p-2.5 rounded-xl border text-xs font-semibold cursor-pointer transition-all ${
+                        targetStudentMode === 'specific'
+                          ? 'bg-white border-[#0B3324] text-[#0B3324] shadow-xs ring-1 ring-[#0B3324]'
+                          : 'bg-white/60 border-sand-200 text-ink-700 hover:bg-white'
+                      }`}>
+                        <input
+                          type="radio"
+                          name="targetStudentMode"
+                          checked={targetStudentMode === 'specific'}
+                          onChange={() => setTargetStudentMode('specific')}
+                          className="text-[#0B3324] focus:ring-[#0B3324]"
+                        />
+                        <span>Specific Students ({selectedStudentIds.length})</span>
+                      </label>
+                    </div>
+
+                    {/* Program dropdown if 'program' mode */}
+                    {targetStudentMode === 'program' && (
+                      <div className="pt-2 flex items-center gap-3">
+                        <span className="text-xs font-medium text-ink-600 shrink-0">Filter by Program:</span>
+                        <select
+                          value={selectedProgramFilter}
+                          onChange={(e) => setSelectedProgramFilter(e.target.value)}
+                          className="px-3 py-1.5 rounded-lg border border-sand-300 bg-white text-xs font-semibold text-ink-800 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                        >
+                          <option value="all">All Programs ({students.length} students)</option>
+                          {uniquePrograms.map((prog) => {
+                            const count = students.filter((s) => (s.program || '').toLowerCase() === prog.toLowerCase()).length;
+                            return (
+                              <option key={prog} value={prog}>
+                                {prog} ({count} student{count !== 1 ? 's' : ''})
+                              </option>
+                            );
+                          })}
+                        </select>
+                      </div>
+                    )}
+
+                    {/* Specific students checklist if 'specific' mode */}
+                    {targetStudentMode === 'specific' && (
+                      <div className="pt-2 space-y-2">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="relative flex-1">
+                            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-ink-400" />
+                            <input
+                              type="text"
+                              value={studentSearchInModal}
+                              onChange={(e) => setStudentSearchInModal(e.target.value)}
+                              placeholder="Search students by name or email..."
+                              className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-sand-300 bg-white text-xs focus:outline-none focus:ring-1 focus:ring-primary-500"
+                            />
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedStudentIds(students.map((s) => s.id))}
+                              className="text-[11px] font-bold text-[#0B3324] hover:underline"
+                            >
+                              Select All
+                            </button>
+                            <span className="text-sand-300">|</span>
+                            <button
+                              type="button"
+                              onClick={() => setSelectedStudentIds([])}
+                              className="text-[11px] font-bold text-ink-500 hover:underline"
+                            >
+                              Clear
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="max-h-44 overflow-y-auto border border-sand-200 rounded-xl bg-white p-2 divide-y divide-sand-100">
+                          {filteredStudentsForModal.map((std) => {
+                            const isChecked = selectedStudentIds.includes(std.id);
+                            return (
+                              <label key={std.id} className="flex items-center justify-between py-1.5 px-2 hover:bg-sand-50 rounded-lg cursor-pointer">
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                  <input
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    onChange={(e) => {
+                                      const next = e.target.checked
+                                        ? [...selectedStudentIds, std.id]
+                                        : selectedStudentIds.filter((id) => id !== std.id);
+                                      setSelectedStudentIds(next);
+                                    }}
+                                    className="rounded text-[#0B3324] focus:ring-[#0B3324]"
+                                  />
+                                  <div className="min-w-0">
+                                    <span className="text-xs font-semibold text-ink-900 block truncate">{std.name}</span>
+                                    <span className="text-[10px] text-ink-500 block truncate">{std.email}</span>
+                                  </div>
+                                </div>
+                                <span className="text-[10px] px-2 py-0.5 rounded bg-sand-100 text-ink-600 font-medium shrink-0 ml-2">
+                                  {std.program || 'Ilm Foundations'}
+                                </span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Step 3: Multi-Installment Plan Builder Form */}
+                  {createPlanMode === 'plan' ? (
+                    <div className="space-y-4">
+                      {/* Quick Presets */}
+                      <div>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="text-xs font-bold text-ink-800 uppercase tracking-wider flex items-center gap-1.5">
+                            <Sparkles size={13} className="text-amber-500" />
+                            Quick Plan Presets
+                          </span>
+                          <span className="text-[11px] text-ink-500">Click to instantly populate plan</span>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleAutoSplitPlan(3, 45000, 30)}
+                            className="p-2.5 rounded-xl border border-emerald-200 bg-emerald-50/60 hover:bg-emerald-100/70 text-left transition-colors cursor-pointer"
+                          >
+                            <span className="text-xs font-bold text-emerald-950 block">3-Stage Semester</span>
+                            <span className="text-[10px] text-emerald-800 block mt-0.5">PKR 15,000 &times; 3 = PKR 45,000</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleAutoSplitPlan(2, 45000, 45)}
+                            className="p-2.5 rounded-xl border border-sand-200 bg-sand-50 hover:bg-sand-100 text-left transition-colors cursor-pointer"
+                          >
+                            <span className="text-xs font-bold text-ink-900 block">2-Stage Semi-Annual</span>
+                            <span className="text-[10px] text-ink-600 block mt-0.5">PKR 22,500 &times; 2 = PKR 45,000</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleAutoSplitPlan(4, 45000, 30)}
+                            className="p-2.5 rounded-xl border border-sand-200 bg-sand-50 hover:bg-sand-100 text-left transition-colors cursor-pointer"
+                          >
+                            <span className="text-xs font-bold text-ink-900 block">4-Stage Quarterly</span>
+                            <span className="text-[10px] text-ink-600 block mt-0.5">PKR 11,250 &times; 4 = PKR 45,000</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Generator Controls */}
+                      <div className="p-4 rounded-xl bg-sand-100/60 border border-sand-200 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div>
+                          <label className="text-[11px] font-bold text-ink-700 block mb-1">
+                            Total Program Tuition (PKR)
+                          </label>
+                          <input
+                            type="number"
+                            min="1000"
+                            step="500"
+                            value={planTotalFee}
+                            onChange={(e) => {
+                              const val = Number(e.target.value);
+                              setPlanTotalFee(val);
+                              handleAutoSplitPlan(planInstallmentCount, val, planIntervalDays);
+                            }}
+                            className="w-full px-3 py-1.5 rounded-lg border border-sand-300 bg-white text-xs font-bold text-ink-900 font-mono focus:outline-none focus:ring-1 focus:ring-primary-500"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="text-[11px] font-bold text-ink-700 block mb-1">
+                            Number of Installments
+                          </label>
+                          <div className="flex items-center gap-1.5">
+                            {[2, 3, 4, 5].map((cnt) => (
+                              <button
+                                key={cnt}
+                                type="button"
+                                onClick={() => handleAutoSplitPlan(cnt, planTotalFee, planIntervalDays)}
+                                className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer border ${
+                                  milestones.length === cnt
+                                    ? 'bg-[#0B3324] text-white border-[#0B3324] shadow-xs'
+                                    : 'bg-white text-ink-700 border-sand-300 hover:bg-sand-100'
+                                }`}
+                              >
+                                {cnt}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="text-[11px] font-bold text-ink-700 block mb-1">
+                            Spacing Between Dues
+                          </label>
+                          <select
+                            value={planIntervalDays}
+                            onChange={(e) => {
+                              const days = Number(e.target.value);
+                              setPlanIntervalDays(days);
+                              handleAutoSplitPlan(milestones.length, planTotalFee, days);
+                            }}
+                            className="w-full px-3 py-1.5 rounded-lg border border-sand-300 bg-white text-xs font-semibold text-ink-800 focus:outline-none focus:ring-1 focus:ring-primary-500"
+                          >
+                            <option value={30}>Every 30 Days (Monthly)</option>
+                            <option value={45}>Every 45 Days</option>
+                            <option value={60}>Every 60 Days (Bi-Monthly)</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Milestone Table */}
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-ink-800 uppercase tracking-wider">
+                            Installment Milestones Breakdown ({milestones.length} Stages)
+                          </span>
+                          <button
+                            type="button"
+                            onClick={handleAddMilestoneRow}
+                            className="inline-flex items-center gap-1 text-xs font-bold text-[#0B3324] hover:underline cursor-pointer"
+                          >
+                            <Plus size={13} />
+                            <span>Add Another Milestone</span>
+                          </button>
+                        </div>
+
+                        <div className="border border-sand-200 rounded-xl overflow-hidden bg-white">
+                          <table className="w-full text-left text-xs">
+                            <thead className="bg-sand-100/70 border-b border-sand-200 text-ink-700 font-semibold text-[11px] uppercase tracking-wider">
+                              <tr>
+                                <th className="py-2.5 px-3 w-12">#</th>
+                                <th className="py-2.5 px-3">Milestone Title</th>
+                                <th className="py-2.5 px-3 w-36">Amount (PKR)</th>
+                                <th className="py-2.5 px-3 w-36">Due Date</th>
+                                <th className="py-2.5 px-3 w-12 text-center">Del</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-sand-100">
+                              {milestones.map((m, idx) => (
+                                <tr key={m.id || idx} className="hover:bg-sand-50/50">
+                                  <td className="py-2.5 px-3 font-bold text-ink-400">
+                                    #{idx + 1}
+                                  </td>
+                                  <td className="py-2.5 px-3">
+                                    <input
+                                      type="text"
+                                      required
+                                      value={m.title}
+                                      onChange={(e) => handleUpdateMilestone(idx, 'title', e.target.value)}
+                                      placeholder={`Installment ${idx + 1}`}
+                                      className="w-full px-2.5 py-1.5 rounded-lg border border-sand-200 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-primary-500"
+                                    />
+                                  </td>
+                                  <td className="py-2.5 px-3">
+                                    <input
+                                      type="number"
+                                      min="1"
+                                      required
+                                      value={m.amount}
+                                      onChange={(e) => handleUpdateMilestone(idx, 'amount', Number(e.target.value))}
+                                      className="w-full px-2.5 py-1.5 rounded-lg border border-sand-200 text-xs font-bold font-mono focus:outline-none focus:ring-1 focus:ring-primary-500"
+                                    />
+                                  </td>
+                                  <td className="py-2.5 px-3">
+                                    <input
+                                      type="date"
+                                      required
+                                      value={m.dueDate}
+                                      onChange={(e) => handleUpdateMilestone(idx, 'dueDate', e.target.value)}
+                                      className="w-full px-2.5 py-1.5 rounded-lg border border-sand-200 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-primary-500"
+                                    />
+                                  </td>
+                                  <td className="py-2.5 px-3 text-center">
+                                    <button
+                                      type="button"
+                                      disabled={milestones.length <= 1}
+                                      onClick={() => handleRemoveMilestoneRow(idx)}
+                                      className="p-1 rounded text-ink-400 hover:text-red-600 hover:bg-red-50 disabled:opacity-30 cursor-pointer"
+                                      title="Remove this milestone"
+                                    >
+                                      <Trash2 size={13} />
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+
+                          <div className="px-4 py-2.5 bg-sand-50/80 border-t border-sand-200 flex items-center justify-between text-xs">
+                            <span className="font-semibold text-ink-600">
+                              Total Sum of {milestones.length} Milestones:
+                            </span>
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono font-bold text-sm text-ink-900">
+                                PKR {totalMilestoneSum.toLocaleString()}
+                              </span>
+                              {totalMilestoneSum === planTotalFee ? (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full">
+                                  <Check size={11} /> Balanced
+                                </span>
+                              ) : (
+                                <span className="text-[10px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full">
+                                  Custom Sum (Target: PKR {planTotalFee.toLocaleString()})
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    /* Single Milestone Form */
+                    <div className="p-4 rounded-xl bg-white border border-sand-200 space-y-4">
+                      <div>
+                        <label className="text-xs font-bold text-ink-800 block mb-1">
+                          Installment Title / Milestone Name
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={singleTitle}
+                          onChange={(e) => setSingleTitle(e.target.value)}
+                          placeholder="e.g. Registration Fee, Semester 1 Dues, Thesis Fee"
+                          className="w-full px-3 py-2 rounded-xl border border-sand-200 text-xs focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="text-xs font-bold text-ink-800 block mb-1">
+                            Fixed Amount (PKR)
+                          </label>
+                          <input
+                            type="number"
+                            min="1"
+                            required
+                            value={singleAmount}
+                            onChange={(e) => setSingleAmount(Number(e.target.value))}
+                            placeholder="15000"
+                            className="w-full px-3 py-2 rounded-xl border border-sand-200 text-xs focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 font-mono"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="text-xs font-bold text-ink-800 block mb-1">
+                            Payment Due Date
+                          </label>
+                          <input
+                            type="date"
+                            required
+                            value={singleDueDate}
+                            onChange={(e) => setSingleDueDate(e.target.value)}
+                            className="w-full px-3 py-2 rounded-xl border border-sand-200 text-xs focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Summary Callout Banner */}
+                  <div className="p-4 rounded-xl bg-emerald-50/80 border border-emerald-200 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-lg bg-emerald-700 text-white flex items-center justify-center shrink-0">
+                        <CheckCircle2 size={16} />
+                      </div>
+                      <div>
+                        <span className="font-bold text-emerald-950 block text-[13px]">
+                          Ready to Generate {totalChallansToCreate} Installment Challan{totalChallansToCreate !== 1 ? 's' : ''}
+                        </span>
+                        <p className="text-[11px] text-emerald-800 mt-0.5">
+                          {targetStudentList.length} enrolled student(s) will receive {createPlanMode === 'plan' ? milestones.length : 1} milestone(s) each in their student fee ledger.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right sm:border-l sm:border-emerald-200 sm:pl-4">
+                      <span className="text-[10px] uppercase font-bold text-emerald-800 block">Total Plan Value</span>
+                      <span className="font-mono font-bold text-sm text-emerald-950">
+                        PKR {(targetStudentList.length * (createPlanMode === 'plan' ? totalMilestoneSum : Number(singleAmount))).toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Modal Footer */}
+                  <div className="pt-2 border-t border-sand-200 flex items-center justify-end gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => setShowCreateInstallmentModal(false)}
+                      className="px-4 py-2 rounded-xl text-xs font-semibold text-ink-600 hover:text-ink-900 hover:bg-sand-100 transition-colors cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={targetStudentList.length === 0}
+                      className="px-6 py-2.5 rounded-xl bg-[#0B3324] hover:bg-[#072419] disabled:opacity-50 text-white text-xs font-bold transition-all shadow-sm cursor-pointer inline-flex items-center gap-2"
+                    >
+                      <Plus size={15} />
+                      <span>
+                        Generate &amp; Assign Plan ({totalChallansToCreate} Challans)
+                      </span>
+                    </button>
+                  </div>
+                </form>
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* ======================================================== */}
         {/* 3. BULK RESTRICT OVERDUE CONFIRMATION MODAL             */}
@@ -6080,6 +6989,76 @@ export default function AdminDashboard() {
                   className="px-5 py-2 rounded-xl bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-xs font-bold transition-all shadow-sm cursor-pointer"
                 >
                   Confirm &amp; Restrict Access
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ======================================================== */}
+        {/* 3B. BULK RESTORE COURSE VIDEO ACCESS MODAL              */}
+        {/* ======================================================== */}
+        {showBulkRestoreModal && (
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-fadeIn">
+            <div className="bg-white rounded-2xl max-w-md w-full border border-sand-300 shadow-2xl overflow-hidden my-8 p-6 space-y-4">
+              <div className="w-12 h-12 rounded-2xl bg-emerald-100 text-emerald-800 flex items-center justify-center mx-auto border border-emerald-300">
+                <Unlock size={26} />
+              </div>
+
+              <div className="text-center space-y-1">
+                <h3 className="font-heading text-lg font-bold text-ink-900">
+                  Restore Course Video Access?
+                </h3>
+                <p className="text-xs text-ink-600 leading-relaxed">
+                  This action will immediately unlock and restore course video lecture playback for all currently restricted student accounts.
+                </p>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-emerald-50/80 border border-emerald-200 text-xs space-y-2">
+                <div className="font-bold text-emerald-900 flex items-center justify-between">
+                  <span>Currently Restricted Accounts:</span>
+                  <span className="px-2 py-0.5 rounded-full bg-emerald-700 text-white font-extrabold text-[11px]">
+                    {restrictedStudentsList.length} Students
+                  </span>
+                </div>
+                {restrictedStudentsList.length > 0 ? (
+                  <ul className="divide-y divide-emerald-200/60 max-h-36 overflow-y-auto text-[11px] text-emerald-900">
+                    {restrictedStudentsList.map((s) => (
+                      <li key={s.id} className="py-1.5 flex items-center justify-between">
+                        <div>
+                          <span className="font-semibold block">{s.name}</span>
+                          <span className="text-[10px] text-ink-500 font-mono">{s.email || s.id}</span>
+                        </div>
+                        <span className="text-[10px] text-rose-700 bg-rose-100 px-2 py-0.5 rounded font-bold">
+                          Restricted
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-[11px] text-emerald-700 italic">No restricted student accounts found.</p>
+                )}
+              </div>
+
+              <div className="text-[11px] text-ink-500 leading-relaxed">
+                <em>Students will immediately regain full access to their enrolled video lectures and receive in-app notification of the access restoration.</em>
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowBulkRestoreModal(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-ink-600 hover:text-ink-900 hover:bg-sand-100 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmBulkRestore}
+                  disabled={restrictedStudentsList.length === 0}
+                  className="px-5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white text-xs font-bold transition-all shadow-sm cursor-pointer"
+                >
+                  Confirm &amp; Restore Access
                 </button>
               </div>
             </div>

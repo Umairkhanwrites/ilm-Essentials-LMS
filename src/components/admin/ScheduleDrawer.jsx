@@ -544,11 +544,11 @@ export default function ScheduleDrawer({
                   onClick={() => setFormData({ ...formData, modality: 'online_meet' })}
                   className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex items-start gap-2.5 ${
                     formData.modality === 'online_meet'
-                      ? 'border-blue-600 bg-blue-50/80 ring-2 ring-blue-500/20'
+                      ? 'border-[#0B3324] bg-primary-50/80 ring-2 ring-primary-500/20'
                       : 'border-sand-200 bg-white hover:bg-sand-100/60'
                   }`}
                 >
-                  <div className={`p-1.5 rounded-lg shrink-0 ${formData.modality === 'online_meet' ? 'bg-blue-600 text-white' : 'bg-sand-100 text-ink-600'}`}>
+                  <div className={`p-1.5 rounded-lg shrink-0 ${formData.modality === 'online_meet' ? 'bg-[#0B3324] text-white' : 'bg-sand-100 text-ink-600'}`}>
                     <Video size={16} />
                   </div>
                   <div>
@@ -562,11 +562,11 @@ export default function ScheduleDrawer({
                   onClick={() => setFormData({ ...formData, modality: 'onsite_campus' })}
                   className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex items-start gap-2.5 ${
                     formData.modality === 'onsite_campus'
-                      ? 'border-emerald-600 bg-emerald-50/80 ring-2 ring-emerald-500/20'
+                      ? 'border-gold-600 bg-gold-50/80 ring-2 ring-gold-500/20'
                       : 'border-sand-200 bg-white hover:bg-sand-100/60'
                   }`}
                 >
-                  <div className={`p-1.5 rounded-lg shrink-0 ${formData.modality === 'onsite_campus' ? 'bg-emerald-700 text-white' : 'bg-sand-100 text-ink-600'}`}>
+                  <div className={`p-1.5 rounded-lg shrink-0 ${formData.modality === 'onsite_campus' ? 'bg-gold-600 text-white' : 'bg-sand-100 text-ink-600'}`}>
                     <MapPin size={16} />
                   </div>
                   <div>
@@ -584,7 +584,7 @@ export default function ScheduleDrawer({
                     <button
                       type="button"
                       onClick={handleAutoGenerateMeet}
-                      className="text-[11px] font-bold text-blue-700 hover:text-blue-900 inline-flex items-center gap-1 cursor-pointer"
+                      className="text-[11px] font-bold text-primary-800 hover:text-primary-950 inline-flex items-center gap-1 cursor-pointer"
                     >
                       <Sparkles size={11} />
                       Generate New Link
@@ -597,7 +597,7 @@ export default function ScheduleDrawer({
                       value={formData.meetLink}
                       onChange={(e) => setFormData({ ...formData, meetLink: e.target.value })}
                       placeholder="https://meet.google.com/abc-defg-hij"
-                      className="flex-1 px-3 py-2 text-xs border border-sand-300 rounded-xl bg-white text-blue-950 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                      className="flex-1 px-3 py-2 text-xs border border-sand-300 rounded-xl bg-white text-ink-900 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-600"
                     />
                     <button
                       type="button"

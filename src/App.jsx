@@ -66,7 +66,7 @@ export default function App() {
           <Route
             path="/course/:id"
             element={
-              <ProtectedRoute requiredRole="student">
+              <ProtectedRoute requiredRole="student" allowAdmin>
                 <CourseView />
               </ProtectedRoute>
             }
@@ -82,7 +82,7 @@ export default function App() {
           <Route
             path="/library"
             element={
-              <ProtectedRoute requiredRole="student">
+              <ProtectedRoute>
                 <ELibrary />
               </ProtectedRoute>
             }

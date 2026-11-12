@@ -42,8 +42,10 @@ import Avatar from '../components/ui/Avatar';
 
 import { courseDetail as defaultCourseDetail, courseFormats, enrolledCourses } from '../data/mockData';
 import { getCourseDetailById, saveCourseDetail, updateCourseProgress, getStudentVideoRestriction } from '../services/courseStorage';
+import { useAuth } from '../context/AuthContext';
 
 export default function CourseView() {
+  const { user } = useAuth();
   const [restriction, setRestriction] = useState(() => getStudentVideoRestriction());
 
   useEffect(() => {
@@ -222,6 +224,33 @@ export default function CourseView() {
 
   return (
     <Layout fullWidth>
+      {/* ── Administrator Preview Mode Bar ── */}
+      {user?.role === 'admin' && (
+        <div className="bg-[#0B3324] text-sand-100 px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 border-b border-gold-600/30 sticky top-0 z-50 shadow-md">
+          <div className="flex items-center gap-2 text-xs">
+            <span className="w-2 h-2 rounded-full bg-gold-400 animate-pulse" />
+            <span className="font-bold text-gold-300 tracking-wide uppercase text-[11px]">Administrator Preview Mode</span>
+            <span className="text-sand-300 hidden md:inline">
+              — You are viewing this course room and curriculum player as students see it.
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Link
+              to={`/admin/courses/edit/${course.id}`}
+              className="text-xs px-2.5 py-1 rounded-lg bg-emerald-900/90 hover:bg-emerald-800 text-gold-200 border border-gold-500/30 font-medium transition-colors"
+            >
+              Edit Course
+            </Link>
+            <Link
+              to="/admin"
+              className="text-xs px-3 py-1 rounded-lg bg-gold-500 hover:bg-gold-400 text-primary-950 font-bold transition-all shadow-sm flex items-center gap-1"
+            >
+              <span>← Return to Admin</span>
+            </Link>
+          </div>
+        </div>
+      )}
+
       <div className="min-h-screen bg-sand-50 pb-16">
         {/* Top Header Banner */}
         <div className="bg-white border-b border-sand-200">
@@ -229,7 +258,7 @@ export default function CourseView() {
             <CourseHeader
               course={course}
               formatMeta={formatMeta}
-              onBack={() => navigate('/dashboard')}
+              onBack={() => navigate(user?.role === 'admin' ? '/admin' : '/dashboard')}
             />
           </div>
         </div>

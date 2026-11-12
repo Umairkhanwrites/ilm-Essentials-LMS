@@ -516,7 +516,7 @@ export default function BillingDrawer({
                         : feeRecord.status === 'Partial'
                         ? 'bg-amber-500/20 text-amber-300 border border-amber-400/40'
                         : feeRecord.status === 'Waived'
-                        ? 'bg-purple-500/20 text-purple-300 border border-purple-400/40'
+                        ? 'bg-sand-500/20 text-sand-200 border border-sand-400/40'
                         : 'bg-gold-500/20 text-gold-300 border border-gold-400/40'
                     }`}
                   >

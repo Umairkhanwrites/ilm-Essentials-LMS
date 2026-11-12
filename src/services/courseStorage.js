@@ -998,7 +998,16 @@ export function getAllCourses() {
         // Clean out removed courses (like Purification of the Heart) and update Tahir Mahmood to Muhammad Ali
         const cleaned = parsed
           .filter((c) => c.id !== 'crs_201' && !c.title?.toLowerCase().includes('purification of the heart'))
-          .map((c) => (c.instructor === 'Dr. Tahir Mahmood' ? { ...c, instructor: 'Muhammad Ali' } : c));
+          .map((c) => {
+            let item = c.instructor === 'Dr. Tahir Mahmood' ? { ...c, instructor: 'Muhammad Ali' } : c;
+            if (item.fee === 'Included in Ilm Foundations Program') {
+              item = { ...item, fee: 'Ilm Foundations' };
+            }
+            if (!item.semester && item.category === 'foundations') {
+              item = { ...item, semester: 'Semester 1' };
+            }
+            return item;
+          });
 
         // Check if real foundations courses are present
         const hasFoundations = cleaned.some((c) => c.id && c.id.startsWith('crs_found_'));
@@ -1060,8 +1069,9 @@ export function saveCourse(courseData) {
     capacity: Number(courseData.capacity) || (isFoundations ? 150 : 100),
     // Rule: Foundations courses are bundled in the main 8-month certificate program
     fee: isFoundations
-      ? 'Included in Ilm Foundations Program'
+      ? 'Ilm Foundations'
       : (courseData.fee?.startsWith('PKR') ? courseData.fee : `PKR ${courseData.fee || '30,000'}`),
+    semester: courseData.semester || (isFoundations ? 'Semester 1' : undefined),
     status: courseData.status || 'Active',
     // Delivery Class Category: 'online' | 'onsite' | 'hybrid' (Online & Onsite)
     classCategory: courseData.classCategory || (courseData.format === 'on-site' ? 'onsite' : (courseData.format === 'hybrid' ? 'hybrid' : 'online')),
@@ -2836,6 +2846,9 @@ export function getStudentVideoRestriction(studentId = null) {
     const rawUser = localStorage.getItem('ilm_lms_user');
     if (rawUser) {
       const u = JSON.parse(rawUser);
+      if (!studentId && u.role === 'admin') {
+        return { isVideoRestricted: false, restrictedAt: null, restrictedByAdminName: null };
+      }
       if (!targetId) targetId = u.id;
       targetEmail = u.email ? u.email.toLowerCase().trim() : null;
     }
@@ -2974,11 +2987,92 @@ export function restrictAllOverdueStudents(adminName = 'Ustadh Zafar Iqbal') {
 }
 
 /**
- * Create fixed installments for single or multiple students
+ * Bulk Restore / Unlock Video Access for all currently restricted students
  */
-export function createInstallments({ studentIds, title, amount, dueDate, program = 'Ilm Foundations' }) {
-  if (!Array.isArray(studentIds) || studentIds.length === 0 || !title || !amount || !dueDate) {
-    throw new Error('Please provide valid student IDs, title, amount, and due date.');
+export function restoreAllRestrictedStudents(adminName = 'Ustadh Zafar Iqbal') {
+  const allStudents = getAllStudents();
+  let restoredCount = 0;
+  const restoredIds = [];
+
+  const updatedStudents = allStudents.map((s) => {
+    if (s.isVideoRestricted) {
+      restoredCount++;
+      restoredIds.push(s.id);
+      return {
+        ...s,
+        isVideoRestricted: false,
+        restrictedAt: null,
+        restrictedByAdminName: null,
+      };
+    }
+    return s;
+  });
+
+  try {
+    localStorage.setItem(STORAGE_KEY_STUDENTS, JSON.stringify(updatedStudents));
+  } catch (e) {}
+
+  // Update active user session if matched
+  try {
+    const rawUser = localStorage.getItem('ilm_lms_user');
+    if (rawUser) {
+      const currentUser = JSON.parse(rawUser);
+      if (currentUser.isVideoRestricted) {
+        currentUser.isVideoRestricted = false;
+        currentUser.restrictedAt = null;
+        currentUser.restrictedByAdminName = null;
+        localStorage.setItem('ilm_lms_user', JSON.stringify(currentUser));
+      }
+    }
+  } catch (e) {}
+
+  // Dispatch global notifications to restored students
+  for (const stdId of restoredIds) {
+    const notifs = getStudentNotifications(stdId);
+    const newNotif = {
+      id: `notif_restored_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      type: 'account_restored',
+      message: `Your course video playback access has been restored by admin (${adminName}). You may now resume watching class lectures.`,
+      time: 'Just now',
+      timestamp: Date.now(),
+      read: false,
+      link: '/dashboard',
+    };
+    saveStudentNotifications([newNotif, ...notifs]);
+  }
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('ilm-video-restriction-updated', {
+      detail: { restoredIds, isRestricted: false, adminName }
+    }));
+  }
+
+  return { restoredCount, updatedStudents };
+}
+
+/**
+ * Create fixed installments for single or multiple students (supports single milestone or multi-installment plans)
+ */
+export function createInstallments({
+  studentIds,
+  milestones, // Array of { title, amount, dueDate }
+  title,      // Backwards compatibility for single
+  amount,     // Backwards compatibility for single
+  dueDate,    // Backwards compatibility for single
+  program = 'Ilm Foundations',
+}) {
+  if (!Array.isArray(studentIds) || studentIds.length === 0) {
+    throw new Error('Please provide at least one target student.');
+  }
+
+  // Normalize milestone list
+  let milestoneList = [];
+  if (Array.isArray(milestones) && milestones.length > 0) {
+    milestoneList = milestones;
+  } else if (title && amount && dueDate) {
+    milestoneList = [{ title, amount, dueDate }];
+  } else {
+    throw new Error('Please provide valid installment details.');
   }
 
   const all = getFeeInstallments();
@@ -2988,29 +3082,36 @@ export function createInstallments({ studentIds, title, amount, dueDate, program
 
   for (const sId of studentIds) {
     const student = allStudents.find((s) => s.id === sId) || { name: 'Enrolled Student', email: 'student@example.com' };
-    const instId = `inst_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
-    const newInst = {
-      id: instId,
-      studentId: sId,
-      studentName: student.name,
-      studentEmail: student.email,
-      program: student.program || program,
-      title: title.trim(),
-      amount: Math.round(Number(amount)),
-      dueDate,
-      status: 'UNPAID',
-      receiptImageUrl: null,
-      submittedAt: null,
-      approvedById: null,
-      approvedByName: null,
-      approvedAt: null,
-      rejectionReason: null,
-      createdAt: now,
-      updatedAt: now,
-    };
+    milestoneList.forEach((m, idx) => {
+      const instId = `inst_${Date.now()}_${idx}_${Math.random().toString(36).substring(2, 7)}`;
+      const randomChallan = '23' + Math.floor(100000 + Math.random() * 900000);
 
-    newInstallments.push(newInst);
+      const newInst = {
+        id: instId,
+        challanNo: randomChallan,
+        paymentMode: '—',
+        paidDate: null,
+        studentId: sId,
+        studentName: student.name,
+        studentEmail: student.email,
+        program: student.program || program,
+        title: (m.title || `Installment ${idx + 1}`).trim(),
+        amount: Math.round(Number(m.amount) || 0),
+        dueDate: m.dueDate,
+        status: 'UNPAID',
+        receiptImageUrl: null,
+        submittedAt: null,
+        approvedById: null,
+        approvedByName: null,
+        approvedAt: null,
+        rejectionReason: null,
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      newInstallments.push(newInst);
+    });
   }
 
   const updated = [...newInstallments, ...all];

@@ -28,6 +28,7 @@ import {
 import Badge from '../../components/ui/Badge';
 import ProgressBar from '../../components/ui/ProgressBar';
 import Avatar from '../../components/ui/Avatar';
+import { useAuth } from '../../context/AuthContext';
 
 /** Map format keys → icon components */
 const FORMAT_ICONS = {
@@ -40,6 +41,7 @@ const FORMAT_ICONS = {
 };
 
 export default function CourseHeader({ course, formatMeta, onBack }) {
+  const { user } = useAuth();
   const isOnline = course.classCategory === 'online' || course.format === 'live-online' || course.format === 'online';
   const isOnsite = course.classCategory === 'onsite' || course.format === 'on-site' || course.format === 'onsite';
   const isHybrid = course.classCategory === 'hybrid' || course.format === 'hybrid';
@@ -71,7 +73,7 @@ export default function CourseHeader({ course, formatMeta, onBack }) {
     >
       {/* ---- Back link ---- */}
       <a
-        href="/dashboard"
+        href={user?.role === 'admin' ? '/admin' : '/dashboard'}
         onClick={(e) => {
           if (onBack) {
             e.preventDefault();
@@ -84,7 +86,7 @@ export default function CourseHeader({ course, formatMeta, onBack }) {
           size={15}
           className="transition-transform group-hover:-translate-x-1"
         />
-        Back to Dashboard
+        Back to {user?.role === 'admin' ? 'Admin Portal' : 'Dashboard'}
       </a>
 
       {/* ---- Main header content ---- */}

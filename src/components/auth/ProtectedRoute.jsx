@@ -9,7 +9,7 @@ import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 
-export default function ProtectedRoute({ children, requiredRole }) {
+export default function ProtectedRoute({ children, requiredRole, allowAdmin = false }) {
   const { user, isAuthenticated } = useAuth();
   const location = useLocation();
 
@@ -26,8 +26,11 @@ export default function ProtectedRoute({ children, requiredRole }) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  // 3. Admin attempting to view student routes -> redirect to /admin
+  // 3. Admin attempting to view student routes -> allow if preview enabled, else redirect to /admin
   if (requiredRole === 'student' && user?.role === 'admin') {
+    if (allowAdmin) {
+      return children;
+    }
     return <Navigate to="/admin" replace />;
   }
 

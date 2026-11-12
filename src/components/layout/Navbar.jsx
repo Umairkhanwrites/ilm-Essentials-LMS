@@ -199,7 +199,7 @@ export default function Navbar() {
 
   return (
     <>
-      {restriction.isVideoRestricted && (
+      {user?.role !== 'admin' && restriction.isVideoRestricted && (
         <div className="bg-red-950 text-white border-b border-red-700/60 px-4 py-2 text-xs font-medium z-50">
           <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
             <div className="flex items-center gap-2">
@@ -227,7 +227,7 @@ export default function Navbar() {
           <div className="flex h-16 items-center justify-between gap-2 sm:gap-4 flex-nowrap">
             {/* ── LEFT: Logo ── */}
             <Link
-              to="/dashboard"
+              to={user?.role === 'admin' ? '/admin' : '/dashboard'}
               className="flex items-center gap-2 transition-opacity hover:opacity-90 shrink-0"
               aria-label="ilm essentials LMS Home"
             >
@@ -516,6 +516,13 @@ export default function Navbar() {
                     )}
                   </AnimatePresence>
                 </div>
+              ) : isAuthenticated && user?.role === 'admin' ? (
+                <Link
+                  to="/admin"
+                  className="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-primary-900 hover:bg-primary-800 text-gold-300 text-xs font-bold border border-gold-500/40 shadow-xs transition-colors"
+                >
+                  Admin Portal
+                </Link>
               ) : (
                 <Link
                   to="/login"

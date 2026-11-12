@@ -17,6 +17,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   ArrowLeft,
   X,
+  GripVertical,
   Plus,
   Trash2,
   Users,
@@ -173,9 +174,9 @@ const CLASS_CATEGORIES = [
     tagline: 'Dual Hybrid Delivery',
     desc: 'Students may attend in-person on campus or join live remotely via meeting link.',
     icon: Layers,
-    color: 'purple',
-    badgeClass: 'bg-purple-50 text-purple-800 border-purple-200',
-    activeClass: 'border-purple-600 bg-purple-50/40 ring-2 ring-purple-500/20 shadow-xs',
+    color: 'gold',
+    badgeClass: 'bg-gold-50 text-gold-900 border-gold-300',
+    activeClass: 'border-gold-600 bg-gold-50/50 ring-2 ring-gold-500/20 shadow-xs',
   },
 ];
 
@@ -219,6 +220,8 @@ export default function CreateCourse() {
   const [currentStep, setCurrentStep] = useState(1);
   const [expandedModules, setExpandedModules] = useState({ 0: true });
   const [activeLessonEditor, setActiveLessonEditor] = useState(null); // { modIdx, lesIdx }
+  const [draggedLesson, setDraggedLesson] = useState(null); // { modIdx, lesIdx }
+  const [dragOverLesson, setDragOverLesson] = useState(null); // { modIdx, lesIdx }
   const [isExitModalOpen, setIsExitModalOpen] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
 
@@ -344,7 +347,7 @@ export default function CreateCourse() {
     campusLocation: 'Ilm Essentials Lahore Campus, DHA Phase 6, Lahore',
     campusRoom: 'Executive Lecture Hall 3 (2nd Floor)',
     venue: 'Online via Google Meet',
-    fee: 'Included in Ilm Foundations Program',
+    fee: 'Ilm Foundations',
     capacity: 150,
     status: 'Active',
     learningObjectives: [
@@ -458,7 +461,7 @@ export default function CreateCourse() {
           campusLocation: existing.campusLocation || 'Ilm Essentials Lahore Campus, DHA Phase 6, Lahore',
           campusRoom: existing.campusRoom || 'Executive Lecture Hall 3 (2nd Floor)',
           venue: existing.venue || (existingClassCat === 'online' ? 'Live Online via Google Meet' : 'DHA Phase 6 Campus, Lahore'),
-          fee: isFoundations ? 'Included in Ilm Foundations Program' : (existing.fee || 'PKR 30,000'),
+          fee: isFoundations ? 'Ilm Foundations' : (existing.fee || 'PKR 30,000'),
           capacity: existing.capacity || (isFoundations ? 150 : 100),
           status: existing.status || 'Active',
           learningObjectives: existing.learningObjectives || [],
@@ -482,7 +485,7 @@ export default function CreateCourse() {
 
     // Preserve custom fee or supply sensible default
     setFormData((prev) => {
-      const cleanFee = prev.fee && !prev.fee.startsWith('Included in')
+      const cleanFee = prev.fee && !prev.fee.startsWith('Included in') && prev.fee !== 'Ilm Foundations'
         ? prev.fee
         : (selectedPathway.defaultTuitionFee ? `PKR ${selectedPathway.defaultTuitionFee.toLocaleString()}` : 'PKR 30,000');
       return {
@@ -768,6 +771,136 @@ export default function CreateCourse() {
     }));
   };
 
+  // Reorder lessons within a module via Move Up / Move Down buttons
+  const handleMoveLesson = (moduleIndex, lessonIndex, direction) => {
+    setIsDirty(true);
+    const targetIndex = direction === 'up' ? lessonIndex - 1 : lessonIndex + 1;
+
+    setFormData((prev) => {
+      const targetModule = prev.modules[moduleIndex];
+      if (!targetModule) return prev;
+      if (targetIndex < 0 || targetIndex >= targetModule.lessons.length) return prev;
+
+      const newLessons = [...targetModule.lessons];
+      const temp = newLessons[lessonIndex];
+      newLessons[lessonIndex] = newLessons[targetIndex];
+      newLessons[targetIndex] = temp;
+
+      return {
+        ...prev,
+        modules: prev.modules.map((mod, mIdx) =>
+          mIdx === moduleIndex ? { ...mod, lessons: newLessons } : mod
+        ),
+      };
+    });
+
+    // Keep activeLessonEditor pointed at the moved lesson
+    setActiveLessonEditor((prev) => {
+      if (!prev || prev.modIdx !== moduleIndex) return prev;
+      if (prev.lesIdx === lessonIndex) return { ...prev, lesIdx: targetIndex };
+      if (prev.lesIdx === targetIndex) return { ...prev, lesIdx: lessonIndex };
+      return prev;
+    });
+  };
+
+  // Drag and drop lesson reordering handlers
+  const handleDragStartLesson = (e, modIdx, lesIdx) => {
+    setDraggedLesson({ modIdx, lesIdx });
+    e.dataTransfer.effectAllowed = 'move';
+    try {
+      e.dataTransfer.setData('text/plain', JSON.stringify({ modIdx, lesIdx }));
+    } catch (err) {}
+  };
+
+  const handleDragOverLesson = (e, modIdx, lesIdx) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (!draggedLesson) return;
+    if (dragOverLesson?.modIdx !== modIdx || dragOverLesson?.lesIdx !== lesIdx) {
+      setDragOverLesson({ modIdx, lesIdx });
+    }
+  };
+
+  const handleDropLesson = (e, targetModIdx, targetLesIdx) => {
+    e.preventDefault();
+    if (!draggedLesson) return;
+    const sourceModIdx = draggedLesson.modIdx;
+    const sourceLesIdx = draggedLesson.lesIdx;
+
+    if (sourceModIdx === targetModIdx && sourceLesIdx === targetLesIdx) {
+      setDraggedLesson(null);
+      setDragOverLesson(null);
+      return;
+    }
+
+    setIsDirty(true);
+    setFormData((prev) => {
+      const sourceModule = prev.modules[sourceModIdx];
+      const targetModule = prev.modules[targetModIdx];
+      if (!sourceModule || !targetModule) return prev;
+
+      const movingLesson = sourceModule.lessons[sourceLesIdx];
+      if (!movingLesson) return prev;
+
+      if (sourceModIdx === targetModIdx) {
+        // Reordering within the same module
+        const updatedLessons = [...sourceModule.lessons];
+        updatedLessons.splice(sourceLesIdx, 1);
+        updatedLessons.splice(targetLesIdx, 0, movingLesson);
+
+        return {
+          ...prev,
+          modules: prev.modules.map((m, idx) =>
+            idx === sourceModIdx ? { ...m, lessons: updatedLessons } : m
+          ),
+        };
+      } else {
+        // Moving lesson across modules
+        const updatedSourceLessons = sourceModule.lessons.filter((_, idx) => idx !== sourceLesIdx);
+        const updatedTargetLessons = [...targetModule.lessons];
+        updatedTargetLessons.splice(targetLesIdx, 0, movingLesson);
+
+        return {
+          ...prev,
+          modules: prev.modules.map((m, idx) => {
+            if (idx === sourceModIdx) return { ...m, lessons: updatedSourceLessons };
+            if (idx === targetModIdx) return { ...m, lessons: updatedTargetLessons };
+            return m;
+          }),
+        };
+      }
+    });
+
+    setDraggedLesson(null);
+    setDragOverLesson(null);
+    setActiveLessonEditor(null);
+  };
+
+  // Reorder modules via Move Up / Move Down
+  const handleMoveModule = (moduleIndex, direction) => {
+    setIsDirty(true);
+    const targetIndex = direction === 'up' ? moduleIndex - 1 : moduleIndex + 1;
+    if (targetIndex < 0 || targetIndex >= formData.modules.length) return;
+
+    setFormData((prev) => {
+      const newModules = [...prev.modules];
+      const temp = newModules[moduleIndex];
+      newModules[moduleIndex] = newModules[targetIndex];
+      newModules[targetIndex] = temp;
+      return { ...prev, modules: newModules };
+    });
+
+    setExpandedModules((prev) => {
+      const nextExpanded = { ...prev };
+      const curVal = nextExpanded[moduleIndex];
+      nextExpanded[moduleIndex] = nextExpanded[targetIndex];
+      nextExpanded[targetIndex] = curVal;
+      return nextExpanded;
+    });
+
+    setActiveLessonEditor(null);
+  };
+
   const handleLessonFieldChange = (moduleIndex, lessonIndex, field, value) => {
     setIsDirty(true);
     let finalValue = value;
@@ -1021,7 +1154,7 @@ export default function CreateCourse() {
       instructor: activeInstructor,
       // Institutional rule: Foundations courses are bundled into the master certificate
       fee: isFoundations
-        ? 'Included in Ilm Foundations Program'
+        ? 'Ilm Foundations'
         : (formData.fee.startsWith('PKR') ? formData.fee : `PKR ${formData.fee}`),
       // Auto-enrollment rule: Student roster selection
       enrolledStudentIds: selectedStudentIds,
@@ -1084,22 +1217,6 @@ export default function CreateCourse() {
                 <Link to="/admin" className="shrink-0 hover:opacity-90 transition-opacity">
                   <img src={logoWhite} alt="ilm essentials" className="h-7 w-auto object-contain" />
                 </Link>
-
-                <div className="h-6 w-px bg-white/15 hidden sm:block" />
-
-                <div className="flex items-center gap-2">
-                  <div className="h-6 w-6 rounded-md bg-gold-500/20 flex items-center justify-center">
-                    <Shield className="h-3.5 w-3.5 text-gold-400" />
-                  </div>
-                  <div>
-                    <span className="text-xs uppercase tracking-wider font-bold text-gold-400 block leading-none">
-                      Admin Portal
-                    </span>
-                    <span className="text-[11px] text-primary-200 block leading-tight mt-0.5">
-                      {isEditMode ? 'Curriculum Operations / Update Course' : 'Curriculum Operations / Add New Course'}
-                    </span>
-                  </div>
-                </div>
               </div>
 
               {/* Actions & Exit */}
@@ -1296,7 +1413,7 @@ export default function CreateCourse() {
                           className="inline-flex items-center gap-1 text-[11px] font-bold text-primary-800 hover:text-primary-950 hover:underline cursor-pointer"
                         >
                           <Plus size={12} />
-                          <span>+ New Program</span>
+                          <span>New Program</span>
                         </button>
                       </div>
                       <select
@@ -2129,6 +2246,38 @@ export default function CreateCourse() {
                           </div>
 
                           <div className="flex items-center gap-2">
+                            {/* Module Reordering Controls */}
+                            {formData.modules.length > 1 && (
+                              <div className="flex items-center gap-0.5 bg-sand-200/60 p-0.5 rounded-lg mr-1">
+                                <button
+                                  type="button"
+                                  disabled={modIdx === 0}
+                                  onClick={() => handleMoveModule(modIdx, 'up')}
+                                  className={`p-1 rounded transition-colors ${
+                                    modIdx === 0
+                                      ? 'text-sand-300 cursor-not-allowed'
+                                      : 'text-ink-600 hover:text-primary-900 hover:bg-sand-300 cursor-pointer'
+                                  }`}
+                                  title="Move Module Up"
+                                >
+                                  <ChevronUp size={14} />
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={modIdx === formData.modules.length - 1}
+                                  onClick={() => handleMoveModule(modIdx, 'down')}
+                                  className={`p-1 rounded transition-colors ${
+                                    modIdx === formData.modules.length - 1
+                                      ? 'text-sand-300 cursor-not-allowed'
+                                      : 'text-ink-600 hover:text-primary-900 hover:bg-sand-300 cursor-pointer'
+                                  }`}
+                                  title="Move Module Down"
+                                >
+                                  <ChevronDown size={14} />
+                                </button>
+                              </div>
+                            )}
+
                             <span className="text-xs font-semibold px-2.5 py-1 rounded-md bg-sand-200 text-ink-700">
                               {mod.lessons.length} Lessons
                             </span>
@@ -2151,17 +2300,79 @@ export default function CreateCourse() {
                                 activeLessonEditor?.modIdx === modIdx &&
                                 activeLessonEditor?.lesIdx === lesIdx;
 
+                              const isDragOver =
+                                dragOverLesson?.modIdx === modIdx &&
+                                dragOverLesson?.lesIdx === lesIdx;
+
+                              const isBeingDragged =
+                                draggedLesson?.modIdx === modIdx &&
+                                draggedLesson?.lesIdx === lesIdx;
+
                               return (
                                 <div
                                   key={lesson.id}
-                                  className="rounded-xl bg-white border border-sand-200 text-xs shadow-xs overflow-hidden"
+                                  onDragOver={(e) => handleDragOverLesson(e, modIdx, lesIdx)}
+                                  onDrop={(e) => handleDropLesson(e, modIdx, lesIdx)}
+                                  className={`rounded-xl bg-white border text-xs shadow-xs overflow-hidden transition-all ${
+                                    isDragOver
+                                      ? 'border-primary-600 ring-2 ring-primary-500/30 bg-primary-50/20'
+                                      : isBeingDragged
+                                      ? 'opacity-40 border-dashed border-sand-400'
+                                      : 'border-sand-200'
+                                  }`}
                                 >
                                   {/* Lesson Header Row */}
-                                  <div className="p-3.5 flex flex-col sm:flex-row sm:items-center gap-3">
-                                    <div className="flex items-center gap-2.5 flex-1 min-w-0">
-                                      <span className="font-bold text-ink-400 w-6 text-center">
-                                        {lesIdx + 1}.
-                                      </span>
+                                  <div className="p-3 sm:p-3.5 flex flex-col sm:flex-row sm:items-center gap-3">
+                                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                                      {/* Drag Handle & Up/Down Arrangement Controls */}
+                                      <div className="flex items-center gap-1 shrink-0">
+                                        <div
+                                          draggable
+                                          onDragStart={(e) => handleDragStartLesson(e, modIdx, lesIdx)}
+                                          onDragEnd={() => {
+                                            setDraggedLesson(null);
+                                            setDragOverLesson(null);
+                                          }}
+                                          className="cursor-grab active:cursor-grabbing text-ink-300 hover:text-ink-700 p-1 rounded hover:bg-sand-100 transition-colors"
+                                          title="Drag to change arrangement of lesson"
+                                        >
+                                          <GripVertical size={16} />
+                                        </div>
+
+                                        <div className="flex flex-col gap-0.5">
+                                          <button
+                                            type="button"
+                                            disabled={lesIdx === 0}
+                                            onClick={() => handleMoveLesson(modIdx, lesIdx, 'up')}
+                                            className={`p-0.5 rounded transition-colors ${
+                                              lesIdx === 0
+                                                ? 'text-sand-300 cursor-not-allowed'
+                                                : 'text-ink-400 hover:text-primary-800 hover:bg-sand-100 cursor-pointer'
+                                            }`}
+                                            title="Move lesson up"
+                                          >
+                                            <ChevronUp size={12} />
+                                          </button>
+                                          <button
+                                            type="button"
+                                            disabled={lesIdx === mod.lessons.length - 1}
+                                            onClick={() => handleMoveLesson(modIdx, lesIdx, 'down')}
+                                            className={`p-0.5 rounded transition-colors ${
+                                              lesIdx === mod.lessons.length - 1
+                                                ? 'text-sand-300 cursor-not-allowed'
+                                                : 'text-ink-400 hover:text-primary-800 hover:bg-sand-100 cursor-pointer'
+                                            }`}
+                                            title="Move lesson down"
+                                          >
+                                            <ChevronDown size={12} />
+                                          </button>
+                                        </div>
+
+                                        <span className="font-bold text-ink-400 w-5 text-center text-xs">
+                                          {lesIdx + 1}.
+                                        </span>
+                                      </div>
+
                                       <input
                                         type="text"
                                         value={lesson.title}
@@ -2549,7 +2760,7 @@ export default function CreateCourse() {
                         : isXls
                         ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                         : isSlides
-                        ? 'bg-purple-50 text-purple-700 border-purple-200'
+                        ? 'bg-gold-50 text-gold-800 border-gold-200'
                         : isImg
                         ? 'bg-amber-50 text-amber-700 border-amber-200'
                         : 'bg-sand-100 text-ink-700 border-sand-200';
@@ -2665,7 +2876,7 @@ export default function CreateCourse() {
                     </div>
                     <span className={`text-xs font-bold px-3 py-1 rounded-full border ${
                       formData.classCategory === 'hybrid'
-                        ? 'bg-purple-100 text-purple-900 border-purple-200'
+                        ? 'bg-gold-100 text-gold-900 border-gold-300'
                         : formData.classCategory === 'onsite'
                         ? 'bg-amber-100 text-amber-900 border-amber-200'
                         : 'bg-emerald-100 text-emerald-900 border-emerald-200'
@@ -3354,7 +3565,7 @@ export default function CreateCourse() {
                         }
                         className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all ${
                           pathwayForm.programStructure === 'single_course'
-                            ? 'border-purple-600 bg-purple-50/70 ring-2 ring-purple-500/20'
+                            ? 'border-gold-600 bg-gold-50/70 ring-2 ring-gold-500/20'
                             : 'border-sand-200 bg-white hover:bg-sand-50/60'
                         }`}
                       >
