@@ -36,29 +36,35 @@ const COHORTS_LIST = [
 
 const COURSES_BY_COHORT = {
   foundations_sem1: [
-    { id: 'crs_adm_01', title: "Tafsīr-ul-Qur'ān" },
-    { id: 'crs_adm_02', title: 'Fiqh — Acts of Worship' },
-    { id: 'crs_adm_03', title: "Qur'ānic Arabic — Level 1" },
+    { id: 'crs_001', title: "Qur'ānic Arabic", instructor: 'Dr. Mutee Ur Rehman' },
+    { id: 'crs_002', title: 'Tajwīd', instructor: 'Qari Salman Saleem' },
+    { id: 'crs_003', title: 'Fiqh', instructor: 'Dr. Hafiz M. Zubair' },
+    { id: 'crs_004', title: 'Tafsīr', instructor: 'Shaykh Hamid Kamal Ud Din' },
+    { id: 'crs_005', title: 'Why Islām?', instructor: 'Sir Ahmed Khan' },
+    { id: 'crs_006', title: 'Sīrah', instructor: 'Sir Ali Ahmed Saeed' },
   ],
   foundations_sem2: [
-    { id: 'crs_adm_07', title: 'Hadith Studies — 40 Hadith of Imam Nawawi' },
-    { id: 'crs_adm_08', title: 'Usul al-Fiqh — Principles of Jurisprudence' },
-    { id: 'crs_adm_09', title: "Qur'ānic Arabic — Level 2" },
+    { id: 'crs_adm_07', title: 'Hadith Studies — 40 Hadith of Imam Nawawi', instructor: 'Shaykh Hamid Kamal Ud Din' },
+    { id: 'crs_adm_08', title: 'Usul al-Fiqh — Principles of Jurisprudence', instructor: 'Dr. Hafiz M. Zubair' },
+    { id: 'crs_adm_09', title: "Qur'ānic Arabic — Level 2", instructor: 'Dr. Mutee Ur Rehman' },
   ],
   intensives_modular: [
-    { id: 'crs_adm_04', title: 'Purification of the Heart (Tazkiyah)' },
-    { id: 'crs_adm_05', title: 'The Prophetic Biography (Sīrah)' },
-    { id: 'crs_adm_06', title: 'Decoding Isms & Modern Ideologies' },
+    { id: 'crs_007', title: 'The Prophetic Biography (Sīrah)', instructor: 'Muhammad Ali' },
+    { id: 'crs_008', title: 'Decoding Isms & Modern Ideologies', instructor: 'Raja Zia ul Haq' },
+    { id: 'crs_adm_04', title: 'Purification of the Heart (Tazkiyah)', instructor: 'Ustadh Khalil Ahmad' },
   ],
 };
 
 const INSTRUCTORS_LIST = [
-  'Ustadh Khalil Ahmad',
-  'Sheikh Abdullah Nasir',
-  'Ustadha Fatima Zahra',
-  'Sheikh Yasir Faheem',
+  'Dr. Mutee Ur Rehman',
+  'Qari Salman Saleem',
+  'Dr. Hafiz M. Zubair',
+  'Shaykh Hamid Kamal Ud Din',
+  'Sir Ahmed Khan',
+  'Sir Ali Ahmed Saeed',
   'Muhammad Ali',
   'Raja Zia ul Haq',
+  'Ustadh Khalil Ahmad',
 ];
 
 const CAMPUS_ROOMS = [
@@ -82,18 +88,18 @@ export default function ScheduleDrawer({
     id: '',
     cohortId: 'foundations_sem1',
     cohortName: 'Ilm Foundations • Semester 1',
-    enrolledCount: 15,
-    courseId: 'crs_adm_01',
-    courseTitle: "Tafsīr-ul-Qur'ān",
+    enrolledCount: 142,
+    courseId: 'crs_001',
+    courseTitle: "Qur'ānic Arabic",
     topic: '',
-    instructorName: 'Ustadh Khalil Ahmad',
+    instructorName: 'Dr. Mutee Ur Rehman',
     dayOfWeek: 'Tuesday',
-    startTime: '18:00',
-    endTime: '20:30',
+    startTime: '18:30',
+    endTime: '19:30',
     scheduleType: 'recurring',
     status: 'scheduled',
     modality: 'online_meet',
-    meetLink: 'https://meet.google.com/ilm-tafsir-sem1',
+    meetLink: 'https://meet.google.com/cbh-ywhg-upu',
     campusRoom: 'Room 204 • Main Academic Block',
     roomCapacity: 35,
   });
@@ -116,18 +122,18 @@ export default function ScheduleDrawer({
         id: initialSlot.id || '',
         cohortId: initialSlot.cohortId || 'foundations_sem1',
         cohortName: initialSlot.cohortName || 'Ilm Foundations • Semester 1',
-        enrolledCount: initialSlot.enrolledCount || 15,
-        courseId: initialSlot.courseId || 'crs_adm_01',
-        courseTitle: initialSlot.courseTitle || "Tafsīr-ul-Qur'ān",
+        enrolledCount: initialSlot.enrolledCount || 142,
+        courseId: initialSlot.courseId || 'crs_001',
+        courseTitle: initialSlot.courseTitle || "Qur'ānic Arabic",
         topic: initialSlot.topic || '',
-        instructorName: initialSlot.instructorName || 'Ustadh Khalil Ahmad',
+        instructorName: initialSlot.instructorName || 'Dr. Mutee Ur Rehman',
         dayOfWeek: initialSlot.dayOfWeek || 'Tuesday',
-        startTime: initialSlot.startTime || '18:00',
-        endTime: initialSlot.endTime || '20:30',
+        startTime: initialSlot.startTime || '18:30',
+        endTime: initialSlot.endTime || '19:30',
         scheduleType: initialSlot.scheduleType || 'recurring',
         status: initialSlot.status || 'scheduled',
         modality: initialSlot.modality || 'online_meet',
-        meetLink: initialSlot.meetLink || 'https://meet.google.com/ilm-live-class',
+        meetLink: initialSlot.meetLink || 'https://meet.google.com/cbh-ywhg-upu',
         campusRoom: initialSlot.campusRoom || 'Room 204 • Main Academic Block',
         roomCapacity: initialSlot.roomCapacity || 35,
       });
@@ -139,18 +145,18 @@ export default function ScheduleDrawer({
         id: '',
         cohortId: 'foundations_sem1',
         cohortName: 'Ilm Foundations • Semester 1',
-        enrolledCount: 15,
-        courseId: 'crs_adm_01',
-        courseTitle: "Tafsīr-ul-Qur'ān",
+        enrolledCount: 142,
+        courseId: 'crs_001',
+        courseTitle: "Qur'ānic Arabic",
         topic: '',
-        instructorName: 'Ustadh Khalil Ahmad',
+        instructorName: 'Dr. Mutee Ur Rehman',
         dayOfWeek: 'Tuesday',
-        startTime: '18:00',
-        endTime: '20:30',
+        startTime: '18:30',
+        endTime: '19:30',
         scheduleType: 'recurring',
         status: 'scheduled',
         modality: 'online_meet',
-        meetLink: 'https://meet.google.com/ilm-class-' + Math.random().toString(36).substring(2, 6),
+        meetLink: 'https://meet.google.com/cbh-ywhg-upu',
         campusRoom: 'Room 204 • Main Academic Block',
         roomCapacity: 35,
       });
@@ -231,9 +237,10 @@ export default function ScheduleDrawer({
       ...formData,
       cohortId,
       cohortName: selected?.name || '',
-      enrolledCount: selected?.enrolledCount || 15,
+      enrolledCount: selected?.enrolledCount || 142,
       courseId: defaultCourse.id,
       courseTitle: defaultCourse.title,
+      ...(defaultCourse.instructor ? { instructorName: defaultCourse.instructor } : {}),
     });
   };
 
@@ -245,6 +252,7 @@ export default function ScheduleDrawer({
       ...formData,
       courseId,
       courseTitle: course?.title || '',
+      ...(course?.instructor ? { instructorName: course.instructor } : {}),
     });
   };
 
@@ -320,53 +328,42 @@ export default function ScheduleDrawer({
     <div className="fixed inset-0 z-50 overflow-hidden animate-fadeIn">
       {/* Backdrop */}
       <div
-        className="fixed inset-0 bg-primary-950/60 backdrop-blur-xs transition-opacity"
+        className="fixed inset-0 bg-ink-950/40 backdrop-blur-2xs transition-opacity"
         onClick={onClose}
       />
 
       {/* Slide-Over Drawer Container */}
-      <div className="fixed inset-y-0 right-0 max-w-full flex pl-10">
-        <div className="w-screen max-w-2xl bg-white shadow-2xl flex flex-col h-full border-l border-sand-200">
+      <div className="fixed inset-y-0 right-0 max-w-full flex pl-8">
+        <div className="w-screen max-w-lg bg-white shadow-xl flex flex-col h-full border-l border-sand-200">
           
-          {/* 1. STICKY DRAWER HEADER (Forest Green #0B3324) */}
-          <div className="bg-[#0B3324] text-white px-6 py-5 shrink-0 flex items-center justify-between border-b border-primary-900 shadow-md">
+          {/* Minimal Header */}
+          <div className="px-6 py-4 bg-white border-b border-sand-200 flex items-center justify-between shrink-0">
             <div>
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                  {isEditing ? 'Edit Lecture Slot' : 'New Schedule Slot'}
-                </span>
-                <span className="text-xs text-primary-200 ">
-                  {formData.id || 'TIMETABLE-DRAFT'}
-                </span>
-              </div>
-              <h2 className="text-lg font-bold font-heading text-white mt-1">
-                {isEditing ? formData.courseTitle : 'Schedule Live / On-Campus Lecture'}
+              <h2 className="text-base font-bold font-heading text-ink-900">
+                {isEditing ? 'Edit Lecture Slot' : 'Add Lecture Slot'}
               </h2>
+              <p className="text-xs text-ink-500 mt-0.5">
+                {formData.cohortName} • {formData.enrolledCount} students enrolled
+              </p>
             </div>
 
             <button
               type="button"
               onClick={onClose}
-              className="p-2 rounded-xl text-primary-200 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
-              title="Close drawer (Esc)"
+              className="p-1.5 rounded-lg text-ink-400 hover:text-ink-700 hover:bg-sand-100 transition-colors cursor-pointer"
+              title="Close (Esc)"
             >
-              <X size={20} />
+              <X size={18} />
             </button>
           </div>
 
-          {/* 2. SCROLLABLE FORM BODY */}
-          <form id="schedule-form" onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-6">
+          {/* Form Body */}
+          <form id="schedule-form" onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-5 text-xs">
             
-            {/* SECTION 1: Course, Cohort & Instructor */}
-            <div className="bg-sand-50/70 border border-sand-200 rounded-2xl p-5 space-y-4">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-bold uppercase tracking-wider text-ink-700 flex items-center gap-1.5">
-                  <Users size={14} className="text-primary-800" />
-                  Target Cohort &amp; Course
-                </label>
-                <span className="text-[11px] font-semibold text-primary-900 bg-primary-50/90 px-2.5 py-0.5 rounded-full border border-emerald-200">
-                  👥 {formData.enrolledCount} Students Enrolled
-                </span>
+            {/* Section 1: Course & Instructor */}
+            <div className="space-y-3">
+              <div className="text-[11px] font-bold text-ink-400 uppercase tracking-wider">
+                Course &amp; Cohort
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -409,7 +406,7 @@ export default function ScheduleDrawer({
                   value={formData.topic}
                   onChange={(e) => setFormData({ ...formData, topic: e.target.value })}
                   placeholder="e.g. Surah Al-Baqarah: Verses 142–152 (The Change of Qiblah)"
-                  className="w-full px-3.5 py-2 text-xs border border-sand-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20 font-medium text-ink-900 placeholder:text-ink-400"
+                  className="w-full px-3 py-2 text-xs border border-sand-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20 text-ink-900 placeholder:text-ink-400"
                 />
               </div>
 
@@ -429,22 +426,23 @@ export default function ScheduleDrawer({
               </div>
             </div>
 
-            {/* SECTION 2: Schedule Timing, Recurrence & Status */}
-            <div className="bg-sand-50/70 border border-sand-200 rounded-2xl p-5 space-y-4">
+            <div className="border-t border-sand-200" />
+
+            {/* Section 2: Timetable & Recurrence */}
+            <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <label className="text-xs font-bold uppercase tracking-wider text-ink-700 flex items-center gap-1.5">
-                  <Clock size={14} className="text-primary-800" />
-                  Timetable &amp; Recurrence
-                </label>
-                <span className="text-[11px] text-primary-800 font-semibold bg-primary-100/70 px-2 py-0.5 rounded border border-primary-200">
-                  ⏱️ {durationText}
+                <span className="text-[11px] font-bold text-ink-400 uppercase tracking-wider">
+                  Timetable &amp; Schedule
+                </span>
+                <span className="text-[11px] font-semibold text-ink-500">
+                  Duration: {durationText}
                 </span>
               </div>
 
-              {/* Day of Week Selector Pills */}
+              {/* Day of Week Selector */}
               <div>
                 <label className="text-xs font-medium text-ink-700 block mb-1.5">Day of Week *</label>
-                <div className="grid grid-cols-7 gap-1.5">
+                <div className="grid grid-cols-7 gap-1">
                   {DAYS_OF_WEEK.map((day) => {
                     const isSelected = formData.dayOfWeek === day;
                     return (
@@ -452,10 +450,10 @@ export default function ScheduleDrawer({
                         key={day}
                         type="button"
                         onClick={() => setFormData({ ...formData, dayOfWeek: day })}
-                        className={`py-2 px-1 rounded-xl text-center text-xs font-bold transition-all cursor-pointer ${
+                        className={`py-1.5 rounded-lg text-center text-xs font-semibold transition-all cursor-pointer ${
                           isSelected
-                            ? 'bg-[#0B3324] text-white shadow-xs'
-                            : 'bg-white border border-sand-200 text-ink-700 hover:bg-sand-100'
+                            ? 'bg-primary-900 text-white font-bold shadow-xs'
+                            : 'bg-sand-50 border border-sand-200 text-ink-700 hover:bg-sand-100'
                         }`}
                       >
                         {day.slice(0, 3)}
@@ -476,9 +474,6 @@ export default function ScheduleDrawer({
                     onChange={(e) => setFormData({ ...formData, startTime: e.target.value })}
                     className="w-full px-3 py-2 text-xs border border-sand-300 rounded-xl bg-white font-semibold text-ink-900 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
                   />
-                  <span className="text-[10px] text-ink-400 mt-0.5 block">
-                    {formatTime12h(formData.startTime)}
-                  </span>
                 </div>
 
                 <div>
@@ -490,30 +485,21 @@ export default function ScheduleDrawer({
                     onChange={(e) => setFormData({ ...formData, endTime: e.target.value })}
                     className="w-full px-3 py-2 text-xs border border-sand-300 rounded-xl bg-white font-semibold text-ink-900 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
                   />
-                  <span className="text-[10px] text-ink-400 mt-0.5 block">
-                    {formatTime12h(formData.endTime)}
-                  </span>
                 </div>
               </div>
 
-              {/* Status & Recurrence Row */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+              {/* Status & Recurrence */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-medium text-ink-700 block mb-1">Session Status *</label>
                   <select
                     value={formData.status}
                     onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-                    className={`w-full px-3 py-2 text-xs border rounded-xl font-bold focus:outline-none focus:ring-2 focus:ring-primary-500/20 ${
-                      formData.status === 'scheduled'
-                        ? 'border-emerald-300 bg-emerald-50/70 text-emerald-900'
-                        : formData.status === 'rescheduled'
-                        ? 'border-amber-300 bg-amber-50/70 text-amber-900'
-                        : 'border-red-300 bg-red-50/70 text-red-900'
-                    }`}
+                    className="w-full px-3 py-2 text-xs border border-sand-300 rounded-xl bg-white font-medium text-ink-900 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
                   >
-                    <option value="scheduled">🟢 Scheduled (Active)</option>
-                    <option value="rescheduled">🟡 Rescheduled (Changed)</option>
-                    <option value="cancelled">🔴 Cancelled (No Class)</option>
+                    <option value="scheduled">Scheduled (Active)</option>
+                    <option value="rescheduled">Rescheduled</option>
+                    <option value="cancelled">Cancelled</option>
                   </select>
                 </div>
 
@@ -522,72 +508,64 @@ export default function ScheduleDrawer({
                   <select
                     value={formData.scheduleType}
                     onChange={(e) => setFormData({ ...formData, scheduleType: e.target.value })}
-                    className="w-full px-3 py-2 text-xs border border-sand-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20 font-medium text-ink-900"
+                    className="w-full px-3 py-2 text-xs border border-sand-300 rounded-xl bg-white font-medium text-ink-900 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
                   >
-                    <option value="recurring">Weekly Recurring (Full Semester)</option>
+                    <option value="recurring">Weekly Recurring</option>
                     <option value="single">Single / Makeup Session</option>
                   </select>
                 </div>
               </div>
             </div>
 
-            {/* SECTION 3: Modality & Venue Logistics */}
-            <div className="bg-sand-50/70 border border-sand-200 rounded-2xl p-5 space-y-4">
-              <label className="text-xs font-bold uppercase tracking-wider text-ink-700 block">
-                Delivery Modality &amp; Venue
-              </label>
+            <div className="border-t border-sand-200" />
 
-              {/* 2-Card Segmented Selector */}
-              <div className="grid grid-cols-2 gap-3">
+            {/* Section 3: Delivery Modality & Venue */}
+            <div className="space-y-3">
+              <div className="text-[11px] font-bold text-ink-400 uppercase tracking-wider">
+                Delivery Modality
+              </div>
+
+              {/* Minimal Segmented Control */}
+              <div className="grid grid-cols-2 gap-2 p-1 rounded-xl bg-sand-100 border border-sand-200">
                 <button
                   type="button"
                   onClick={() => setFormData({ ...formData, modality: 'online_meet' })}
-                  className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex items-start gap-2.5 ${
+                  className={`py-2 px-3 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
                     formData.modality === 'online_meet'
-                      ? 'border-[#0B3324] bg-primary-50/80 ring-2 ring-primary-500/20'
-                      : 'border-sand-200 bg-white hover:bg-sand-100/60'
+                      ? 'bg-white text-ink-900 shadow-2xs font-bold'
+                      : 'text-ink-600 hover:text-ink-900'
                   }`}
                 >
-                  <div className={`p-1.5 rounded-lg shrink-0 ${formData.modality === 'online_meet' ? 'bg-[#0B3324] text-white' : 'bg-sand-100 text-ink-600'}`}>
-                    <Video size={16} />
-                  </div>
-                  <div>
-                    <div className="text-xs font-bold text-ink-900">Google Meet</div>
-                    <p className="text-[10px] text-ink-500 mt-0.5">Live Online Video Stream</p>
-                  </div>
+                  <Video size={13} />
+                  <span>Google Meet</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setFormData({ ...formData, modality: 'onsite_campus' })}
-                  className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex items-start gap-2.5 ${
+                  className={`py-2 px-3 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
                     formData.modality === 'onsite_campus'
-                      ? 'border-gold-600 bg-gold-50/80 ring-2 ring-gold-500/20'
-                      : 'border-sand-200 bg-white hover:bg-sand-100/60'
+                      ? 'bg-white text-ink-900 shadow-2xs font-bold'
+                      : 'text-ink-600 hover:text-ink-900'
                   }`}
                 >
-                  <div className={`p-1.5 rounded-lg shrink-0 ${formData.modality === 'onsite_campus' ? 'bg-gold-600 text-white' : 'bg-sand-100 text-ink-600'}`}>
-                    <MapPin size={16} />
-                  </div>
-                  <div>
-                    <div className="text-xs font-bold text-ink-900">DHA Phase 6 Campus</div>
-                    <p className="text-[10px] text-ink-500 mt-0.5">Physical In-Person Lecture</p>
-                  </div>
+                  <MapPin size={13} />
+                  <span>DHA Phase 6</span>
                 </button>
               </div>
 
-              {/* Conditional Modality Fields */}
+              {/* Modality Specific Input */}
               {formData.modality === 'online_meet' ? (
-                <div className="space-y-2 pt-1">
+                <div className="space-y-1.5 pt-1">
                   <div className="flex items-center justify-between">
                     <label className="text-xs font-medium text-ink-700">Google Meet Link *</label>
                     <button
                       type="button"
                       onClick={handleAutoGenerateMeet}
-                      className="text-[11px] font-bold text-primary-800 hover:text-primary-950 inline-flex items-center gap-1 cursor-pointer"
+                      className="text-[11px] font-semibold text-primary-900 hover:underline inline-flex items-center gap-1 cursor-pointer"
                     >
                       <Sparkles size={11} />
-                      Generate New Link
+                      Generate Link
                     </button>
                   </div>
                   <div className="flex items-center gap-2">
@@ -596,24 +574,23 @@ export default function ScheduleDrawer({
                       required
                       value={formData.meetLink}
                       onChange={(e) => setFormData({ ...formData, meetLink: e.target.value })}
-                      placeholder="https://meet.google.com/abc-defg-hij"
-                      className="flex-1 px-3 py-2 text-xs border border-sand-300 rounded-xl bg-white text-ink-900 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-600"
+                      placeholder="https://meet.google.com/cbh-ywhg-upu"
+                      className="flex-1 px-3 py-2 text-xs border border-sand-300 rounded-xl bg-white text-ink-900 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
                     />
                     <button
                       type="button"
                       onClick={handleCopyMeetLink}
-                      className="px-3 py-2 bg-white border border-sand-300 hover:bg-sand-100 rounded-xl text-xs font-semibold text-ink-700 transition-colors inline-flex items-center gap-1 cursor-pointer"
-                      title="Copy meeting link"
+                      className="px-3 py-2 bg-sand-50 border border-sand-200 hover:bg-sand-100 rounded-xl text-xs font-semibold text-ink-700 transition-colors inline-flex items-center gap-1 cursor-pointer"
                     >
-                      <Copy size={13} />
-                      <span>{copiedLink ? 'Copied!' : 'Copy'}</span>
+                      <Copy size={12} />
+                      <span>{copiedLink ? 'Copied' : 'Copy'}</span>
                     </button>
                   </div>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
                   <div className="sm:col-span-2">
-                    <label className="text-xs font-medium text-ink-700 block mb-1">Campus Room / Hall *</label>
+                    <label className="text-xs font-medium text-ink-700 block mb-1">Campus Room *</label>
                     <select
                       value={formData.campusRoom}
                       onChange={(e) => handleRoomChange(e.target.value)}
@@ -628,7 +605,7 @@ export default function ScheduleDrawer({
                   </div>
 
                   <div>
-                    <label className="text-xs font-medium text-ink-700 block mb-1">Max Capacity</label>
+                    <label className="text-xs font-medium text-ink-700 block mb-1">Capacity</label>
                     <input
                       type="number"
                       value={formData.roomCapacity}
@@ -640,151 +617,100 @@ export default function ScheduleDrawer({
               )}
             </div>
 
-            {/* SECTION 4: REAL-TIME CONFLICT DETECTION WARNING */}
+            {/* Real-time Conflict Alert */}
             {conflictResult.hasConflict && (
-              <div className="p-4 rounded-2xl bg-amber-50 border-2 border-amber-300 space-y-3 animate-fadeIn">
-                <div className="flex items-start gap-2.5">
-                  <AlertTriangle className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
-                  <div>
-                    <h4 className="text-xs font-bold text-amber-950 uppercase tracking-wide">
-                      Scheduling Conflict Detected ({conflictResult.conflicts.length})
-                    </h4>
-                    <p className="text-[11px] text-amber-800 mt-0.5">
-                      The proposed timetable overlaps with existing active classes:
-                    </p>
-                  </div>
+              <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 space-y-2">
+                <div className="flex items-center gap-2 text-amber-900 font-bold text-xs">
+                  <AlertTriangle size={14} className="shrink-0 text-amber-700" />
+                  <span>Scheduling Conflict ({conflictResult.conflicts.length})</span>
                 </div>
-
-                <div className="space-y-1.5 pl-7">
+                <div className="text-[11px] text-amber-800 space-y-1">
                   {conflictResult.conflicts.map((c, idx) => (
-                    <div key={idx} className="text-xs text-amber-900 bg-white/80 p-2.5 rounded-xl border border-amber-200">
-                      <strong className="font-bold block text-amber-950">{c.title}:</strong>
-                      <span>{c.message}</span>
-                    </div>
+                    <div key={idx}>• {c.title}: {c.message}</div>
                   ))}
                 </div>
-
-                <label className="flex items-center gap-2 pl-7 pt-1 cursor-pointer select-none">
+                <label className="flex items-center gap-1.5 pt-1 text-[11px] font-semibold text-amber-950 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={allowConflictOverride}
                     onChange={(e) => setAllowConflictOverride(e.target.checked)}
-                    className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 cursor-pointer accent-amber-600"
+                    className="rounded text-amber-600 focus:ring-amber-500 cursor-pointer"
                   />
-                  <span className="text-[11px] font-semibold text-amber-950">
-                    Allow conflict anyway (Emergency Admin Override)
-                  </span>
+                  <span>Allow conflict override</span>
                 </label>
               </div>
             )}
 
-            {/* SECTION 5: AUTOMATED STUDENT & INSTRUCTOR NOTIFICATIONS */}
-            <div className="bg-emerald-50/60 border border-emerald-200 rounded-2xl p-5 space-y-4">
+            <div className="border-t border-sand-200" />
+
+            {/* Section 4: Student Notifications */}
+            <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <label className="text-xs font-bold uppercase tracking-wider text-emerald-950 flex items-center gap-1.5">
-                  <Bell size={14} className="text-primary-900" />
-                  Automated Student Cohort Notifications
-                </label>
-                
-                {/* Switch Toggle */}
-                <label className="relative inline-flex items-center cursor-pointer">
+                <label className="flex items-center gap-2 cursor-pointer select-none">
                   <input
                     type="checkbox"
                     checked={notifyStudents}
                     onChange={(e) => setNotifyStudents(e.target.checked)}
-                    className="sr-only peer"
+                    className="w-3.5 h-3.5 rounded text-primary-900 focus:ring-primary-500 cursor-pointer accent-primary-900"
                   />
-                  <div className="w-9 h-5 bg-sand-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-sand-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-700"></div>
+                  <span className="text-xs font-semibold text-ink-800">
+                    Notify enrolled students ({formData.enrolledCount})
+                  </span>
                 </label>
               </div>
 
-              {notifyStudents ? (
-                <div className="space-y-3.5 pt-1">
-                  {/* Channel Checkboxes */}
-                  <div>
-                    <span className="text-[11px] font-semibold text-ink-700 block mb-1.5">
-                      Delivery Channels ({selectedChannelsCount} Active):
-                    </span>
-                    <div className="flex flex-wrap gap-2">
-                      <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-emerald-200 text-xs font-medium text-ink-800 cursor-pointer hover:bg-emerald-50">
-                        <input
-                          type="checkbox"
-                          checked={channels.in_app}
-                          onChange={(e) => setChannels({ ...channels, in_app: e.target.checked })}
-                          className="rounded text-emerald-700 focus:ring-emerald-500 cursor-pointer accent-emerald-700"
-                        />
-                        <MessageSquare size={13} className="text-primary-900" />
-                        <span>Student Portal Inbox</span>
-                      </label>
-
-                      <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-emerald-200 text-xs font-medium text-ink-800 cursor-pointer hover:bg-emerald-50">
-                        <input
-                          type="checkbox"
-                          checked={channels.email}
-                          onChange={(e) => setChannels({ ...channels, email: e.target.checked })}
-                          className="rounded text-emerald-700 focus:ring-emerald-500 cursor-pointer accent-emerald-700"
-                        />
-                        <Mail size={13} className="text-primary-900" />
-                        <span>Email Broadcast</span>
-                      </label>
-
-                      <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-emerald-200 text-xs font-medium text-ink-800 cursor-pointer hover:bg-emerald-50">
-                        <input
-                          type="checkbox"
-                          checked={channels.whatsapp}
-                          onChange={(e) => setChannels({ ...channels, whatsapp: e.target.checked })}
-                          className="rounded text-emerald-700 focus:ring-emerald-500 cursor-pointer accent-emerald-700"
-                        />
-                        <Smartphone size={13} className="text-primary-900" />
-                        <span>WhatsApp / SMS</span>
-                      </label>
-                    </div>
-                  </div>
-
-                  {/* Live Dynamic Diff Preview Box */}
-                  <div className="p-3.5 rounded-xl bg-white border border-emerald-200 shadow-2xs space-y-1">
-                    <div className="text-[10px] font-bold uppercase tracking-wider text-primary-900 flex items-center gap-1">
-                      <Send size={11} />
-                      Live Broadcast Preview ({formData.enrolledCount} Recipients)
-                    </div>
-                    <p className="text-xs text-ink-800 font-medium leading-relaxed">
-                      📢 <strong>Schedule Update: {formData.cohortName}</strong> — <em>"{formData.courseTitle}"</em>: {changeDiffSummary}
-                    </p>
-                    {customNote && (
-                      <p className="text-xs text-ink-600 italic mt-1 border-t border-sand-100 pt-1">
-                        Note: "{customNote}"
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Optional Custom Note input */}
-                  <div>
-                    <label className="text-xs font-medium text-ink-700 block mb-1">
-                      Additional Note to Students (Optional)
+              {notifyStudents && (
+                <div className="space-y-2.5 pl-5.5">
+                  <div className="flex flex-wrap gap-1.5">
+                    <label className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-sand-50 border border-sand-200 text-[11px] font-medium text-ink-700 cursor-pointer hover:bg-sand-100">
+                      <input
+                        type="checkbox"
+                        checked={channels.in_app}
+                        onChange={(e) => setChannels({ ...channels, in_app: e.target.checked })}
+                        className="rounded text-primary-900 focus:ring-primary-500 accent-primary-900"
+                      />
+                      <span>In-App</span>
                     </label>
-                    <input
-                      type="text"
-                      value={customNote}
-                      onChange={(e) => setCustomNote(e.target.value)}
-                      placeholder="e.g. Please review the pre-class reading packet; Google Meet link attached."
-                      className="w-full px-3 py-1.5 text-xs border border-sand-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-ink-900"
-                    />
+
+                    <label className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-sand-50 border border-sand-200 text-[11px] font-medium text-ink-700 cursor-pointer hover:bg-sand-100">
+                      <input
+                        type="checkbox"
+                        checked={channels.email}
+                        onChange={(e) => setChannels({ ...channels, email: e.target.checked })}
+                        className="rounded text-primary-900 focus:ring-primary-500 accent-primary-900"
+                      />
+                      <span>Email</span>
+                    </label>
+
+                    <label className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-sand-50 border border-sand-200 text-[11px] font-medium text-ink-700 cursor-pointer hover:bg-sand-100">
+                      <input
+                        type="checkbox"
+                        checked={channels.whatsapp}
+                        onChange={(e) => setChannels({ ...channels, whatsapp: e.target.checked })}
+                        className="rounded text-primary-900 focus:ring-primary-500 accent-primary-900"
+                      />
+                      <span>WhatsApp</span>
+                    </label>
                   </div>
+
+                  <input
+                    type="text"
+                    value={customNote}
+                    onChange={(e) => setCustomNote(e.target.value)}
+                    placeholder="Add an optional note to students..."
+                    className="w-full px-3 py-1.5 text-xs border border-sand-200 rounded-xl bg-sand-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20 text-ink-900"
+                  />
                 </div>
-              ) : (
-                <p className="text-xs text-ink-500 italic py-1">
-                  Notifications disabled. The timetable will update quietly without pinging enrolled students.
-                </p>
               )}
             </div>
           </form>
 
-          {/* 3. STICKY DRAWER FOOTER CTAs */}
-          <div className="p-5 border-t border-sand-200 bg-sand-50/80 shrink-0 flex items-center justify-between gap-3">
+          {/* Minimal Sticky Footer */}
+          <div className="px-6 py-4 border-t border-sand-200 bg-sand-50/60 shrink-0 flex items-center justify-between gap-3">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2.5 rounded-xl text-xs font-bold text-ink-600 hover:text-ink-900 hover:bg-sand-200/70 transition-colors cursor-pointer"
+              className="px-3.5 py-2 rounded-xl text-xs font-semibold text-ink-600 hover:text-ink-900 hover:bg-sand-100 transition-colors cursor-pointer"
             >
               Cancel
             </button>
@@ -793,18 +719,14 @@ export default function ScheduleDrawer({
               type="submit"
               form="schedule-form"
               disabled={isSaveBlocked}
-              className={`px-6 py-2.5 rounded-xl text-xs font-bold text-white transition-all shadow-sm flex items-center gap-2 cursor-pointer ${
+              className={`px-4 py-2 rounded-xl text-xs font-bold text-white transition-all shadow-xs flex items-center gap-1.5 cursor-pointer ${
                 isSaveBlocked
                   ? 'bg-sand-400 cursor-not-allowed opacity-60'
-                  : 'bg-[#0B3324] hover:bg-[#072318] active:scale-[0.98]'
+                  : 'bg-primary-900 hover:bg-primary-800'
               }`}
             >
-              <CheckCircle2 size={15} />
-              <span>
-                {notifyStudents
-                  ? `Save & Notify ${formData.enrolledCount} Students`
-                  : 'Save Lecture Slot'}
-              </span>
+              <CheckCircle2 size={13} />
+              <span>{isEditing ? 'Update Lecture Slot' : 'Save Lecture Slot'}</span>
             </button>
           </div>
 

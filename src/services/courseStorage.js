@@ -36,6 +36,7 @@ const STORAGE_KEY_STUDENT_NOTIFICATIONS = 'ilm_student_notifications';
 const STORAGE_KEY_LIBRARY = 'ilm_elibrary_catalog';
 const STORAGE_KEY_DAILY_QUOTES = 'ilm_daily_quotes';
 const STORAGE_KEY_INSTALLMENTS = 'ilm_fee_installments';
+const STORAGE_KEY_ATTENDANCE_SESSIONS = 'ilm_attendance_sessions';
 
 /**
  * Retrieve current student enrolled courses synchronized with live lesson progress
@@ -950,9 +951,41 @@ export function getCourseEnrolledStudentIds(courseId, category) {
   // Institutional default: If course is in Foundations, default to all Foundations students
   if (category === 'foundations' || match?.category === 'foundations') {
     return getAllStudents()
-      .filter((s) => s.program.includes('Foundations'))
+      .filter((s) => s.program && s.program.includes('Foundations'))
       .map((s) => s.id);
   }
+
+  // If intensive course, match students enrolled via program name, selectedCourses, or existing session logs
+  if (match) {
+    const titleLower = (match.title || '').toLowerCase();
+    const students = getAllStudents();
+    const enrolled = students
+      .filter((s) => {
+        const progLower = (s.program || '').toLowerCase();
+        const hasSelected = Array.isArray(s.selectedCourses) && s.selectedCourses.some((c) => (c || '').toLowerCase().includes(titleLower) || titleLower.includes((c || '').toLowerCase()));
+        return (progLower.includes('prophetic') && titleLower.includes('prophetic')) || (progLower.length > 3 && titleLower.includes(progLower)) || hasSelected;
+      })
+      .map((s) => s.id);
+    if (enrolled.length > 0) return enrolled;
+  }
+
+  // Also check if any attendance sessions exist with recorded students for this course
+  try {
+    const rawSessions = localStorage.getItem(STORAGE_KEY_ATTENDANCE_SESSIONS);
+    const sessionsList = rawSessions ? JSON.parse(rawSessions) : INITIAL_ATTENDANCE_SESSIONS;
+    const courseSessions = (sessionsList || []).filter((s) => s.courseId === courseId);
+    if (courseSessions.length > 0) {
+      const studentIdSet = new Set();
+      courseSessions.forEach((sess) => {
+        if (sess.records) {
+          Object.keys(sess.records).forEach((id) => studentIdSet.add(id));
+        }
+      });
+      if (studentIdSet.size > 0) {
+        return Array.from(studentIdSet);
+      }
+    }
+  } catch (e) {}
 
   return [];
 }
@@ -1663,22 +1696,6 @@ export function getScheduleSlots() {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        // Auto-sanitize if cached data contains old dummy classes or non-official schedules
-        const hasStale = parsed.some(
-          (s) =>
-            (s.courseTitle && s.courseTitle.includes('Purification')) ||
-            (s.instructorName &&
-              (s.instructorName.includes('Tahir Mahmood') ||
-                s.instructorName.includes('Yasir Faheem') ||
-                s.instructorName.includes('Khalil Ahmad'))) ||
-            ['Friday', 'Saturday', 'Sunday', 'Monday'].includes(s.dayOfWeek) ||
-            s.startTime === '18:00' ||
-            s.meetLink !== 'https://meet.google.com/cbh-ywhg-upu'
-        );
-        if (hasStale || parsed.length !== initialScheduleSlots.length) {
-          localStorage.setItem(STORAGE_KEY_SCHEDULE_SLOTS, JSON.stringify(initialScheduleSlots));
-          return initialScheduleSlots;
-        }
         return parsed;
       }
     }
@@ -1891,6 +1908,10 @@ export function saveScheduleSlot(slotData) {
 
   try {
     localStorage.setItem(STORAGE_KEY_SCHEDULE_SLOTS, JSON.stringify(updated));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('ilm_schedule_updated'));
+      window.dispatchEvent(new StorageEvent('storage', { key: STORAGE_KEY_SCHEDULE_SLOTS }));
+    }
   } catch (err) {
     console.error('Failed to save schedule slot to localStorage:', err);
   }
@@ -1905,6 +1926,10 @@ export function deleteScheduleSlot(slotId) {
   const updated = current.filter((s) => s.id !== slotId);
   try {
     localStorage.setItem(STORAGE_KEY_SCHEDULE_SLOTS, JSON.stringify(updated));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('ilm_schedule_updated'));
+      window.dispatchEvent(new StorageEvent('storage', { key: STORAGE_KEY_SCHEDULE_SLOTS }));
+    }
   } catch (err) {
     console.error('Failed to delete schedule slot:', err);
   }
@@ -3304,5 +3329,451 @@ export function rejectInstallment(installmentId, rejectionReason, adminUser = { 
     installment: finalInst,
     status: finalInst?.status,
     rejectionReason: finalInst?.rejectionReason,
+  };
+}
+
+/**
+ * ============================================================================
+ * HYBRID ATTENDANCE MANAGEMENT & TELEMETRY LEDGER
+ * (Daily Roll-Call Register + Google Meet / Onsite Sheet Uploader)
+ * ============================================================================
+ */
+
+export const INITIAL_ATTENDANCE_SESSIONS = [
+  {
+    id: 'att_ses_01',
+    courseId: 'crs_found_01',
+    courseTitle: "Qur'ānic Arabic",
+    date: '2026-03-02',
+    topic: 'Lecture 1: The Noun (Ism) & Fundamentals',
+    deliveryMode: 'hybrid',
+    records: {
+      std_001: 'present',
+      std_002: 'present',
+      std_003: 'present',
+      std_004: 'present',
+      std_006: 'present',
+      std_007: 'present',
+      std_008: 'present',
+      std_009: 'late',
+      std_010: 'present',
+      std_011: 'present',
+      std_012: 'absent',
+      std_013: 'present',
+      std_014: 'present',
+      std_015: 'present',
+    },
+    totalEnrolled: 14,
+    presentCount: 12,
+    createdAt: '2026-03-02T19:00:00.000Z',
+  },
+  {
+    id: 'att_ses_02',
+    courseId: 'crs_found_01',
+    courseTitle: "Qur'ānic Arabic",
+    date: '2026-03-05',
+    topic: 'Lecture 2: Definite & Indefinite Noun Drills',
+    deliveryMode: 'online',
+    records: {
+      std_001: 'present',
+      std_002: 'present',
+      std_003: 'late',
+      std_004: 'present',
+      std_006: 'present',
+      std_007: 'present',
+      std_008: 'present',
+      std_009: 'present',
+      std_010: 'present',
+      std_011: 'absent',
+      std_012: 'present',
+      std_013: 'present',
+      std_014: 'present',
+      std_015: 'present',
+    },
+    totalEnrolled: 14,
+    presentCount: 12,
+    createdAt: '2026-03-05T19:00:00.000Z',
+  },
+  {
+    id: 'att_ses_03',
+    courseId: 'crs_found_02',
+    courseTitle: 'Tajwīd',
+    date: '2026-03-04',
+    topic: 'Lecture 1: Makhaarij Al-Huroof (Articulation Points)',
+    deliveryMode: 'onsite',
+    records: {
+      std_001: 'present',
+      std_002: 'present',
+      std_003: 'present',
+      std_004: 'late',
+      std_006: 'present',
+      std_007: 'present',
+      std_008: 'present',
+      std_009: 'present',
+      std_010: 'present',
+      std_011: 'present',
+      std_012: 'present',
+      std_013: 'absent',
+      std_014: 'present',
+      std_015: 'present',
+    },
+    totalEnrolled: 14,
+    presentCount: 12,
+    createdAt: '2026-03-04T18:30:00.000Z',
+  },
+  {
+    id: 'att_ses_04',
+    courseId: 'crs_202',
+    courseTitle: 'The Prophetic Biography (Sīrah)',
+    date: '2026-03-07',
+    topic: 'Seminar 1: Pre-Islamic Arabia & Lineage of Rasulullah ﷺ',
+    deliveryMode: 'online',
+    records: {
+      std_005: 'present',
+      std_001: 'present',
+      std_002: 'present',
+      std_003: 'present',
+    },
+    totalEnrolled: 4,
+    presentCount: 4,
+    createdAt: '2026-03-07T11:00:00.000Z',
+  },
+];
+
+/**
+ * Get all attendance sessions, optionally filtered by course
+ */
+export function getAttendanceSessions(courseId = null) {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_ATTENDANCE_SESSIONS);
+    let list = INITIAL_ATTENDANCE_SESSIONS;
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        list = parsed;
+      }
+    }
+    if (courseId) {
+      return list.filter((s) => s.courseId === courseId);
+    }
+    return list;
+  } catch (err) {
+    console.error('Failed to get attendance sessions:', err);
+    return INITIAL_ATTENDANCE_SESSIONS;
+  }
+}
+
+/**
+ * Save all attendance sessions
+ */
+export function saveAllAttendanceSessions(sessions) {
+  try {
+    localStorage.setItem(STORAGE_KEY_ATTENDANCE_SESSIONS, JSON.stringify(sessions));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('ilm-attendance-updated', { detail: { sessions } }));
+    }
+  } catch (err) {
+    console.error('Failed to save attendance sessions to localStorage:', err);
+  }
+}
+
+/**
+ * Calculate accurate live attendance rate for a student across all recorded sessions
+ */
+export function calculateStudentAttendanceStats(studentId, sessions = null) {
+  const allSessions = sessions || getAttendanceSessions();
+  let totalSessions = 0;
+  let presentCount = 0;
+  let lateCount = 0;
+  let absentCount = 0;
+
+  for (const session of allSessions) {
+    if (session.records && session.records[studentId] !== undefined) {
+      totalSessions++;
+      const status = session.records[studentId];
+      if (status === 'present') {
+        presentCount++;
+      } else if (status === 'late') {
+        lateCount++;
+      } else if (status === 'absent') {
+        absentCount++;
+      }
+    }
+  }
+
+  if (totalSessions === 0) {
+    return {
+      rate: '100%',
+      rateNumber: 100,
+      totalSessions: 0,
+      presentCount: 0,
+      lateCount: 0,
+      absentCount: 0,
+      hasRecords: false,
+    };
+  }
+
+  // Late counts as 0.75 present
+  const score = (presentCount + lateCount * 0.75) / totalSessions;
+  const rateNumber = Math.min(100, Math.max(0, Math.round(score * 100)));
+
+  return {
+    rate: `${rateNumber}%`,
+    rateNumber,
+    totalSessions,
+    presentCount,
+    lateCount,
+    absentCount,
+    hasRecords: true,
+  };
+}
+
+/**
+ * Calculate live curriculum progress for a student based on real completed lessons
+ */
+export function calculateStudentProgressStats(studentId) {
+  try {
+    const rawDetails = localStorage.getItem(STORAGE_KEY_DETAILS);
+    const detailsMap = rawDetails ? JSON.parse(rawDetails) : {};
+    const enrolledCourses = getEnrolledCourses();
+
+    let totalLessonsAcrossCourses = 0;
+    let completedLessonsAcrossCourses = 0;
+
+    for (const course of enrolledCourses) {
+      const detail = detailsMap[course.id] || course;
+      let courseTotal = 0;
+      let courseCompleted = 0;
+
+      if (Array.isArray(detail.modules) && detail.modules.length > 0) {
+        detail.modules.forEach((mod) => {
+          if (Array.isArray(mod.lessons)) {
+            mod.lessons.forEach((l) => {
+              courseTotal++;
+              if (l.completed) courseCompleted++;
+            });
+          }
+        });
+      } else {
+        courseTotal = detail.totalLessons || 12;
+        courseCompleted = detail.completedLessons || 0;
+      }
+
+      totalLessonsAcrossCourses += courseTotal;
+      completedLessonsAcrossCourses += courseCompleted;
+    }
+
+    if (totalLessonsAcrossCourses > 0) {
+      const computedPercent = Math.round((completedLessonsAcrossCourses / totalLessonsAcrossCourses) * 100);
+      return {
+        progress: computedPercent,
+        completedLessons: completedLessonsAcrossCourses,
+        totalLessons: totalLessonsAcrossCourses,
+      };
+    }
+  } catch (err) {
+    console.error('Failed to calculate live student progress:', err);
+  }
+
+  return {
+    progress: 0,
+    completedLessons: 0,
+    totalLessons: 0,
+  };
+}
+
+/**
+ * Save or record an attendance session (handles both daily roll-call and sheet upload)
+ * Automatically synchronizes each student's attendance percentage into the students list.
+ */
+export function saveAttendanceSession(sessionData) {
+  const current = getAttendanceSessions();
+  const id = sessionData.id || `att_${Date.now()}`;
+  const existingIdx = current.findIndex((s) => s.id === id);
+
+  const records = sessionData.records || {};
+  const totalEnrolled = Object.keys(records).length;
+  const presentCount = Object.values(records).filter((r) => r === 'present' || r === 'late').length;
+
+  const session = {
+    ...sessionData,
+    id,
+    records,
+    totalEnrolled,
+    presentCount,
+    createdAt: sessionData.createdAt || new Date().toISOString(),
+  };
+
+  const updatedSessions = existingIdx >= 0
+    ? current.map((s, idx) => (idx === existingIdx ? session : s))
+    : [session, ...current];
+
+  saveAllAttendanceSessions(updatedSessions);
+
+  // Synchronize computed attendance rates back to all affected students
+  syncAllStudentsAttendance(updatedSessions);
+
+  return session;
+}
+
+/**
+ * Synchronize attendance percentages on student records in storage
+ */
+export function syncAllStudentsAttendance(sessions = null) {
+  try {
+    const allStudents = getAllStudents();
+    const allSessions = sessions || getAttendanceSessions();
+
+    const updatedStudents = allStudents.map((std) => {
+      const stats = calculateStudentAttendanceStats(std.id, allSessions);
+      if (stats.hasRecords) {
+        return {
+          ...std,
+          attendance: stats.rate,
+        };
+      }
+      return std;
+    });
+
+    localStorage.setItem(STORAGE_KEY_STUDENTS, JSON.stringify(updatedStudents));
+    return updatedStudents;
+  } catch (err) {
+    console.error('Failed to sync students attendance:', err);
+  }
+}
+
+/**
+ * Delete an attendance session and re-sync student rates
+ */
+export function deleteAttendanceSession(sessionId) {
+  const current = getAttendanceSessions();
+  const updated = current.filter((s) => s.id !== sessionId);
+  saveAllAttendanceSessions(updated);
+  syncAllStudentsAttendance(updated);
+  return updated;
+}
+
+/**
+ * Parse an uploaded attendance sheet (Google Meet CSV or standard roll-call spreadsheet)
+ * and match it against the course student roster.
+ */
+export function parseAttendanceSheet(sheetText, courseStudents = []) {
+  if (!sheetText || typeof sheetText !== 'string') {
+    return { matched: [], presentStudentIds: [], absentStudentIds: [], unmatchedRows: [] };
+  }
+
+  const lines = sheetText
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+  if (lines.length === 0) {
+    return { matched: [], presentStudentIds: [], absentStudentIds: [], unmatchedRows: [] };
+  }
+
+  // Detect header row if present
+  let headerIndex = 0;
+  for (let i = 0; i < Math.min(lines.length, 5); i++) {
+    const lower = lines[i].toLowerCase();
+    if (lower.includes('email') || lower.includes('name') || lower.includes('duration') || lower.includes('status')) {
+      headerIndex = i;
+      break;
+    }
+  }
+
+  const dataRows = lines.slice(headerIndex + 1);
+
+  // Normalize roster lookup maps
+  const emailMap = new Map();
+  const nameMap = new Map();
+  courseStudents.forEach((std) => {
+    if (std.email) emailMap.set(std.email.toLowerCase().trim(), std);
+    if (std.name) nameMap.set(std.name.toLowerCase().trim(), std);
+  });
+
+  const matched = [];
+  const presentStudentIds = new Set();
+  const absentStudentIds = new Set();
+  const unmatchedRows = [];
+
+  for (const row of dataRows) {
+    // Split by comma or tab (handles TSV and CSV)
+    const columns = row.includes('\t')
+      ? row.split('\t').map((c) => c.trim().replace(/^["']|["']$/g, ''))
+      : row.split(',').map((c) => c.trim().replace(/^["']|["']$/g, ''));
+
+    if (columns.length === 0 || !columns[0]) continue;
+
+    let detectedEmail = null;
+    let detectedName = null;
+    let detectedStatus = 'present'; // Default for attendance logs (e.g. Google Meet lists participants who joined)
+    const nameCandidates = [];
+
+    for (const col of columns) {
+      if (col.includes('@') && col.includes('.')) {
+        detectedEmail = col.toLowerCase().trim();
+      } else if (/^(present|p|attended|yes|1)$/i.test(col)) {
+        detectedStatus = 'present';
+      } else if (/^(absent|a|no|0)$/i.test(col)) {
+        detectedStatus = 'absent';
+      } else if (/^(late|l)$/i.test(col)) {
+        detectedStatus = 'late';
+      } else if (col.length > 1 && !/\d{2,}/.test(col) && !/^(joined|left|exited|call|duration|hr|hrs|min|mins|sec|secs)$/i.test(col)) {
+        nameCandidates.push(col.trim());
+      }
+    }
+
+    if (nameCandidates.length > 0) {
+      detectedName = nameCandidates.join(' ');
+    }
+
+    // Match against course students
+    let matchedStudent = null;
+    if (detectedEmail && emailMap.has(detectedEmail)) {
+      matchedStudent = emailMap.get(detectedEmail);
+    } else if (detectedName && nameMap.has(detectedName)) {
+      matchedStudent = nameMap.get(detectedName);
+    } else {
+      // Fuzzy name check
+      for (const [sName, std] of nameMap.entries()) {
+        if (detectedName && (sName.includes(detectedName) || detectedName.includes(sName))) {
+          matchedStudent = std;
+          break;
+        }
+      }
+    }
+
+    if (matchedStudent) {
+      if (detectedStatus === 'absent') {
+        absentStudentIds.add(matchedStudent.id);
+      } else {
+        presentStudentIds.add(matchedStudent.id);
+      }
+      matched.push({
+        student: matchedStudent,
+        rawStatus: detectedStatus,
+        rawRow: row,
+      });
+    } else {
+      unmatchedRows.push({
+        rawRow: row,
+        detectedEmail,
+        detectedName,
+      });
+    }
+  }
+
+  // Any course student not present is marked absent if sheet is a full Google Meet participant export
+  courseStudents.forEach((std) => {
+    if (!presentStudentIds.has(std.id) && !absentStudentIds.has(std.id)) {
+      absentStudentIds.add(std.id);
+    }
+  });
+
+  return {
+    matched,
+    presentStudentIds: Array.from(presentStudentIds),
+    absentStudentIds: Array.from(absentStudentIds),
+    unmatchedRows,
   };
 }

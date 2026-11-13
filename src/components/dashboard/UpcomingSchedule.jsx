@@ -125,13 +125,25 @@ export default function UpcomingSchedule() {
   useEffect(() => {
     buildSessions();
 
+    const handleUpdate = (e) => {
+      if (!e || !e.key || e.key === 'ilm_schedule_slots') {
+        buildSessions();
+      }
+    };
+    window.addEventListener('ilm_schedule_updated', handleUpdate);
+    window.addEventListener('storage', handleUpdate);
+
     // Re-evaluate live status every minute so the button appears/disappears automatically
     const interval = setInterval(() => {
       setTick((t) => t + 1);
       buildSessions();
     }, 60_000);
 
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('ilm_schedule_updated', handleUpdate);
+      window.removeEventListener('storage', handleUpdate);
+    };
   }, []);
 
   if (sessions.length === 0) return null;

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import Layout from '../components/layout/Layout';
 import {
   Calendar,
@@ -18,6 +18,7 @@ import {
   getEnrolledCourses,
   formatSlotTimeRange,
   formatTime12h,
+  timeToMinutes,
 } from '../services/courseStorage';
 
 const DAYS_OF_WEEK = [
@@ -33,10 +34,79 @@ const DAYS_OF_WEEK = [
 export default function AcademicSchedule() {
   const isFoundationsEnrolled = useMemo(() => isStudentEnrolledInFoundations(), []);
   const enrolledCourses = useMemo(() => getEnrolledCourses(), []);
-  const [slots] = useState(() => getStudentScheduleSlots());
+  const [slots, setSlots] = useState(() => getStudentScheduleSlots());
   const [selectedModality, setSelectedModality] = useState('all');
   const [selectedDay, setSelectedDay] = useState('all');
   const [viewMode, setViewMode] = useState('table'); // Default to exact timetable table view
+
+  // Live synchronization with Admin timetable modifications
+  useEffect(() => {
+    const handleUpdate = (e) => {
+      if (!e || !e.key || e.key === 'ilm_schedule_slots') {
+        setSlots(getStudentScheduleSlots());
+      }
+    };
+    window.addEventListener('ilm_schedule_updated', handleUpdate);
+    window.addEventListener('storage', handleUpdate);
+    return () => {
+      window.removeEventListener('ilm_schedule_updated', handleUpdate);
+      window.removeEventListener('storage', handleUpdate);
+    };
+  }, []);
+
+  const getSlotForGrid = (day, timeWindow) => {
+    return slots.find((s) => {
+      if (s.dayOfWeek !== day || s.status === 'cancelled') return false;
+      const startMin = timeToMinutes(s.startTime);
+      if (timeWindow === 'early') {
+        return startMin < 19 * 60 + 45; // before 7:45 PM
+      } else {
+        return startMin >= 19 * 60 + 45; // after 7:45 PM
+      }
+    });
+  };
+
+  const renderTimetableCell = (slot) => {
+    if (!slot) {
+      return (
+        <div className="flex flex-col items-center justify-center py-4">
+          <span className="text-xs text-ink-300 italic">—</span>
+        </div>
+      );
+    }
+    const isOnline = slot.modality ? slot.modality.includes('online') : true;
+    const meetUrl = slot.meetLink || 'https://meet.google.com/cbh-ywhg-upu';
+
+    return (
+      <div className="flex flex-col items-center justify-center space-y-1">
+        <span className="font-heading font-bold text-sm sm:text-base text-ink-900">
+          {slot.courseTitle}
+        </span>
+        <span className="text-xs sm:text-sm text-ink-600 italic">
+          {slot.instructorName}
+        </span>
+        {slot.topic && (
+          <span className="text-[11px] text-ink-400 line-clamp-1 max-w-[200px]" title={slot.topic}>
+            {slot.topic}
+          </span>
+        )}
+        {isOnline ? (
+          <a
+            href={meetUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800 hover:text-emerald-950 underline underline-offset-2"
+          >
+            Join Google Meet <ExternalLink size={11} />
+          </a>
+        ) : (
+          <span className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200/70">
+            <MapPin size={11} /> {slot.campusRoom || 'DHA Lahore Campus'}
+          </span>
+        )}
+      </div>
+    );
+  };
 
   const filteredSlots = useMemo(() => {
     return slots.filter((slot) => {
@@ -279,62 +349,14 @@ export default function AcademicSchedule() {
                       <td className="py-6 px-4 sm:px-6 text-left font-bold text-xs sm:text-sm text-ink-900 bg-sand-50/40 border-r border-sand-200/80 whitespace-nowrap">
                         6:30 PM - 7:30 PM
                       </td>
-                      {/* Tuesday: Qur'ānic Arabic */}
                       <td className="py-6 px-4 sm:px-6 align-middle border-r border-sand-200/80">
-                        <div className="flex flex-col items-center justify-center space-y-1">
-                          <span className="font-heading font-bold text-sm sm:text-base text-ink-900">
-                            Qur'ānic Arabic
-                          </span>
-                          <span className="text-xs sm:text-sm text-ink-600 italic">
-                            Dr. Mutee Ur Rehman
-                          </span>
-                          <a
-                            href="https://meet.google.com/cbh-ywhg-upu"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800 hover:text-emerald-950 underline underline-offset-2"
-                          >
-                            Join Google Meet <ExternalLink size={11} />
-                          </a>
-                        </div>
+                        {renderTimetableCell(getSlotForGrid('Tuesday', 'early'))}
                       </td>
-                      {/* Wednesday: Fiqh */}
                       <td className="py-6 px-4 sm:px-6 align-middle border-r border-sand-200/80">
-                        <div className="flex flex-col items-center justify-center space-y-1">
-                          <span className="font-heading font-bold text-sm sm:text-base text-ink-900">
-                            Fiqh
-                          </span>
-                          <span className="text-xs sm:text-sm text-ink-600 italic">
-                            Dr. Hafiz Muhammad Zubair
-                          </span>
-                          <a
-                            href="https://meet.google.com/cbh-ywhg-upu"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800 hover:text-emerald-950 underline underline-offset-2"
-                          >
-                            Join Google Meet <ExternalLink size={11} />
-                          </a>
-                        </div>
+                        {renderTimetableCell(getSlotForGrid('Wednesday', 'early'))}
                       </td>
-                      {/* Thursday: Why Islam */}
                       <td className="py-6 px-4 sm:px-6 align-middle">
-                        <div className="flex flex-col items-center justify-center space-y-1">
-                          <span className="font-heading font-bold text-sm sm:text-base text-ink-900">
-                            Why Islam
-                          </span>
-                          <span className="text-xs sm:text-sm text-ink-600 italic">
-                            Sir Ahmed Khan
-                          </span>
-                          <a
-                            href="https://meet.google.com/cbh-ywhg-upu"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800 hover:text-emerald-950 underline underline-offset-2"
-                          >
-                            Join Google Meet <ExternalLink size={11} />
-                          </a>
-                        </div>
+                        {renderTimetableCell(getSlotForGrid('Thursday', 'early'))}
                       </td>
                     </tr>
 
@@ -359,67 +381,106 @@ export default function AcademicSchedule() {
                       <td className="py-6 px-4 sm:px-6 text-left font-bold text-xs sm:text-sm text-ink-900 bg-sand-50/40 border-r border-sand-200/80 whitespace-nowrap">
                         8:00 PM - 9:00 PM
                       </td>
-                      {/* Tuesday: Tajwīd */}
                       <td className="py-6 px-4 sm:px-6 align-middle border-r border-sand-200/80">
-                        <div className="flex flex-col items-center justify-center space-y-1">
-                          <span className="font-heading font-bold text-sm sm:text-base text-ink-900">
-                            Tajwīd
-                          </span>
-                          <span className="text-xs sm:text-sm text-ink-600 italic">
-                            Qari Salman Saleem
-                          </span>
-                          <a
-                            href="https://meet.google.com/cbh-ywhg-upu"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800 hover:text-emerald-950 underline underline-offset-2"
-                          >
-                            Join Google Meet <ExternalLink size={11} />
-                          </a>
-                        </div>
+                        {renderTimetableCell(getSlotForGrid('Tuesday', 'late'))}
                       </td>
-                      {/* Wednesday: Tafsīr */}
                       <td className="py-6 px-4 sm:px-6 align-middle border-r border-sand-200/80">
-                        <div className="flex flex-col items-center justify-center space-y-1">
-                          <span className="font-heading font-bold text-sm sm:text-base text-ink-900">
-                            Tafsīr
-                          </span>
-                          <span className="text-xs sm:text-sm text-ink-600 italic">
-                            Shaykh Hamid Kamal UD DIn
-                          </span>
-                          <a
-                            href="https://meet.google.com/cbh-ywhg-upu"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800 hover:text-emerald-950 underline underline-offset-2"
-                          >
-                            Join Google Meet <ExternalLink size={11} />
-                          </a>
-                        </div>
+                        {renderTimetableCell(getSlotForGrid('Wednesday', 'late'))}
                       </td>
-                      {/* Thursday: Sīrah */}
                       <td className="py-6 px-4 sm:px-6 align-middle">
-                        <div className="flex flex-col items-center justify-center space-y-1">
-                          <span className="font-heading font-bold text-sm sm:text-base text-ink-900">
-                            Sīrah
-                          </span>
-                          <span className="text-xs sm:text-sm text-ink-600 italic">
-                            Sir Ali Ahmed Saeed
-                          </span>
-                          <a
-                            href="https://meet.google.com/cbh-ywhg-upu"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800 hover:text-emerald-950 underline underline-offset-2"
-                          >
-                            Join Google Meet <ExternalLink size={11} />
-                          </a>
-                        </div>
+                        {renderTimetableCell(getSlotForGrid('Thursday', 'late'))}
                       </td>
                     </tr>
                   </tbody>
                 </table>
               </div>
+
+              {/* Additional slots outside standard Tue/Wed/Thu grid */}
+              {(() => {
+                const standardGridIds = new Set([
+                  getSlotForGrid('Tuesday', 'early')?.id,
+                  getSlotForGrid('Wednesday', 'early')?.id,
+                  getSlotForGrid('Thursday', 'early')?.id,
+                  getSlotForGrid('Tuesday', 'late')?.id,
+                  getSlotForGrid('Wednesday', 'late')?.id,
+                  getSlotForGrid('Thursday', 'late')?.id,
+                ].filter(Boolean));
+
+                const additionalSlots = slots.filter(
+                  (s) => s.status !== 'cancelled' && !standardGridIds.has(s.id)
+                );
+
+                if (additionalSlots.length === 0) return null;
+
+                return (
+                  <div className="border-t border-sand-200 bg-sand-50/30 p-4 sm:p-5">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-xs font-bold font-heading text-ink-900 uppercase tracking-wider">
+                        Additional Scheduled Sessions
+                      </h3>
+                      <span className="text-[11px] text-ink-500 font-medium">
+                        {additionalSlots.length} Session{additionalSlots.length > 1 ? 's' : ''}
+                      </span>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse text-xs">
+                        <thead>
+                          <tr className="border-b border-sand-200 text-ink-600 font-bold">
+                            <th className="py-2 px-3">Day & Time</th>
+                            <th className="py-2 px-3">Course</th>
+                            <th className="py-2 px-3">Instructor</th>
+                            <th className="py-2 px-3">Delivery</th>
+                            <th className="py-2 px-3 text-right">Join</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-sand-200">
+                          {additionalSlots.map((slot) => {
+                            const isOnline = slot.modality ? slot.modality.includes('online') : true;
+                            return (
+                              <tr key={slot.id} className="hover:bg-white/60">
+                                <td className="py-2.5 px-3 font-bold text-ink-900 whitespace-nowrap">
+                                  <div>{slot.dayOfWeek}</div>
+                                  <div className="text-[10px] font-normal text-ink-500">
+                                    {formatSlotTimeRange(slot.startTime, slot.endTime)}
+                                  </div>
+                                </td>
+                                <td className="py-2.5 px-3">
+                                  <div className="font-bold text-ink-900">{slot.courseTitle}</div>
+                                  {slot.topic && <div className="text-[10px] text-ink-500">{slot.topic}</div>}
+                                </td>
+                                <td className="py-2.5 px-3 text-ink-700">{slot.instructorName}</td>
+                                <td className="py-2.5 px-3">
+                                  <span className={clsx(
+                                    'inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold',
+                                    isOnline ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800'
+                                  )}>
+                                    {isOnline ? <Video size={10} /> : <MapPin size={10} />}
+                                    {isOnline ? 'Online' : (slot.campusRoom || 'DHA Onsite')}
+                                  </span>
+                                </td>
+                                <td className="py-2.5 px-3 text-right">
+                                  {isOnline && slot.meetLink ? (
+                                    <a
+                                      href={slot.meetLink}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-emerald-800 hover:text-emerald-950 font-bold underline inline-flex items-center gap-1"
+                                    >
+                                      Join <ExternalLink size={10} />
+                                    </a>
+                                  ) : (
+                                    <span className="text-ink-400">—</span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           ) : (
             /* Table for Non-Foundations Enrolled Courses with Active Slots */

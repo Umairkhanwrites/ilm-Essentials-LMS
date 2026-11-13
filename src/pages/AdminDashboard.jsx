@@ -13,7 +13,7 @@
  * TODO: Add RBAC (Role-Based Access Control) authentication check
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Link, useNavigate } from "react-router-dom";
 import { motion } from 'framer-motion';
 import {
@@ -82,6 +82,8 @@ import {
   Image,
   ZoomIn,
   Star,
+  UploadCloud,
+  ClipboardCheck,
 } from 'lucide-react';
 
 import Layout from '../components/layout/Layout';
@@ -115,7 +117,15 @@ import {
   voidFeePayment,
   updateFeeStatus,
   getCourseEnrolledStudentIds,
+  getCourseDetailById,
   updateCourseEnrollment,
+  getAttendanceSessions,
+  saveAttendanceSession,
+  deleteAttendanceSession,
+  calculateStudentAttendanceStats,
+  calculateStudentProgressStats,
+  parseAttendanceSheet,
+  syncAllStudentsAttendance,
   generateTemporaryPassword,
   getAllPathways,
   savePathway,
@@ -180,10 +190,13 @@ export default function AdminDashboard() {
   // Filter students
   const filteredStudents = useMemo(() => {
     return students.filter((s) => {
+      const term = studentSearch.toLowerCase();
       const matchSearch =
-        s.name.toLowerCase().includes(studentSearch.toLowerCase()) ||
-        s.email.toLowerCase().includes(studentSearch.toLowerCase()) ||
-        s.program.toLowerCase().includes(studentSearch.toLowerCase());
+        s.name.toLowerCase().includes(term) ||
+        s.email.toLowerCase().includes(term) ||
+        (s.program && s.program.toLowerCase().includes(term)) ||
+        (s.semester && s.semester.toLowerCase().includes(term)) ||
+        (Array.isArray(s.selectedCourses) && s.selectedCourses.some((c) => c.toLowerCase().includes(term)));
       return matchSearch;
     });
   }, [students, studentSearch]);
@@ -277,11 +290,30 @@ export default function AdminDashboard() {
     mustChangePassword: true,
     program: 'Ilm Foundations',
     semester: 'Semester 1',
+    selectedCourses: [],
     format: 'online',
-    feeStatus: 'Paid',
+    feeStatus: 'Pending',
     progress: 0,
-    attendance: '95%',
+    attendance: '100%',
   });
+
+  const availableIntensiveCourses = useMemo(() => {
+    const list = courses.filter((c) => {
+      const cat = (c.category || '').toLowerCase();
+      const prog = (c.program || '').toLowerCase();
+      return (
+        cat === 'intensives' ||
+        cat === 'ilm-intensives' ||
+        cat.includes('intensive') ||
+        prog.includes('intensive')
+      );
+    });
+    if (list.length > 0) return list;
+    return [
+      { id: 'crs_202', title: 'The Prophetic Biography (Sīrah)', instructor: 'Muhammad Ali' },
+      { id: 'crs_adm_06', title: 'Decoding Isms & Modern Ideologies', instructor: 'Raja Zia ul Haq' },
+    ];
+  }, [courses]);
 
   const handleOpenAddStudent = () => {
     setEditingStudent(null);
@@ -294,8 +326,9 @@ export default function AdminDashboard() {
       mustChangePassword: true,
       program: 'Ilm Foundations',
       semester: 'Semester 1',
+      selectedCourses: [],
       format: 'online',
-      feeStatus: 'Paid',
+      feeStatus: 'Pending',
       progress: 0,
       attendance: '100%',
     });
@@ -305,18 +338,33 @@ export default function AdminDashboard() {
   const handleOpenEditStudent = (student) => {
     setEditingStudent(student);
     setShowStudentPassword(false);
+
+    let existingSelectedCourses = [];
+    if (Array.isArray(student.selectedCourses)) {
+      existingSelectedCourses = student.selectedCourses;
+    } else if (student.program === 'Ilm Intensives' && student.semester && student.semester !== 'Intensive') {
+      existingSelectedCourses = student.semester.split(',').map((s) => s.trim()).filter(Boolean);
+    }
+
+    // Auto-calculate telemetry from real logs
+    const attStats = calculateStudentAttendanceStats(student.id);
+    const progStats = calculateStudentProgressStats(student.id);
+    const calculatedAttendance = attStats.hasRecords ? attStats.rate : (student.attendance || '95%');
+    const calculatedProgress = progStats.totalLessons > 0 ? progStats.progress : (student.progress ?? 0);
+
     setStudentFormData({
       name: student.name || '',
       email: student.email || '',
       phone: student.phone || '',
       password: student.password || '',
       mustChangePassword: student.mustChangePassword !== undefined ? Boolean(student.mustChangePassword) : false,
-      program: student.program || 'Ilm Foundations',
+      program: student.program === 'Ilm Intensives' ? 'Ilm Intensives' : 'Ilm Foundations',
       semester: student.semester || 'Semester 1',
+      selectedCourses: existingSelectedCourses,
       format: student.format || 'online',
-      feeStatus: student.feeStatus || 'Paid',
-      progress: student.progress ?? 0,
-      attendance: student.attendance || '95%',
+      feeStatus: student.feeStatus || 'Pending',
+      progress: calculatedProgress,
+      attendance: calculatedAttendance,
     });
     setIsStudentModalOpen(true);
   };
@@ -334,9 +382,19 @@ export default function AdminDashboard() {
     e.preventDefault();
     if (!studentFormData.name.trim() || !studentFormData.email.trim()) return;
 
+    const isIntensive = studentFormData.program === 'Ilm Intensives';
+    if (isIntensive && (!studentFormData.selectedCourses || studentFormData.selectedCourses.length === 0)) {
+      alert('Please select at least one course under Ilm Intensives.');
+      return;
+    }
+
     const chosenPassword =
       studentFormData.password.trim() ||
       (editingStudent?.password ?? generateTemporaryPassword());
+
+    const finalSemester = isIntensive
+      ? studentFormData.selectedCourses.join(', ')
+      : (studentFormData.semester || 'Semester 1');
 
     const payload = {
       ...(editingStudent ? { id: editingStudent.id } : {}),
@@ -346,14 +404,33 @@ export default function AdminDashboard() {
       password: chosenPassword,
       mustChangePassword: studentFormData.mustChangePassword,
       program: studentFormData.program,
-      semester: studentFormData.semester,
+      semester: finalSemester,
+      selectedCourses: isIntensive ? (studentFormData.selectedCourses || []) : [],
       format: studentFormData.format,
-      feeStatus: studentFormData.feeStatus,
-      progress: Number(studentFormData.progress) || 0,
-      attendance: studentFormData.attendance,
+      feeStatus: editingStudent ? (editingStudent.feeStatus || 'Pending') : 'Pending',
+      progress: editingStudent ? (Number(studentFormData.progress) || 0) : 0,
+      attendance: editingStudent ? (studentFormData.attendance || '100%') : '100%',
     };
 
-    saveStudent(payload);
+    const saved = saveStudent(payload);
+
+    // If intensive courses are selected, sync student into those course rosters
+    if (isIntensive && Array.isArray(studentFormData.selectedCourses) && studentFormData.selectedCourses.length > 0) {
+      const studentId = saved?.id || payload.id;
+      if (studentId) {
+        studentFormData.selectedCourses.forEach((courseTitle) => {
+          const matchCourse = courses.find((c) => c.title.toLowerCase() === courseTitle.toLowerCase());
+          if (matchCourse) {
+            const currentRoster = getCourseEnrolledStudentIds(matchCourse.id, matchCourse.category);
+            if (!currentRoster.includes(studentId)) {
+              updateCourseEnrollment(matchCourse.id, [...currentRoster, studentId]);
+            }
+          }
+        });
+        setCourses(getAllCourses());
+      }
+    }
+
     setStudents(getAllStudents());
     setIsStudentModalOpen(false);
 
@@ -374,6 +451,273 @@ export default function AdminDashboard() {
     if (window.confirm(`Are you sure you want to remove student "${studentName}"? This will also remove them from active enrollments.`)) {
       const updated = deleteStudent(studentId);
       setStudents(updated);
+    }
+  };
+
+  // Attendance Manager Modal State & Handlers
+  const [isAttendanceModalOpen, setIsAttendanceModalOpen] = useState(false);
+  const [attendanceModalMode, setAttendanceModalMode] = useState('lessons'); // 'lessons' | 'rollcall'
+  const [attendanceLessonsTab, setAttendanceLessonsTab] = useState('lessons'); // 'lessons' | 'history'
+  const [editingAttendanceSessionId, setEditingAttendanceSessionId] = useState(null);
+  const [attendanceCourseId, setAttendanceCourseId] = useState('');
+  const [attendanceDate, setAttendanceDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [attendanceTopic, setAttendanceTopic] = useState('');
+  const [isCustomTopic, setIsCustomTopic] = useState(false);
+  const [attendanceDeliveryMode, setAttendanceDeliveryMode] = useState('hybrid');
+  const [attendanceActiveTab, setAttendanceActiveTab] = useState('register'); // 'register' | 'upload'
+  const [attendanceRecords, setAttendanceRecords] = useState({});
+  const [attendanceSheetText, setAttendanceSheetText] = useState('');
+  const [attendanceParseResult, setAttendanceParseResult] = useState(null);
+  const [attendanceToast, setAttendanceToast] = useState('');
+  const [attendanceFilterStatus, setAttendanceFilterStatus] = useState('all');
+  const [attendanceFormatFilter, setAttendanceFormatFilter] = useState('all'); // 'all' | 'onsite' | 'online'
+  const [attendanceSessions, setAttendanceSessions] = useState(() => getAttendanceSessions());
+  const [attendanceSectionTab, setAttendanceSectionTab] = useState('courses'); // 'courses' | 'sessions'
+  const [attendanceSectionSearch, setAttendanceSectionSearch] = useState('');
+  const [attendanceSectionCourseFilter, setAttendanceSectionCourseFilter] = useState('all');
+  const [attendanceSectionPathwayFilter, setAttendanceSectionPathwayFilter] = useState('all');
+  const [attendanceSectionStandingFilter, setAttendanceSectionStandingFilter] = useState('all');
+
+  // Enrolled students for selected course in attendance modal
+  const attendanceEnrolledStudents = useMemo(() => {
+    if (!attendanceCourseId) return [];
+    const course = courses.find((c) => c.id === attendanceCourseId);
+    if (!course) return [];
+    const enrolledIds = getCourseEnrolledStudentIds(course.id, course.category);
+    return students.filter((s) => enrolledIds.includes(s.id));
+  }, [attendanceCourseId, courses, students]);
+
+  // Lessons for selected course
+  const availableCourseLessons = useMemo(() => {
+    if (!attendanceCourseId) return [];
+    try {
+      const detail = getCourseDetailById(attendanceCourseId);
+      if (detail && Array.isArray(detail.modules)) {
+        return detail.modules.flatMap((m) => m.lessons || []).filter(Boolean);
+      }
+    } catch (e) {
+      console.error('Failed to load lessons for course:', e);
+    }
+    return [];
+  }, [attendanceCourseId]);
+
+  const handleOpenAttendanceModal = (courseId = null, existingSession = null, initialMode = null) => {
+    if (existingSession) {
+      setEditingAttendanceSessionId(existingSession.id);
+      setAttendanceCourseId(existingSession.courseId);
+      setAttendanceDate(existingSession.date);
+      setAttendanceTopic(existingSession.topic || '');
+      setAttendanceDeliveryMode(existingSession.deliveryMode || 'hybrid');
+      setAttendanceRecords(existingSession.records || {});
+
+      const detail = getCourseDetailById(existingSession.courseId);
+      const lessons = detail?.modules?.flatMap((m) => m.lessons || []) || [];
+      const matchesExisting = lessons.some((l) => l.title === existingSession.topic);
+      setIsCustomTopic(!matchesExisting);
+      setAttendanceModalMode('rollcall');
+    } else {
+      const selectedCourseId = courseId || courses[0]?.id || '';
+      setEditingAttendanceSessionId(null);
+      setAttendanceCourseId(selectedCourseId);
+      const today = new Date().toISOString().split('T')[0];
+      setAttendanceDate(today);
+      setAttendanceDeliveryMode('hybrid');
+      setIsCustomTopic(false);
+
+      const detail = getCourseDetailById(selectedCourseId);
+      const lessons = detail?.modules?.flatMap((m) => m.lessons || []) || [];
+      setAttendanceTopic(lessons[0]?.title || `Lesson 1: Introduction`);
+
+      const course = courses.find((c) => c.id === selectedCourseId);
+      const enrolledIds = course ? getCourseEnrolledStudentIds(course.id, course.category) : [];
+      const initialRecs = {};
+      enrolledIds.forEach((id) => {
+        initialRecs[id] = 'present';
+      });
+      setAttendanceRecords(initialRecs);
+      setAttendanceModalMode(initialMode || 'lessons');
+    }
+
+    setAttendanceLessonsTab('lessons');
+    setAttendanceActiveTab('register');
+    setAttendanceSheetText('');
+    setAttendanceParseResult(null);
+    setAttendanceFilterStatus('all');
+    setAttendanceFormatFilter('all');
+    setIsAttendanceModalOpen(true);
+  };
+
+  const handleStartLessonAttendance = (lesson) => {
+    setEditingAttendanceSessionId(null);
+    const today = new Date().toISOString().split('T')[0];
+    setAttendanceDate(today);
+    setAttendanceTopic(lesson.title);
+    setIsCustomTopic(false);
+
+    const course = courses.find((c) => c.id === attendanceCourseId);
+    const enrolledIds = course ? getCourseEnrolledStudentIds(course.id, course.category) : [];
+    const initialRecs = {};
+    enrolledIds.forEach((id) => {
+      initialRecs[id] = 'present';
+    });
+    setAttendanceRecords(initialRecs);
+
+    setAttendanceActiveTab('register');
+    setAttendanceSheetText('');
+    setAttendanceParseResult(null);
+    setAttendanceFilterStatus('all');
+    setAttendanceFormatFilter('all');
+    setAttendanceModalMode('rollcall');
+  };
+
+  const handleViewSessionAttendance = (session) => {
+    setEditingAttendanceSessionId(session.id);
+    setAttendanceCourseId(session.courseId);
+    setAttendanceDate(session.date);
+    setAttendanceTopic(session.topic || '');
+    setAttendanceDeliveryMode(session.deliveryMode || 'hybrid');
+    setAttendanceRecords(session.records || {});
+
+    const detail = getCourseDetailById(session.courseId);
+    const lessons = detail?.modules?.flatMap((m) => m.lessons || []) || [];
+    const matchesExisting = lessons.some((l) => l.title === session.topic);
+    setIsCustomTopic(!matchesExisting);
+
+    setAttendanceActiveTab('register');
+    setAttendanceSheetText('');
+    setAttendanceParseResult(null);
+    setAttendanceFilterStatus('all');
+    setAttendanceFormatFilter('all');
+    setAttendanceModalMode('rollcall');
+  };
+
+  const handleAttendanceCourseChange = (newCourseId) => {
+    setAttendanceCourseId(newCourseId);
+    setAttendanceSheetText('');
+    setAttendanceParseResult(null);
+
+    // If not editing an existing past session, load lessons and reset roster for new course
+    if (!editingAttendanceSessionId) {
+      const detail = getCourseDetailById(newCourseId);
+      const lessons = detail?.modules?.flatMap((m) => m.lessons || []) || [];
+      setAttendanceTopic(lessons[0]?.title || `Lesson 1`);
+
+      const course = courses.find((c) => c.id === newCourseId);
+      const enrolledIds = course ? getCourseEnrolledStudentIds(course.id, course.category) : [];
+      const initialRecs = {};
+      enrolledIds.forEach((id) => {
+        initialRecs[id] = 'present';
+      });
+      setAttendanceRecords(initialRecs);
+    }
+  };
+
+  const handleSetStudentAttendance = (studentId, status) => {
+    setAttendanceRecords((prev) => ({
+      ...prev,
+      [studentId]: status,
+    }));
+  };
+
+  const handleMarkAllAttendance = (status, formatTarget = 'all') => {
+    const updated = { ...attendanceRecords };
+    attendanceEnrolledStudents.forEach((std) => {
+      const format = (std.format || 'online').toLowerCase();
+      if (formatTarget === 'all' || format.includes(formatTarget)) {
+        updated[std.id] = status;
+      }
+    });
+    setAttendanceRecords(updated);
+  };
+
+  const handleAttendanceFileUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target?.result || '';
+      setAttendanceSheetText(text);
+      const res = parseAttendanceSheet(text, attendanceEnrolledStudents);
+      setAttendanceParseResult(res);
+      setAttendanceToast('File loaded: ' + res.matched.length + ' students matched.');
+      setTimeout(() => setAttendanceToast(''), 3500);
+    };
+    reader.readAsText(file);
+  };
+
+  const handleParseAttendanceSheet = () => {
+    if (!attendanceSheetText.trim()) return;
+    const res = parseAttendanceSheet(attendanceSheetText, attendanceEnrolledStudents);
+    setAttendanceParseResult(res);
+  };
+
+  const handleApplyParsedAttendance = (mode = 'safe_hybrid') => {
+    if (!attendanceParseResult) return;
+    const updated = { ...attendanceRecords };
+
+    // Set present for matched students from sheet
+    (attendanceParseResult.presentStudentIds || []).forEach((id) => {
+      updated[id] = 'present';
+    });
+
+    if (mode === 'safe_hybrid') {
+      // In Simultaneous Hybrid Classes:
+      // Online attendees who didn't join the Google Meet are marked absent,
+      // but Onsite students (who attend in person) are PRESERVED!
+      (attendanceParseResult.absentStudentIds || []).forEach((id) => {
+        const std = attendanceEnrolledStudents.find((s) => s.id === id);
+        const format = (std?.format || '').toLowerCase();
+        if (format.includes('online')) {
+          updated[id] = 'absent';
+        }
+      });
+      setAttendanceToast(`Online attendees synced! Onsite students were preserved.`);
+    } else {
+      // Full override: all students not in the sheet are marked absent
+      (attendanceParseResult.absentStudentIds || []).forEach((id) => {
+        updated[id] = 'absent';
+      });
+      setAttendanceToast(`Applied full sheet: ${attendanceParseResult.matched.length} present, ${attendanceParseResult.absentStudentIds.length} absent.`);
+    }
+
+    setAttendanceRecords(updated);
+    setAttendanceActiveTab('register');
+    setTimeout(() => setAttendanceToast(''), 4000);
+  };
+
+  const handleSaveAttendance = () => {
+    if (!attendanceCourseId) return;
+    const course = courses.find((c) => c.id === attendanceCourseId);
+    const courseTitle = course ? course.title : 'Course';
+
+    const sessionPayload = {
+      ...(editingAttendanceSessionId ? { id: editingAttendanceSessionId } : {}),
+      courseId: attendanceCourseId,
+      courseTitle,
+      date: attendanceDate,
+      topic: attendanceTopic.trim() || `Class Session (${attendanceDate})`,
+      deliveryMode: attendanceDeliveryMode,
+      records: attendanceRecords,
+    };
+
+    saveAttendanceSession(sessionPayload);
+    setStudents(getAllStudents());
+    setAttendanceSessions(getAttendanceSessions());
+    setAttendanceToast('Attendance saved & student rates recalculated successfully!');
+    setTimeout(() => {
+      setAttendanceToast('');
+      setAttendanceModalMode('lessons');
+      setEditingAttendanceSessionId(null);
+    }, 900);
+  };
+
+  const handleDeleteAttendanceSession = (sessionId) => {
+    if (window.confirm('Are you sure you want to delete this attendance session? All student rates will be recalculated.')) {
+      deleteAttendanceSession(sessionId);
+      setStudents(getAllStudents());
+      setAttendanceSessions(getAttendanceSessions());
+      setAttendanceToast('Session deleted and attendance rates updated.');
+      setTimeout(() => setAttendanceToast(''), 3000);
     }
   };
 
@@ -1145,6 +1489,21 @@ export default function AdminDashboard() {
   const [isAuditLogExpanded, setIsAuditLogExpanded] = useState(false);
   const [copiedSlotId, setCopiedSlotId] = useState(null);
 
+  // Keep schedule slots synced across windows and updates
+  useEffect(() => {
+    const handleSync = (e) => {
+      if (!e || !e.key || e.key === 'ilm_schedule_slots') {
+        setScheduleSlots(getScheduleSlots());
+      }
+    };
+    window.addEventListener('ilm_schedule_updated', handleSync);
+    window.addEventListener('storage', handleSync);
+    return () => {
+      window.removeEventListener('ilm_schedule_updated', handleSync);
+      window.removeEventListener('storage', handleSync);
+    };
+  }, []);
+
   const activeWeeklySlots = useMemo(
     () => scheduleSlots.filter((s) => s.status !== 'cancelled'),
     [scheduleSlots]
@@ -1595,6 +1954,7 @@ export default function AdminDashboard() {
                     { id: 'library', label: 'e-Library', icon: Library, count: libraryList.length },
                     { id: 'quotes', label: 'Quotes', icon: Quote, count: quotesList.length },
                     { id: 'students', label: 'Students', icon: Users, count: students.length },
+                    { id: 'attendance', label: 'Attendance', icon: ClipboardCheck, count: attendanceSessions.length },
                     { id: 'instructors', label: 'Faculty', icon: GraduationCap, count: instructors.length },
                     { id: 'fees', label: 'Accounts', icon: CreditCard, count: accountsSummary.pendingCount },
                     { id: 'applications', label: 'Admissions', icon: FileCheck, count: 38 },
@@ -2104,8 +2464,12 @@ export default function AdminDashboard() {
                           {std.phone && <div className="text-[11px] text-ink-400">{std.phone}</div>}
                         </td>
                         <td className="py-3.5 px-3">
-                          <div className="text-xs font-medium text-ink-800">{std.program}</div>
-                          <div className="text-[11px] text-ink-500">{std.semester || 'Semester 1'}</div>
+                          <div className="text-xs font-semibold text-ink-800">{std.program}</div>
+                          <div className="text-[11px] text-ink-500 line-clamp-2" title={Array.isArray(std.selectedCourses) && std.selectedCourses.length > 0 ? std.selectedCourses.join(', ') : (std.semester || 'Semester 1')}>
+                            {Array.isArray(std.selectedCourses) && std.selectedCourses.length > 0
+                              ? std.selectedCourses.join(', ')
+                              : (std.semester || 'Semester 1')}
+                          </div>
                         </td>
                         <td className="py-3.5 px-3 text-xs capitalize text-ink-600 whitespace-nowrap">
                           {std.format?.replace('-', ' ') || 'Online'}
@@ -2211,6 +2575,282 @@ export default function AdminDashboard() {
               </div>
             </div>
           )}
+
+          {/* Dedicated Attendance Management Section (Minimal) */}
+          {activeTab === 'attendance' && (() => {
+            const filteredAttendanceCourses = courses.filter((c) => {
+              return (
+                (c.title || '').toLowerCase().includes(attendanceSectionSearch.toLowerCase()) ||
+                (c.instructor || '').toLowerCase().includes(attendanceSectionSearch.toLowerCase())
+              );
+            });
+
+            const filteredAttendanceSessionsList = attendanceSessions.filter((sess) => {
+              return (
+                (sess.topic || '').toLowerCase().includes(attendanceSectionSearch.toLowerCase()) ||
+                (sess.courseTitle || '').toLowerCase().includes(attendanceSectionSearch.toLowerCase()) ||
+                (sess.date || '').includes(attendanceSectionSearch)
+              );
+            });
+
+            return (
+              <div className="bg-white rounded-2xl border border-sand-200 p-6 space-y-5 shadow-xs animate-in fade-in duration-200">
+                {/* Header Toolbar */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-sand-200/80">
+                  <div>
+                    <h2 className="text-xl sm:text-2xl font-heading font-bold text-ink-900 tracking-tight">
+                      Attendance
+                    </h2>
+                    <p className="text-xs text-ink-500 mt-0.5">
+                      Record daily roll calls and track student attendance rates.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleOpenAttendanceModal()}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-primary-900 hover:bg-primary-800 text-white text-xs font-bold transition-all shadow-sm cursor-pointer whitespace-nowrap self-start sm:self-auto"
+                  >
+                    <ClipboardCheck size={14} />
+                    Take / Upload Attendance
+                  </button>
+                </div>
+
+                {/* Minimal Tab Switcher & Filter Bar */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  {/* Clean Tab Pills */}
+                  <div className="flex items-center gap-1 bg-sand-100 p-1 rounded-xl">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAttendanceSectionTab('courses');
+                        setAttendanceSectionSearch('');
+                      }}
+                      className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                        attendanceSectionTab === 'courses'
+                          ? 'bg-white text-ink-900 shadow-xs font-bold'
+                          : 'text-ink-600 hover:text-ink-900'
+                      }`}
+                    >
+                      By Course ({courses.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAttendanceSectionTab('sessions');
+                        setAttendanceSectionSearch('');
+                      }}
+                      className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                        attendanceSectionTab === 'sessions'
+                          ? 'bg-white text-ink-900 shadow-xs font-bold'
+                          : 'text-ink-600 hover:text-ink-900'
+                      }`}
+                    >
+                      Sessions Log ({attendanceSessions.length})
+                    </button>
+                  </div>
+
+                  {/* Search Input */}
+                  <div className="relative w-full sm:w-64">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-ink-400" />
+                    <input
+                      type="text"
+                      value={attendanceSectionSearch}
+                      onChange={(e) => setAttendanceSectionSearch(e.target.value)}
+                      placeholder={
+                        attendanceSectionTab === 'courses'
+                          ? 'Search courses or faculty...'
+                          : 'Search sessions by topic or date...'
+                      }
+                      className="w-full pl-9 pr-4 py-1.5 rounded-xl border border-sand-200 text-xs focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                    />
+                  </div>
+                </div>
+
+                {/* TAB 1: COURSES TABLE */}
+                {attendanceSectionTab === 'courses' && (
+                  <div className="overflow-x-auto rounded-xl border border-sand-200">
+                    <table className="w-full text-left text-sm min-w-[720px]">
+                      <thead className="bg-sand-100/70 text-ink-700 text-xs font-semibold uppercase tracking-wider border-b border-sand-200">
+                        <tr>
+                          <th className="py-3 px-4">Course</th>
+                          <th className="py-3 px-4">Instructor</th>
+                          <th className="py-3 px-4">Format</th>
+                          <th className="py-3 px-4">Enrolled</th>
+                          <th className="py-3 px-4">Sessions</th>
+                          <th className="py-3 px-4">Attendance Rate</th>
+                          <th className="py-3 px-4 text-right">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-sand-200">
+                        {filteredAttendanceCourses.map((c) => {
+                          const enrolledIds = getCourseEnrolledStudentIds(c.id, c.category);
+                          const courseSessions = attendanceSessions.filter((s) => s.courseId === c.id);
+
+                          let courseAvg = null;
+                          if (courseSessions.length > 0) {
+                            let totalPresent = 0;
+                            let totalPossible = 0;
+                            courseSessions.forEach((sess) => {
+                              const recs = sess.records || {};
+                              Object.values(recs).forEach((val) => {
+                                totalPossible += 1;
+                                if (val === 'present') totalPresent += 1;
+                                else if (val === 'late') totalPresent += 0.75;
+                              });
+                            });
+                            if (totalPossible > 0) {
+                              courseAvg = Math.round((totalPresent / totalPossible) * 100);
+                            }
+                          }
+
+                          return (
+                            <tr key={c.id} className="hover:bg-sand-50/60 transition-colors">
+                              <td className="py-3 px-4">
+                                <div className="text-xs font-bold text-ink-900">{c.title}</div>
+                                <span className="text-[10px] text-ink-400 capitalize">{c.category || 'Course'}</span>
+                              </td>
+                              <td className="py-3 px-4 text-xs text-ink-600">
+                                {c.instructor || 'Faculty'}
+                              </td>
+                              <td className="py-3 px-4 whitespace-nowrap">
+                                <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-sand-100 text-ink-700 border border-sand-200">
+                                  {c.deliveryMode || 'Hybrid'}
+                                </span>
+                              </td>
+                              <td className="py-3 px-4 text-xs font-semibold text-ink-800 whitespace-nowrap">
+                                {enrolledIds.length === 1 ? '1 Student' : `${enrolledIds.length} Students`}
+                              </td>
+                              <td className="py-3 px-4 text-xs text-ink-600 whitespace-nowrap">
+                                {courseSessions.length === 1 ? '1 Session' : `${courseSessions.length} Sessions`}
+                              </td>
+                              <td className="py-3 px-4 whitespace-nowrap">
+                                {courseAvg !== null ? (
+                                  <span
+                                    className={`text-xs font-bold ${
+                                      courseAvg >= 85
+                                        ? 'text-emerald-800'
+                                        : courseAvg >= 75
+                                        ? 'text-amber-700'
+                                        : 'text-rose-700'
+                                    }`}
+                                  >
+                                    {courseAvg}%
+                                  </span>
+                                ) : (
+                                  <span className="text-xs text-ink-400 font-normal">
+                                    —
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-3 px-4 text-right whitespace-nowrap">
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenAttendanceModal(c.id)}
+                                  className="px-3 py-1.5 text-xs font-bold rounded-lg bg-primary-900 hover:bg-primary-800 text-white transition-colors cursor-pointer"
+                                >
+                                  Mark Attendance
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        {filteredAttendanceCourses.length === 0 && (
+                          <tr>
+                            <td colSpan={7} className="py-8 text-center text-xs text-ink-500">
+                              No courses found matching your search.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* TAB 2: SESSIONS LOG */}
+                {attendanceSectionTab === 'sessions' && (
+                  <div className="overflow-x-auto rounded-xl border border-sand-200">
+                    <table className="w-full text-left text-sm min-w-[720px]">
+                      <thead className="bg-sand-100/70 text-ink-700 text-xs font-semibold uppercase tracking-wider border-b border-sand-200">
+                        <tr>
+                          <th className="py-3 px-4">Date</th>
+                          <th className="py-3 px-4">Course</th>
+                          <th className="py-3 px-4">Topic / Lesson</th>
+                          <th className="py-3 px-4">Mode</th>
+                          <th className="py-3 px-4">Present / Absent</th>
+                          <th className="py-3 px-4">Rate</th>
+                          <th className="py-3 px-4 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-sand-200">
+                        {filteredAttendanceSessionsList.map((sess) => {
+                          const recs = sess.records || {};
+                          const sTotal = Object.keys(recs).length;
+                          const sPresent = Object.values(recs).filter((r) => r === 'present').length;
+                          const sLate = Object.values(recs).filter((r) => r === 'late').length;
+                          const sRate = sTotal > 0 ? Math.round(((sPresent + sLate * 0.75) / sTotal) * 100) : 0;
+
+                          return (
+                            <tr key={sess.id} className="hover:bg-sand-50/60 transition-colors">
+                              <td className="py-3 px-4 text-xs font-mono font-bold text-ink-900 whitespace-nowrap">
+                                {sess.date}
+                              </td>
+                              <td className="py-3 px-4 text-xs font-bold text-ink-900 whitespace-nowrap">
+                                {sess.courseTitle}
+                              </td>
+                              <td className="py-3 px-4 text-xs text-ink-600">
+                                {sess.topic}
+                              </td>
+                              <td className="py-3 px-4 whitespace-nowrap">
+                                <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-sand-100 text-ink-700 border border-sand-200 uppercase">
+                                  {sess.deliveryMode || 'hybrid'}
+                                </span>
+                              </td>
+                              <td className="py-3 px-4 text-xs text-ink-600 whitespace-nowrap">
+                                <strong className="text-ink-900">{sPresent}</strong> Present • <strong className="text-ink-900">{sTotal - sPresent - sLate}</strong> Absent
+                              </td>
+                              <td className="py-3 px-4 whitespace-nowrap">
+                                <span className="text-xs font-bold text-emerald-800">
+                                  {sRate}%
+                                </span>
+                              </td>
+                              <td className="py-3 px-4 text-right whitespace-nowrap">
+                                <div className="flex items-center justify-end gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenAttendanceModal(sess.courseId, sess)}
+                                    className="px-2.5 py-1 text-xs font-semibold text-primary-900 bg-sand-100 hover:bg-sand-200 rounded-lg transition-colors cursor-pointer"
+                                  >
+                                    Edit
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteAttendanceSession(sess.id)}
+                                    className="p-1 rounded-lg text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                                    title="Delete Session"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        {filteredAttendanceSessionsList.length === 0 && (
+                          <tr>
+                            <td colSpan={7} className="py-8 text-center text-xs text-ink-500">
+                              No attendance sessions found.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
 
           {/* Tab 3: Faculty */}
           {activeTab === 'instructors' && (
@@ -2353,71 +2993,45 @@ export default function AdminDashboard() {
                     {/* Tab 4: Accounts, Fee Installments & Video Access Management */}
           {activeTab === 'fees' && (
             <div className="space-y-6">
-              {/* Page Header with Dual Action CTA */}
-              <div className="bg-white rounded-2xl border border-sand-200 p-6 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+              {/* Minimal Clean Header & Actions */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-sand-200/80">
                 <div>
-                  <div className="flex items-center gap-2.5">
-                    <h2 className="font-heading text-xl font-bold text-ink-900">Accounts</h2>
-                    {accountsSummary.pendingCount > 0 && (
-                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300 animate-pulse">
-                        <span className="w-1.5 h-1.5 rounded-full bg-amber-600"></span>
-                        {accountsSummary.pendingCount} Verification{accountsSummary.pendingCount > 1 ? 's' : ''} Pending
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs text-ink-500 mt-1">
-                    Verify payment receipts, create fee installments, and control course video access permissions.
+                  <h2 className="text-xl sm:text-2xl font-heading font-bold text-ink-900 tracking-tight">
+                    Accounts
+                  </h2>
+                  <p className="text-xs text-ink-500 mt-0.5">
+                    Manage student fee installments, verify receipts, and monitor tuition collection.
                   </p>
-                  <div className="mt-2.5 inline-flex items-center gap-2.5 bg-sand-50 border border-sand-200/80 rounded-xl px-3 py-1.5">
-                    <div className="h-6 w-6 rounded-md bg-emerald-100 text-emerald-800 flex items-center justify-center shrink-0">
-                      <CreditCard size={13} />
-                    </div>
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-ink-400">Tuition Revenue:</span>
-                      <span className="text-sm font-bold text-ink-900 font-heading">PKR 3.4M</span>
-                      <span className="text-[11px] text-emerald-700 font-medium">+18% vs last cycle</span>
-                    </div>
-                  </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2.5">
-                  {/* Bulk Restrict Action */}
-                  <button
-                    type="button"
-                    onClick={() => setShowBulkRestrictModal(true)}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-red-50 hover:bg-red-100 text-red-800 text-xs font-bold border border-red-200 transition-all cursor-pointer shadow-2xs"
-                    title="Restrict video playback for all students with overdue installments"
-                  >
-                    <ShieldAlert size={14} className="text-red-600" />
-                    <span>Restrict All Students With Overdue Fees</span>
-                    {overdueEligibleStudents.length > 0 && (
-                      <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-extrabold bg-red-600 text-white">
-                        {overdueEligibleStudents.length}
-                      </span>
-                    )}
-                  </button>
+                <div className="flex items-center gap-2 self-start sm:self-auto">
+                  {overdueEligibleStudents.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowBulkRestrictModal(true)}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-50 hover:bg-red-100 text-red-800 text-xs font-semibold border border-red-200 transition-all cursor-pointer"
+                      title="Restrict course video access for overdue students"
+                    >
+                      <ShieldAlert size={13} className="text-red-600" />
+                      <span>Restrict Overdue ({overdueEligibleStudents.length})</span>
+                    </button>
+                  )}
 
-                  {/* Bulk Restore Action (visible whenever any student accounts are restricted) */}
                   {restrictedStudentsList.length > 0 && (
                     <button
                       type="button"
                       onClick={() => setShowBulkRestoreModal(true)}
-                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold border border-emerald-300 transition-all cursor-pointer shadow-2xs"
-                      title="Restore course video playback for all currently restricted students"
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-semibold border border-emerald-300 transition-all cursor-pointer"
                     >
-                      <Unlock size={14} className="text-emerald-700" />
-                      <span>Restore Access to All</span>
-                      <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-extrabold bg-emerald-700 text-white">
-                        {restrictedStudentsList.length}
-                      </span>
+                      <Unlock size={13} className="text-emerald-700" />
+                      <span>Restore Access ({restrictedStudentsList.length})</span>
                     </button>
                   )}
 
-                  {/* Create Installments Action */}
                   <button
                     type="button"
                     onClick={() => setShowCreateInstallmentModal(true)}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#0B3324] hover:bg-[#072419] text-white text-xs font-bold transition-all shadow-sm cursor-pointer"
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-primary-900 hover:bg-primary-800 text-white text-xs font-bold transition-all shadow-sm cursor-pointer whitespace-nowrap"
                   >
                     <Plus size={14} />
                     <span>Create Installment Plan</span>
@@ -2425,113 +3039,75 @@ export default function AdminDashboard() {
                 </div>
               </div>
 
-              {/* View Switcher Pills */}
-              <div className="flex items-center justify-between border-b border-sand-200 pb-2">
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setActiveFeeView('installments')}
-                    className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                      activeFeeView === 'installments'
-                        ? 'bg-[#0B3324] text-white shadow-xs'
-                        : 'bg-sand-100 text-ink-600 hover:text-ink-900 hover:bg-sand-200'
-                    }`}
-                  >
-                    <Receipt size={14} />
-                    <span>Fee Installments &amp; Queue</span>
-                    {accountsSummary.pendingCount > 0 && (
-                      <span className={`px-1.5 py-0.2 text-[10px] rounded-full font-bold ${
-                        activeFeeView === 'installments' ? 'bg-amber-400 text-[#0B3324]' : 'bg-amber-100 text-amber-900'
-                      }`}>
-                        {accountsSummary.pendingCount}
-                      </span>
-                    )}
-                  </button>
+              {/* Minimal Clean Tab Switcher */}
+              <div className="flex items-center gap-1 bg-sand-100 p-1 rounded-xl w-fit">
+                <button
+                  type="button"
+                  onClick={() => setActiveFeeView('installments')}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    activeFeeView === 'installments'
+                      ? 'bg-white text-ink-900 font-bold shadow-xs'
+                      : 'text-ink-600 hover:text-ink-900'
+                  }`}
+                >
+                  <Receipt size={13} />
+                  <span>Fee Installments</span>
+                  {accountsSummary.pendingCount > 0 && (
+                    <span className="px-1.5 py-0.2 text-[10px] rounded-full font-bold bg-amber-100 text-amber-900">
+                      {accountsSummary.pendingCount}
+                    </span>
+                  )}
+                </button>
 
-                  <button
-                    type="button"
-                    onClick={() => setActiveFeeView('invoices')}
-                    className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                      activeFeeView === 'invoices'
-                        ? 'bg-[#0B3324] text-white shadow-xs'
-                        : 'bg-sand-100 text-ink-600 hover:text-ink-900 hover:bg-sand-200'
-                    }`}
-                  >
-                    <CreditCard size={14} />
-                    <span>Course Invoices &amp; Tuition</span>
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveFeeView('invoices')}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    activeFeeView === 'invoices'
+                      ? 'bg-white text-ink-900 font-bold shadow-xs'
+                      : 'text-ink-600 hover:text-ink-900'
+                  }`}
+                >
+                  <CreditCard size={13} />
+                  <span>Course Invoices</span>
+                </button>
               </div>
 
               {/* VIEW 1: FEE INSTALLMENTS & VERIFICATION QUEUE */}
               {activeFeeView === 'installments' && (
                 <div className="space-y-6">
-                  {/* Financial Ledger KPI Cards */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
-                    <div className="p-4 rounded-xl bg-emerald-50/80 border border-emerald-200 shadow-2xs">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[11px] text-emerald-800 font-bold uppercase tracking-wider">Total Received</span>
-                        <CheckCircle2 size={16} className="text-emerald-600" />
-                      </div>
-                      <div className="text-xl font-bold font-heading text-emerald-950 mt-1">
+                  {/* Minimal KPI Strip */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div className="p-3 rounded-xl bg-sand-50 border border-sand-200">
+                      <span className="text-[11px] font-semibold text-ink-500 uppercase tracking-wider block">Total Received</span>
+                      <div className="text-lg font-bold text-ink-900 font-heading mt-0.5">
                         PKR {accountsSummary.totalReceived.toLocaleString()}
                       </div>
-                      <span className="text-[10px] text-emerald-700">Approved payments</span>
+                      <span className="text-[10px] text-ink-400">Approved payments</span>
                     </div>
 
-                    <div className="p-4 rounded-xl bg-amber-50/80 border border-amber-200 shadow-2xs">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[11px] text-amber-800 font-bold uppercase tracking-wider">Total Receivable</span>
-                        <Clock size={16} className="text-amber-600" />
-                      </div>
-                      <div className="text-xl font-bold font-heading text-amber-950 mt-1">
+                    <div className="p-3 rounded-xl bg-sand-50 border border-sand-200">
+                      <span className="text-[11px] font-semibold text-ink-500 uppercase tracking-wider block">Total Receivable</span>
+                      <div className="text-lg font-bold text-ink-900 font-heading mt-0.5">
                         PKR {accountsSummary.totalReceivable.toLocaleString()}
                       </div>
-                      <span className="text-[10px] text-amber-700">Unpaid &amp; under review</span>
+                      <span className="text-[10px] text-ink-400">Pending & under review</span>
                     </div>
 
-                    <div className="p-4 rounded-xl bg-gold-50/90 border border-gold-200 shadow-2xs">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[11px] text-gold-900 font-bold uppercase tracking-wider">Pending Review</span>
-                        <Receipt size={16} className="text-gold-700" />
-                      </div>
-                      <div className="text-xl font-bold font-heading text-gold-950 mt-1">
+                    <div className="p-3 rounded-xl bg-sand-50 border border-sand-200">
+                      <span className="text-[11px] font-semibold text-ink-500 uppercase tracking-wider block">Pending Review</span>
+                      <div className="text-lg font-bold text-amber-900 font-heading mt-0.5">
                         {accountsSummary.pendingCount} Receipts
                       </div>
-                      <span className="text-[10px] text-gold-800">Needs admin approval</span>
+                      <span className="text-[10px] text-ink-400">Needs admin approval</span>
                     </div>
 
-                    <div className="p-4 rounded-xl bg-red-50/80 border border-red-200 shadow-2xs">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[11px] text-red-800 font-bold uppercase tracking-wider">Overdue Accounts</span>
-                        <AlertTriangle size={16} className="text-red-600" />
-                      </div>
-                      <div className="text-xl font-bold font-heading text-red-950 mt-1">
+                    <div className="p-3 rounded-xl bg-sand-50 border border-sand-200">
+                      <span className="text-[11px] font-semibold text-ink-500 uppercase tracking-wider block">Overdue Accounts</span>
+                      <div className="text-lg font-bold text-red-700 font-heading mt-0.5">
                         {accountsSummary.overdueCount} Accounts
                       </div>
-                      <span className="text-[10px] text-red-700">Due date passed</span>
-                    </div>
-
-                    <div
-                      onClick={() => setInstallmentQueueTab('restricted')}
-                      className={`p-4 rounded-xl border shadow-2xs cursor-pointer transition-all ${
-                        installmentQueueTab === 'restricted'
-                          ? 'bg-rose-100/90 border-rose-400 ring-2 ring-rose-400/30'
-                          : 'bg-rose-50/80 border-rose-200 hover:bg-rose-100/70'
-                      }`}
-                      title="Click to view all restricted student records"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-[11px] text-rose-800 font-bold uppercase tracking-wider">Restricted Students</span>
-                        <Lock size={16} className="text-rose-600" />
-                      </div>
-                      <div className="text-xl font-bold font-heading text-rose-950 mt-1">
-                        {accountsSummary.restrictedStudentsCount} Students
-                      </div>
-                      <div className="flex items-center justify-between mt-0.5">
-                        <span className="text-[10px] text-rose-700">Course video blocked</span>
-                        <span className="text-[10px] font-bold text-rose-800 underline underline-offset-1">Filter list &rarr;</span>
-                      </div>
+                      <span className="text-[10px] text-ink-400">Due date passed</span>
                     </div>
                   </div>
 
@@ -2579,16 +3155,16 @@ export default function AdminDashboard() {
                   </div>
 
                   {/* Installments Table */}
-                  <div className="overflow-x-auto rounded-xl border border-sand-200 shadow-2xs bg-white">
-                    <table className="w-full text-left text-sm min-w-[980px]">
+                  <div className="overflow-x-auto rounded-xl border border-sand-200 bg-white">
+                    <table className="w-full text-left text-sm min-w-[880px]">
                       <thead className="bg-sand-100/70 text-ink-700 text-xs font-semibold uppercase tracking-wider border-b border-sand-200">
                         <tr>
                           <th className="py-3 px-3.5">Student</th>
-                          <th className="py-3 px-3">Installment Milestone</th>
-                          <th className="py-3 px-3">Fixed Amount</th>
-                          <th className="py-3 px-3">Payment Status</th>
-                          <th className="py-3 px-3">Receipt Proof</th>
-                          <th className="py-3 px-3">Course Video Access</th>
+                          <th className="py-3 px-3">Milestone</th>
+                          <th className="py-3 px-3">Amount</th>
+                          <th className="py-3 px-3">Status</th>
+                          <th className="py-3 px-3">Receipt</th>
+                          <th className="py-3 px-3">Video Access</th>
                           <th className="py-3 px-3 text-right">Actions</th>
                         </tr>
                       </thead>
@@ -2600,85 +3176,58 @@ export default function AdminDashboard() {
 
                           return (
                             <tr key={inst.id} className="hover:bg-sand-50/70 transition-colors">
-                              <td className="py-3.5 px-3.5">
-                                <div className="font-semibold text-ink-900">{inst.studentName || student?.name || 'Student'}</div>
-                                <div className="text-xs text-ink-500">{inst.studentEmail || student?.email || inst.studentId}</div>
-                                <span className="text-[10px] text-ink-400 bg-sand-100 px-1.5 py-0.2 rounded font-mono">{inst.studentId}</span>
+                              <td className="py-3 px-3.5">
+                                <div className="font-semibold text-ink-900 text-xs">{inst.studentName || student?.name || 'Student'}</div>
+                                <div className="text-[11px] text-ink-500">{inst.studentEmail || student?.email || inst.studentId}</div>
                               </td>
 
-                              <td className="py-3.5 px-3">
-                                <div className="font-semibold text-ink-800 text-xs flex items-center gap-1.5">
-                                  <span>{inst.title}</span>
-                                  <span className="text-[10px] font-mono font-bold text-primary-900 bg-primary-50 px-1.5 py-0.2 rounded border border-primary-200">
-                                    #{inst.challanNo || '23528335'}
-                                  </span>
+                              <td className="py-3 px-3">
+                                <div className="font-medium text-ink-800 text-xs">
+                                  {inst.title}
                                 </div>
-                                <div className={`text-[11px] ${isOverdue ? 'text-red-600 font-bold' : 'text-ink-500'}`}>
+                                <div className={`text-[11px] ${isOverdue ? 'text-red-600 font-semibold' : 'text-ink-500'}`}>
                                   Due: {inst.dueDate} {isOverdue && '(Overdue)'}
                                 </div>
-                                {inst.submittedAt && (
-                                  <div className="text-[10px] text-ink-400">
-                                    Submitted: {new Date(inst.submittedAt).toLocaleDateString()}
-                                  </div>
-                                )}
                               </td>
 
-                              <td className="py-3.5 px-3 text-xs">
-                                <div className="font-bold text-ink-900 font-heading text-sm">
+                              <td className="py-3 px-3 text-xs">
+                                <span className="font-bold text-ink-900 font-heading">
                                   PKR {inst.amount?.toLocaleString()}
-                                </div>
-                                <span className="text-[10px] text-ink-400">Fixed Milestone</span>
+                                </span>
                               </td>
 
-                              <td className="py-3.5 px-3 whitespace-nowrap">
+                              <td className="py-3 px-3 whitespace-nowrap">
                                 {inst.status === 'APPROVED' && (
-                                  <div>
-                                    <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200">
-                                      <CheckCircle2 size={11} className="text-emerald-600" />
-                                      Approved
-                                    </span>
-                                    {inst.approvedByName && (
-                                      <div className="text-[10px] text-ink-500 font-medium mt-0.5">
-                                        Approved by <strong className="text-ink-800">{inst.approvedByName}</strong>
-                                        {inst.approvedAt && ` on ${new Date(inst.approvedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`}
-                                      </div>
-                                    )}
-                                  </div>
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200">
+                                    Approved
+                                  </span>
                                 )}
 
                                 {inst.status === 'UNDER_REVIEW' && (
-                                  <span className="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-300 animate-pulse">
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-300">
                                     <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
-                                    Verification Pending
+                                    Pending Review
                                   </span>
                                 )}
 
                                 {inst.status === 'REJECTED' && (
-                                  <div>
-                                    <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-rose-50 text-rose-800 border border-rose-200">
-                                      <AlertTriangle size={11} className="text-rose-600" />
-                                      Rejected
-                                    </span>
-                                    {inst.rejectionReason && (
-                                      <div className="text-[10px] text-rose-600 max-w-[150px] truncate mt-0.5" title={inst.rejectionReason}>
-                                        Reason: {inst.rejectionReason}
-                                      </div>
-                                    )}
-                                  </div>
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-rose-50 text-rose-800 border border-rose-200">
+                                    Rejected
+                                  </span>
                                 )}
 
                                 {inst.status === 'UNPAID' && (
-                                  <span className={`inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
+                                  <span className={`inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded-full border ${
                                     isOverdue
                                       ? 'bg-red-50 text-red-800 border-red-200'
                                       : 'bg-sand-100 text-ink-600 border-sand-200'
                                   }`}>
-                                    {isOverdue ? 'Overdue (Unpaid)' : 'Unpaid'}
+                                    {isOverdue ? 'Overdue' : 'Unpaid'}
                                   </span>
                                 )}
                               </td>
 
-                              <td className="py-3.5 px-3">
+                              <td className="py-3 px-3">
                                 {inst.receiptImageUrl ? (
                                   <button
                                     type="button"
@@ -2687,78 +3236,34 @@ export default function AdminDashboard() {
                                       setIsRejectingMode(false);
                                       setRejectionReasonInput('');
                                     }}
-                                    className="group flex items-center gap-2 p-1 rounded-lg hover:bg-sand-100 transition-colors cursor-pointer"
-                                    title="Click to inspect receipt screenshot"
+                                    className="inline-flex items-center gap-1 text-xs font-semibold text-primary-900 hover:text-primary-700 underline underline-offset-2 cursor-pointer"
                                   >
-                                    <div className="w-10 h-10 rounded-md overflow-hidden bg-sand-200 border border-sand-300 shrink-0 relative">
-                                      <img
-                                        src={inst.receiptImageUrl}
-                                        alt="Receipt proof"
-                                        className="w-full h-full object-cover group-hover:scale-105 transition-transform"
-                                      />
-                                      <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                        <Eye size={12} className="text-white" />
-                                      </div>
-                                    </div>
-                                    <span className="text-[11px] font-semibold text-[#0B3324] underline underline-offset-2">Inspect</span>
+                                    <Eye size={12} />
+                                    <span>Receipt</span>
                                   </button>
                                 ) : (
-                                  <span className="text-[11px] text-ink-400 italic">No receipt</span>
+                                  <span className="text-[11px] text-ink-400">—</span>
                                 )}
                               </td>
 
-                              <td className="py-3.5 px-3 whitespace-nowrap">
-                                {isRestricted ? (
-                                  <div className="flex items-center gap-2">
-                                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-red-50 text-red-700 border border-red-200 shadow-2xs">
-                                      <Lock size={11} className="text-red-600" />
-                                      <span>Restricted</span>
-                                    </span>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleToggleStudentVideo(inst.studentId, inst.studentName, true)}
-                                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-700 hover:bg-emerald-800 text-white transition-all shadow-xs cursor-pointer"
-                                      title="Restore course video playback for this student"
-                                    >
-                                      <Unlock size={11} />
-                                      <span>Restore Access</span>
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <div className="flex items-center gap-2">
-                                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                      <CheckCircle2 size={11} className="text-emerald-600" />
-                                      <span>Active</span>
-                                    </span>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleToggleStudentVideo(inst.studentId, inst.studentName, false)}
-                                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium text-ink-500 hover:text-red-700 hover:bg-red-50 border border-sand-200 transition-all cursor-pointer"
-                                      title="Manually lock course video playback for this student"
-                                    >
-                                      <Lock size={10} />
-                                      <span>Restrict</span>
-                                    </button>
-                                  </div>
-                                )}
-                                {isRestricted && student?.restrictedByAdminName && (
-                                  <div className="text-[9px] text-ink-400 mt-0.5">by {student.restrictedByAdminName}</div>
-                                )}
+                              <td className="py-3 px-3 whitespace-nowrap">
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleStudentVideo(inst.studentId, inst.studentName, isRestricted)}
+                                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium border transition-colors cursor-pointer ${
+                                    isRestricted
+                                      ? 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100'
+                                      : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+                                  }`}
+                                  title={isRestricted ? 'Click to restore video access' : 'Click to restrict video access'}
+                                >
+                                  {isRestricted ? <Lock size={10} className="text-red-600" /> : <Unlock size={10} className="text-emerald-600" />}
+                                  <span>{isRestricted ? 'Restricted' : 'Active'}</span>
+                                </button>
                               </td>
 
-                              <td className="py-3.5 px-3 text-right whitespace-nowrap">
+                              <td className="py-3 px-3 text-right whitespace-nowrap">
                                 <div className="flex items-center justify-end gap-1.5">
-                                  {isRestricted && (
-                                    <button
-                                      type="button"
-                                      onClick={() => handleToggleStudentVideo(inst.studentId, inst.studentName, true)}
-                                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold border border-emerald-300 transition-colors cursor-pointer shadow-2xs"
-                                      title="Restore video access for this student"
-                                    >
-                                      <Unlock size={12} className="text-emerald-700" />
-                                      <span>Restore Access</span>
-                                    </button>
-                                  )}
                                   {inst.status === 'UNDER_REVIEW' ? (
                                     <button
                                       type="button"
@@ -2767,10 +3272,9 @@ export default function AdminDashboard() {
                                         setIsRejectingMode(false);
                                         setRejectionReasonInput('');
                                       }}
-                                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0B3324] hover:bg-[#072419] text-white text-xs font-bold transition-all cursor-pointer shadow-xs"
+                                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-primary-900 hover:bg-primary-800 text-white text-xs font-semibold transition-all cursor-pointer shadow-xs"
                                     >
-                                      <CheckCircle2 size={13} className="text-emerald-400" />
-                                      <span>Inspect &amp; Verify</span>
+                                      <span>Verify</span>
                                     </button>
                                   ) : inst.receiptImageUrl ? (
                                     <button
@@ -2780,20 +3284,18 @@ export default function AdminDashboard() {
                                         setIsRejectingMode(false);
                                         setRejectionReasonInput('');
                                       }}
-                                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white hover:bg-sand-100 text-ink-700 text-xs font-semibold border border-sand-300 transition-colors cursor-pointer"
+                                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-sand-100 hover:bg-sand-200 text-ink-700 text-xs font-medium transition-colors cursor-pointer"
                                     >
-                                      <Eye size={12} />
-                                      <span>View Receipt</span>
+                                      <span>Inspect</span>
                                     </button>
-                                  ) : !isRestricted ? (
+                                  ) : (
                                     <span className="text-[11px] text-ink-400">—</span>
-                                  ) : null}
+                                  )}
                                 </div>
                               </td>
                             </tr>
                           );
                         })}
-
                         {filteredInstallments.length === 0 && (
                           <tr>
                             <td colSpan={7} className="py-10 text-center">
@@ -3550,179 +4052,138 @@ export default function AdminDashboard() {
 
           {/* Tab 6: Schedules Planner */}
           {activeTab === 'schedules' && (
-            <div className="space-y-6 animate-fadeIn">
-              {/* Header Box */}
-              <div className="bg-white rounded-2xl border border-sand-200 p-6 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="space-y-4 animate-fadeIn">
+              {/* Minimal Header */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-primary-100 text-primary-900 border border-primary-200">
-                      Timetable Engine
-                    </span>
-                    <span className="text-xs text-ink-500 font-medium">
-                      {activeWeeklySlots.length} Active Weekly Sessions
-                    </span>
-                  </div>
-                  <h2 className="text-xl sm:text-2xl font-heading font-bold text-ink-900 tracking-tight mt-1">
+                  <h2 className="text-xl sm:text-2xl font-heading font-bold text-ink-900 tracking-tight">
                     Schedule
                   </h2>
                   <p className="text-xs text-ink-500 mt-0.5">
-                    Schedule lectures across Google Meet and Lahore DHA Phase 6 campus with automated student broadcast notifications.
+                    Weekly timetable across Google Meet and Lahore DHA Phase 6 campus with student broadcasts.
                   </p>
                 </div>
 
                 <button
                   type="button"
                   onClick={handleOpenAddScheduleSlot}
-                  className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-[#0B3324] hover:bg-[#072318] text-white rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer shrink-0"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-primary-900 hover:bg-primary-800 text-white text-xs font-bold transition-all shadow-sm cursor-pointer whitespace-nowrap self-start sm:self-auto"
                 >
-                  <Plus size={15} />
-                  <span>Add New Lecture Slot</span>
+                  <Plus size={14} />
+                  <span>Add Lecture Slot</span>
                 </button>
               </div>
 
-              {/* 4-Metric Live Summary Strip */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="bg-white p-4 rounded-2xl border border-sand-200 shadow-2xs flex items-center justify-between">
-                  <div>
-                    <span className="text-xs text-ink-500 font-semibold uppercase tracking-wider block">Total Weekly Lectures</span>
-                    <div className="text-2xl font-bold font-heading text-ink-900 mt-1">{activeWeeklySlots.length} Slots</div>
-                  </div>
-                  <div className="w-10 h-10 rounded-xl bg-sand-100 flex items-center justify-center text-primary-900">
-                    <Calendar size={18} />
-                  </div>
+              {/* Minimal 4-Metric Strip */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                <div className="bg-white p-3 rounded-xl border border-sand-200">
+                  <span className="text-[10px] text-ink-500 font-bold uppercase tracking-wider block">Total Weekly</span>
+                  <div className="text-sm font-bold text-ink-900 mt-0.5">{activeWeeklySlots.length} Slots</div>
                 </div>
 
-                <div className="bg-white p-4 rounded-2xl border border-sand-200 shadow-2xs flex items-center justify-between">
-                  <div>
-                    <span className="text-xs text-primary-900 font-semibold uppercase tracking-wider block">Google Meet (Online)</span>
-                    <div className="text-2xl font-bold font-heading text-primary-950 mt-1">{onlineMeetSlotsCount} Slots</div>
-                  </div>
-                  <div className="w-10 h-10 rounded-xl bg-primary-50 border border-primary-200 flex items-center justify-center text-primary-900">
-                    <Video size={18} />
-                  </div>
+                <div className="bg-white p-3 rounded-xl border border-sand-200">
+                  <span className="text-[10px] text-emerald-900 font-bold uppercase tracking-wider block">Google Meet</span>
+                  <div className="text-sm font-bold text-emerald-900 mt-0.5">{onlineMeetSlotsCount} Slots</div>
                 </div>
 
-                <div className="bg-white p-4 rounded-2xl border border-sand-200 shadow-2xs flex items-center justify-between">
-                  <div>
-                    <span className="text-xs text-primary-900 font-semibold uppercase tracking-wider block">DHA Phase 6 (On-Site)</span>
-                    <div className="text-2xl font-bold font-heading text-primary-950 mt-1">{onSiteCampusSlotsCount} Slots</div>
-                  </div>
-                  <div className="w-10 h-10 rounded-xl bg-primary-50 border border-primary-200 flex items-center justify-center text-primary-800">
-                    <MapPin size={18} />
-                  </div>
+                <div className="bg-white p-3 rounded-xl border border-sand-200">
+                  <span className="text-[10px] text-ink-500 font-bold uppercase tracking-wider block">DHA Phase 6</span>
+                  <div className="text-sm font-bold text-ink-800 mt-0.5">{onSiteCampusSlotsCount} Slots</div>
                 </div>
 
-                <div className="bg-white p-4 rounded-2xl border border-sand-200 shadow-2xs flex items-center justify-between">
-                  <div>
-                    <span className="text-xs text-ink-500 font-semibold uppercase tracking-wider block">Schedule Health</span>
-                    <div className="mt-1 flex items-center gap-1.5">
-                      {scheduleConflictCount === 0 ? (
-                        <span className="text-xs font-bold text-primary-900 bg-primary-50 px-2 py-0.5 rounded-full border border-primary-200 inline-flex items-center gap-1">
-                          <CheckCircle2 size={12} />
-                          0 Conflicts • Cohorts Synced
-                        </span>
-                      ) : (
-                        <span className="text-xs font-bold text-amber-800 bg-amber-100/90 px-2 py-0.5 rounded-full border border-amber-200 inline-flex items-center gap-1">
-                          <AlertTriangle size={12} />
-                          {scheduleConflictCount} Overlap(s) Detected
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${scheduleConflictCount === 0 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
-                    <Bell size={18} />
+                <div className="bg-white p-3 rounded-xl border border-sand-200">
+                  <span className="text-[10px] text-ink-500 font-bold uppercase tracking-wider block">Schedule Status</span>
+                  <div className="text-xs font-bold text-emerald-800 mt-0.5 flex items-center gap-1">
+                    <CheckCircle2 size={12} />
+                    {scheduleConflictCount === 0 ? 'Synced • 0 Conflicts' : `${scheduleConflictCount} Conflict(s)`}
                   </div>
                 </div>
               </div>
 
-              {/* Filter & View Mode Bar */}
-              <div className="bg-white rounded-2xl border border-sand-200 p-4 shadow-2xs space-y-3">
-                <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
-                  
-                  {/* Search Input */}
-                  <div className="relative flex-1 min-w-[240px]">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-ink-400" />
-                    <input
-                      type="text"
-                      value={scheduleSearch}
-                      onChange={(e) => setScheduleSearch(e.target.value)}
-                      placeholder="Search lecture topic, course, faculty, or room..."
-                      className="w-full pl-8 pr-3 py-2 text-xs rounded-xl border border-sand-300 focus:outline-none focus:ring-2 focus:ring-primary-500/20 bg-sand-50/50"
-                    />
+              {/* Minimal Filter & View Bar */}
+              <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-2.5">
+                {/* Search Input */}
+                <div className="relative flex-1 min-w-[200px]">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-ink-400" />
+                  <input
+                    type="text"
+                    value={scheduleSearch}
+                    onChange={(e) => setScheduleSearch(e.target.value)}
+                    placeholder="Search lecture topic, course, faculty..."
+                    className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl border border-sand-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                  />
+                </div>
+
+                {/* Filter Selectors & View Toggle */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    value={scheduleCohortFilter}
+                    onChange={(e) => setScheduleCohortFilter(e.target.value)}
+                    className="px-2.5 py-1.5 text-xs rounded-xl border border-sand-200 bg-white font-medium text-ink-800 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                  >
+                    <option value="all">All Cohorts</option>
+                    <option value="foundations_sem1">Foundations • Sem 1</option>
+                    <option value="foundations_sem2">Foundations • Sem 2</option>
+                    <option value="intensives_modular">Intensives • Modular</option>
+                  </select>
+
+                  <select
+                    value={scheduleModalityFilter}
+                    onChange={(e) => setScheduleModalityFilter(e.target.value)}
+                    className="px-2.5 py-1.5 text-xs rounded-xl border border-sand-200 bg-white font-medium text-ink-800 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                  >
+                    <option value="all">All Modalities</option>
+                    <option value="online_meet">Google Meet</option>
+                    <option value="onsite_campus">DHA On-Site</option>
+                  </select>
+
+                  <select
+                    value={scheduleInstructorFilter}
+                    onChange={(e) => setScheduleInstructorFilter(e.target.value)}
+                    className="px-2.5 py-1.5 text-xs rounded-xl border border-sand-200 bg-white font-medium text-ink-800 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                  >
+                    <option value="all">All Faculty</option>
+                    {Array.from(new Set(scheduleSlots.map((s) => s.instructorName))).filter(Boolean).map((name) => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+
+                  {/* View Switcher Toggle */}
+                  <div className="flex items-center p-0.5 rounded-xl bg-sand-100 border border-sand-200">
+                    <button
+                      type="button"
+                      onClick={() => setScheduleViewMode('agenda')}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center gap-1 ${
+                        scheduleViewMode === 'agenda'
+                          ? 'bg-white text-ink-900 shadow-xs font-bold'
+                          : 'text-ink-600 hover:text-ink-950'
+                      }`}
+                    >
+                      <List size={12} />
+                      <span>Agenda</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setScheduleViewMode('weekly_grid')}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center gap-1 ${
+                        scheduleViewMode === 'weekly_grid'
+                          ? 'bg-white text-ink-900 shadow-xs font-bold'
+                          : 'text-ink-600 hover:text-ink-950'
+                      }`}
+                    >
+                      <CalendarDays size={12} />
+                      <span>Weekly Grid</span>
+                    </button>
                   </div>
-
-                  {/* Filter Selectors */}
-                  <div className="flex flex-wrap items-center gap-2">
-                    <select
-                      value={scheduleCohortFilter}
-                      onChange={(e) => setScheduleCohortFilter(e.target.value)}
-                      className="px-3 py-2 text-xs rounded-xl border border-sand-300 bg-white font-medium text-ink-800 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
-                    >
-                      <option value="all">All Academic Cohorts</option>
-                      <option value="foundations_sem1">Ilm Foundations • Semester 1</option>
-                      <option value="foundations_sem2">Ilm Foundations • Semester 2</option>
-                      <option value="intensives_modular">Ilm Intensives • Modular</option>
-                    </select>
-
-                    <select
-                      value={scheduleModalityFilter}
-                      onChange={(e) => setScheduleModalityFilter(e.target.value)}
-                      className="px-3 py-2 text-xs rounded-xl border border-sand-300 bg-white font-medium text-ink-800 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
-                    >
-                      <option value="all">All Modalities</option>
-                      <option value="online_meet">Google Meet (Live Online)</option>
-                      <option value="onsite_campus">DHA Phase 6 (On-Site)</option>
-                    </select>
-
-                    <select
-                      value={scheduleInstructorFilter}
-                      onChange={(e) => setScheduleInstructorFilter(e.target.value)}
-                      className="px-3 py-2 text-xs rounded-xl border border-sand-300 bg-white font-medium text-ink-800 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
-                    >
-                      <option value="all">All Faculty</option>
-                      {Array.from(new Set(scheduleSlots.map((s) => s.instructorName))).filter(Boolean).map((name) => (
-                        <option key={name} value={name}>
-                          {name}
-                        </option>
-                      ))}
-                    </select>
-
-                    {/* View Switcher Toggle */}
-                    <div className="flex items-center p-1 rounded-xl bg-sand-100 border border-sand-200">
-                      <button
-                        type="button"
-                        onClick={() => setScheduleViewMode('agenda')}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                          scheduleViewMode === 'agenda'
-                            ? 'bg-[#0B3324] text-white shadow-2xs'
-                            : 'text-ink-600 hover:text-ink-950'
-                        }`}
-                      >
-                        <List size={13} />
-                        <span>Agenda List</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setScheduleViewMode('weekly_grid')}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                          scheduleViewMode === 'weekly_grid'
-                            ? 'bg-[#0B3324] text-white shadow-2xs'
-                            : 'text-ink-600 hover:text-ink-950'
-                        }`}
-                      >
-                        <CalendarDays size={13} />
-                        <span>Weekly Grid</span>
-                      </button>
-                    </div>
-                  </div>
-
                 </div>
               </div>
 
               {/* VIEW 1: AGENDA LIST VIEW */}
               {scheduleViewMode === 'agenda' && (
-                <div className="space-y-6">
+                <div className="space-y-4">
                   {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map((day) => {
                     const daySlots = filteredScheduleSlots
                       .filter((s) => s.dayOfWeek === day)
@@ -3731,19 +4192,19 @@ export default function AdminDashboard() {
                     if (daySlots.length === 0) return null;
 
                     return (
-                      <div key={day} className="space-y-3">
+                      <div key={day} className="space-y-2">
                         {/* Day Header */}
-                        <div className="flex items-center gap-2.5 pb-1 border-b border-sand-200">
+                        <div className="flex items-center gap-2 pb-1 border-b border-sand-200">
                           <h4 className="font-heading font-bold text-xs uppercase tracking-wider text-ink-900">
                             {day}
                           </h4>
-                          <span className="text-[11px] font-semibold text-ink-600 bg-sand-100 px-2 py-0.5 rounded-md">
+                          <span className="text-[10px] font-semibold text-ink-600 bg-sand-100 px-1.5 py-0.2 rounded">
                             {daySlots.length} {daySlots.length === 1 ? 'Lecture' : 'Lectures'}
                           </span>
                         </div>
 
-                        {/* Cards under this day */}
-                        <div className="grid grid-cols-1 gap-3">
+                        {/* Minimal cards under this day */}
+                        <div className="grid grid-cols-1 gap-2">
                           {daySlots.map((slot) => {
                             const isOnline = slot.modality === 'online_meet';
                             const isCancelled = slot.status === 'cancelled';
@@ -3752,152 +4213,123 @@ export default function AdminDashboard() {
                             return (
                               <div
                                 key={slot.id}
-                                className={`rounded-2xl border bg-white p-5 transition-all shadow-2xs hover:shadow-card flex flex-col justify-between gap-4 ${
+                                className={`rounded-xl border bg-white p-3 sm:p-3.5 transition-all shadow-2xs hover:border-sand-300 flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
                                   isCancelled
                                     ? 'border-red-200 bg-red-50/20 opacity-80'
                                     : isRescheduled
                                     ? 'border-amber-200 bg-amber-50/10'
-                                    : 'border-sand-200 hover:border-sand-300'
+                                    : 'border-sand-200'
                                 }`}
                               >
-                                <div className="space-y-3">
-                                  {/* Top Meta Row */}
-                                  <div className="flex flex-wrap items-center justify-between gap-2">
-                                    <div className="flex flex-wrap items-center gap-2">
-                                      {/* Modality Badge */}
+                                {/* Left Content */}
+                                <div className="flex items-start gap-3 min-w-0">
+                                  {/* Time block */}
+                                  <div className="text-left sm:text-center shrink-0 min-w-[95px]">
+                                    <span className="block text-xs font-bold text-ink-900 whitespace-nowrap">
+                                      {formatSlotTimeRange(slot.startTime, slot.endTime)}
+                                    </span>
+                                    <span className="text-[10px] text-ink-400 font-medium">PKT</span>
+                                  </div>
+
+                                  <div className="h-8 w-px bg-sand-200 shrink-0 hidden sm:block" />
+
+                                  <div className="min-w-0">
+                                    <div className="flex flex-wrap items-center gap-1.5 mb-0.5">
+                                      <span className="text-[10px] font-bold text-primary-900 uppercase tracking-wide">
+                                        {slot.courseTitle}
+                                      </span>
                                       {isOnline ? (
-                                        <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-primary-50 text-primary-900 border border-primary-200 inline-flex items-center gap-1.5">
-                                          <Video size={12} className="text-primary-700" />
-                                          Google Meet (Live Online)
+                                        <span className="text-[10px] font-semibold px-1.5 py-0.2 rounded bg-primary-50 text-primary-900 border border-primary-200 inline-flex items-center gap-1">
+                                          <Video size={10} />
+                                          Google Meet
                                         </span>
                                       ) : (
-                                        <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-primary-50 text-primary-900 border border-primary-200 inline-flex items-center gap-1.5">
-                                          <MapPin size={12} className="text-primary-800" />
-                                          DHA Phase 6 Lahore Campus (On-Site)
+                                        <span className="text-[10px] font-semibold px-1.5 py-0.2 rounded bg-sand-100 text-ink-700 border border-sand-200 inline-flex items-center gap-1">
+                                          <MapPin size={10} />
+                                          DHA Phase 6
                                         </span>
                                       )}
-
-                                      {/* Timing */}
-                                      <span className="text-xs font-bold text-ink-800 bg-sand-100 px-2 py-0.5 rounded-md">
-                                        {formatSlotTimeRange(slot.startTime, slot.endTime)} PKT
+                                      <span className="text-[10px] text-ink-400">
+                                        • {slot.cohortName} ({slot.enrolledCount} enrolled)
                                       </span>
-
-                                      {/* Recurrence */}
-                                      <span className="text-[10px] text-ink-500 bg-white border border-sand-200 px-2 py-0.5 rounded">
-                                        {slot.scheduleType === 'recurring' ? 'Weekly Recurring' : 'Single Makeup'}
-                                      </span>
-
-                                      {/* Status if abnormal */}
                                       {isRescheduled && (
-                                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300">
-                                          🟡 Rescheduled
+                                        <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 border border-amber-300">
+                                          Rescheduled
                                         </span>
                                       )}
                                       {isCancelled && (
-                                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-red-100 text-red-800 border border-red-300">
-                                          🔴 Cancelled
+                                        <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-red-100 text-red-800 border border-red-300">
+                                          Cancelled
                                         </span>
                                       )}
                                     </div>
 
-                                    {/* Cohort Badge */}
-                                    <span className="text-[11px] font-semibold text-primary-900 bg-primary-50 px-2.5 py-0.5 rounded-full border border-primary-200">
-                                      {slot.cohortName} ({slot.enrolledCount} Enrolled)
-                                    </span>
-                                  </div>
-
-                                  {/* Main Content: Topic & Instructor */}
-                                  <div>
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-xs font-bold text-primary-900 uppercase tracking-wide">
-                                        {slot.courseTitle}
-                                      </span>
-                                    </div>
-                                    <h4 className="font-heading font-bold text-base text-ink-900 mt-0.5">
+                                    <h4 className="font-bold text-xs sm:text-sm text-ink-900 truncate">
                                       {slot.topic || `${slot.courseTitle} — Regular Lecture Session`}
                                     </h4>
-                                    <p className="text-xs text-ink-600 mt-1 flex items-center gap-1.5">
-                                      <User size={13} className="text-primary-800" />
-                                      <span className="font-medium">Lead Faculty:</span>
-                                      <span className="font-bold text-ink-900">{slot.instructorName}</span>
-                                    </p>
-                                  </div>
 
-                                  {/* Logistics & Notification Sub-Row */}
-                                  <div className="pt-2 border-t border-sand-100 flex flex-wrap items-center justify-between gap-3 text-xs">
-                                    {isOnline ? (
-                                      <div className="flex items-center gap-2">
-                                        <span className="text-[11px] text-primary-950 bg-primary-50/70 px-2 py-1 rounded border border-primary-200 select-all font-medium">
-                                          {slot.meetLink || 'meet.google.com/ilm-live-class'}
-                                        </span>
-                                        <button
-                                          type="button"
-                                          onClick={() => handleCopyMeetLink(slot.id, slot.meetLink)}
-                                          className="text-[11px] px-2 py-1 bg-white hover:bg-sand-100 border border-sand-300 rounded font-semibold text-ink-700 transition-colors inline-flex items-center gap-1 cursor-pointer"
-                                        >
-                                          <Copy size={11} />
-                                          <span>{copiedSlotId === slot.id ? 'Copied!' : 'Copy Link'}</span>
-                                        </button>
-                                        {slot.meetLink && (
-                                          <a
-                                            href={slot.meetLink}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="text-[11px] px-2.5 py-1 bg-[#0B3324] hover:bg-[#072419] text-white rounded font-bold transition-colors inline-flex items-center gap-1 shadow-2xs"
-                                          >
-                                            <span>Launch Meet</span>
-                                            <ExternalLink size={11} />
-                                          </a>
-                                        )}
-                                      </div>
-                                    ) : (
-                                      <div className="flex items-center gap-3">
-                                        <div className="flex items-center gap-1.5 text-ink-800 font-semibold">
-                                          <MapPin size={13} className="text-primary-800" />
-                                          <span>{slot.campusRoom || 'Room 204 • Main Block'}</span>
-                                        </div>
-                                        <span className="text-[11px] font-semibold text-ink-600 bg-sand-100 px-2 py-0.5 rounded">
-                                          Cap: {slot.roomCapacity || 35} Seats
-                                        </span>
-                                      </div>
-                                    )}
-
-                                    {/* Notification broadcast state */}
-                                    <div className="text-[11px] text-ink-500 flex items-center gap-1.5">
-                                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                                      <span>🔔 Notified {slot.enrolledCount} enrolled students</span>
+                                    <div className="flex flex-wrap items-center gap-2 mt-1 text-[11px] text-ink-500">
+                                      <span>Faculty: <strong className="text-ink-800 font-semibold">{slot.instructorName}</strong></span>
+                                      {isOnline ? (
+                                        slot.meetLink && (
+                                          <>
+                                            <span>•</span>
+                                            <a
+                                              href={slot.meetLink}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              className="text-primary-900 font-semibold hover:underline inline-flex items-center gap-0.5"
+                                            >
+                                              Launch Meet <ExternalLink size={10} />
+                                            </a>
+                                            <button
+                                              type="button"
+                                              onClick={() => handleCopyMeetLink(slot.id, slot.meetLink)}
+                                              className="text-[10px] text-ink-400 hover:text-ink-700 cursor-pointer"
+                                            >
+                                              {copiedSlotId === slot.id ? 'Copied!' : 'Copy'}
+                                            </button>
+                                          </>
+                                        )
+                                      ) : (
+                                        <>
+                                          <span>•</span>
+                                          <span>{slot.campusRoom || 'Room 204'}</span>
+                                          <span>(Cap: {slot.roomCapacity || 35})</span>
+                                        </>
+                                      )}
+                                      <span>•</span>
+                                      <span className="text-emerald-800">🔔 Notified {slot.enrolledCount} students</span>
                                     </div>
                                   </div>
                                 </div>
 
-                                {/* Right Card Actions */}
-                                <div className="pt-2 border-t border-sand-100 flex items-center justify-end gap-2">
+                                {/* Right Actions */}
+                                <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
                                   <button
                                     type="button"
                                     onClick={() => handleQuickRemind(slot)}
-                                    className="px-3 py-1.5 rounded-xl text-xs font-semibold text-primary-900 bg-primary-50 hover:bg-primary-100 border border-primary-200 transition-colors inline-flex items-center gap-1.5 cursor-pointer"
-                                    title="Send instant reminder blast to enrolled cohort"
+                                    className="px-2.5 py-1 rounded-lg text-xs font-semibold text-primary-900 bg-primary-50 hover:bg-primary-100 border border-primary-200 transition-colors inline-flex items-center gap-1 cursor-pointer"
+                                    title="Send instant reminder blast"
                                   >
-                                    <Bell size={13} />
-                                    <span>Send Reminder</span>
+                                    <Bell size={12} />
+                                    <span>Remind</span>
                                   </button>
-
                                   <button
                                     type="button"
                                     onClick={() => handleOpenEditScheduleSlot(slot)}
-                                    className="px-3.5 py-1.5 rounded-xl text-xs font-bold text-ink-700 hover:text-ink-950 bg-sand-100 hover:bg-sand-200 border border-sand-300 transition-colors inline-flex items-center gap-1.5 cursor-pointer"
+                                    className="px-2.5 py-1 rounded-lg text-xs font-semibold text-ink-700 bg-sand-100 hover:bg-sand-200 transition-colors inline-flex items-center gap-1 cursor-pointer"
                                   >
-                                    <Edit3 size={13} />
+                                    <Edit3 size={12} />
                                     <span>Edit</span>
                                   </button>
-
                                   <button
                                     type="button"
                                     onClick={() => handleDeleteScheduleSlotItem(slot.id, slot.courseTitle)}
-                                    className="p-1.5 rounded-xl text-ink-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
+                                    className="p-1 rounded-lg text-ink-400 hover:text-rose-700 hover:bg-rose-50 transition-colors cursor-pointer"
                                     title="Delete slot"
                                   >
-                                    <Trash2 size={14} />
+                                    <Trash2 size={13} />
                                   </button>
                                 </div>
                               </div>
@@ -4752,6 +5184,19 @@ export default function AdminDashboard() {
                     </button>
                     <button
                       type="button"
+                      onClick={() => {
+                        const cid = rosterModalCourse.id;
+                        handleCloseRosterModal();
+                        handleOpenAttendanceModal(cid);
+                      }}
+                      className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors cursor-pointer"
+                      title="Take or upload attendance for this course"
+                    >
+                      <ClipboardCheck size={13} />
+                      Mark Attendance
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => setIsRosterAddStudentOpen(!isRosterAddStudentOpen)}
                       className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 font-bold text-white bg-primary-900 hover:bg-primary-800 rounded-lg shadow-sm transition-all cursor-pointer"
                     >
@@ -4944,7 +5389,7 @@ export default function AdminDashboard() {
                     <h3 className="text-sm font-bold text-ink-900">
                       {editingStudent ? 'Edit Student Account' : 'Add New Student Account'}
                     </h3>
-                    <p className="text-[11px] text-ink-500">Configure academic track, format, and fee status.</p>
+                    <p className="text-[11px] text-ink-500">Configure academic track and delivery format.</p>
                   </div>
                 </div>
                 <button
@@ -5001,100 +5446,179 @@ export default function AdminDashboard() {
                   </div>
                   <div>
                     <label className="text-xs font-bold text-ink-700 block mb-1">
-                      Academic Program
+                      Academic Pathway *
                     </label>
                     <select
                       value={studentFormData.program}
-                      onChange={(e) => setStudentFormData({ ...studentFormData, program: e.target.value })}
-                      className="w-full px-3 py-2 text-xs border border-sand-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                      onChange={(e) => {
+                        const newProg = e.target.value;
+                        setStudentFormData({
+                          ...studentFormData,
+                          program: newProg,
+                          selectedCourses:
+                            newProg === 'Ilm Intensives' && (!studentFormData.selectedCourses || studentFormData.selectedCourses.length === 0)
+                              ? [availableIntensiveCourses[0]?.title].filter(Boolean)
+                              : studentFormData.selectedCourses,
+                        });
+                      }}
+                      className="w-full px-3 py-2 text-xs border border-sand-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20 font-semibold text-ink-900"
                     >
-                      <option value="Ilm Foundations">Ilm Foundations (8-Month)</option>
-                      <option value="Ilm Intensives">Ilm Intensives Masterclass</option>
-                      <option value="Classical Arabic">Classical Arabic Track</option>
+                      <option value="Ilm Foundations">Ilm Foundations</option>
+                      <option value="Ilm Intensives">Ilm Intensives</option>
                     </select>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-3">
-                  <div>
-                    <label className="text-xs font-bold text-ink-700 block mb-1">
-                      Semester
-                    </label>
-                    <select
-                      value={studentFormData.semester}
-                      onChange={(e) => setStudentFormData({ ...studentFormData, semester: e.target.value })}
-                      className="w-full px-3 py-2 text-xs border border-sand-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20"
-                    >
-                      <option value="Semester 1">Semester 1</option>
-                      <option value="Semester 2">Semester 2</option>
-                      <option value="Graduated">Graduated</option>
-                    </select>
+                {studentFormData.program === 'Ilm Foundations' ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs font-bold text-ink-700 block mb-1">
+                        Semester *
+                      </label>
+                      <select
+                        value={studentFormData.semester}
+                        onChange={(e) => setStudentFormData({ ...studentFormData, semester: e.target.value })}
+                        className="w-full px-3 py-2 text-xs border border-sand-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                      >
+                        <option value="Semester 1">Semester 1</option>
+                        <option value="Semester 2">Semester 2</option>
+                        <option value="Graduated">Graduated</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-ink-700 block mb-1">
+                        Format
+                      </label>
+                      <select
+                        value={studentFormData.format}
+                        onChange={(e) => setStudentFormData({ ...studentFormData, format: e.target.value })}
+                        className="w-full px-3 py-2 text-xs border border-sand-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                      >
+                        <option value="online">Online</option>
+                        <option value="onsite">Onsite (DHA)</option>
+                        <option value="hybrid">Hybrid</option>
+                      </select>
+                    </div>
                   </div>
-                  <div>
-                    <label className="text-xs font-bold text-ink-700 block mb-1">
-                      Format
-                    </label>
-                    <select
-                      value={studentFormData.format}
-                      onChange={(e) => setStudentFormData({ ...studentFormData, format: e.target.value })}
-                      className="w-full px-3 py-2 text-xs border border-sand-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20"
-                    >
-                      <option value="online">Online</option>
-                      <option value="onsite">Onsite (DHA)</option>
-                      <option value="hybrid">Hybrid</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-xs font-bold text-ink-700 block mb-1">
-                      Fee Status
-                    </label>
-                    <select
-                      value={studentFormData.feeStatus}
-                      onChange={(e) => setStudentFormData({ ...studentFormData, feeStatus: e.target.value })}
-                      className="w-full px-3 py-2 text-xs border border-sand-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20"
-                    >
-                      <option value="Paid">Paid</option>
-                      <option value="Partial">Partial</option>
-                      <option value="Pending">Pending</option>
-                      <option value="Waived">Waived</option>
-                    </select>
-                  </div>
-                </div>
+                ) : (
+                  <div className="space-y-3">
+                    <div>
+                      <label className="text-xs font-bold text-ink-700 block mb-1">
+                        Format
+                      </label>
+                      <select
+                        value={studentFormData.format}
+                        onChange={(e) => setStudentFormData({ ...studentFormData, format: e.target.value })}
+                        className="w-full px-3 py-2 text-xs border border-sand-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                      >
+                        <option value="online">Online</option>
+                        <option value="onsite">Onsite (DHA)</option>
+                        <option value="hybrid">Hybrid</option>
+                      </select>
+                    </div>
 
-                <div className="grid grid-cols-2 gap-3 pt-1">
-                  <div>
-                    <label className="text-xs font-bold text-ink-700 block mb-1">
-                      Curriculum Progress (%)
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      max="100"
-                      value={studentFormData.progress}
-                      onChange={(e) => setStudentFormData({ ...studentFormData, progress: e.target.value })}
-                      className="w-full px-3 py-2 text-xs border border-sand-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20"
-                    />
+                    <div className="space-y-1.5 p-3 rounded-xl bg-sand-50/80 border border-sand-200">
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-xs font-bold text-ink-800 block">
+                          Select Courses under Ilm Intensives *
+                        </label>
+                        <span className="text-[10px] text-ink-500">
+                          {studentFormData.selectedCourses?.length || 0} selected
+                        </span>
+                      </div>
+                      <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                        {availableIntensiveCourses.map((c) => {
+                          const isChecked = (studentFormData.selectedCourses || []).includes(c.title);
+                          return (
+                            <label
+                              key={c.id || c.title}
+                              className={`flex items-center justify-between p-2 rounded-lg border text-xs cursor-pointer transition-colors ${
+                                isChecked
+                                  ? 'bg-emerald-50 border-emerald-300 text-emerald-950 font-semibold'
+                                  : 'bg-white border-sand-200 text-ink-700 hover:bg-sand-50'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  onChange={() => {
+                                    const curr = studentFormData.selectedCourses || [];
+                                    const next = isChecked
+                                      ? curr.filter((t) => t !== c.title)
+                                      : [...curr, c.title];
+                                    setStudentFormData({ ...studentFormData, selectedCourses: next });
+                                  }}
+                                  className="rounded text-primary-700 focus:ring-primary-500 cursor-pointer accent-primary-700"
+                                />
+                                <span>{c.title}</span>
+                              </div>
+                              {c.instructor && (
+                                <span className="text-[10px] text-ink-400 font-normal">
+                                  {c.instructor}
+                                </span>
+                              )}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <label className="text-xs font-bold text-ink-700 block mb-1">
-                      Attendance Rate
-                    </label>
-                    <input
-                      type="text"
-                      value={studentFormData.attendance}
-                      onChange={(e) => setStudentFormData({ ...studentFormData, attendance: e.target.value })}
-                      placeholder="e.g. 96%"
-                      className="w-full px-3 py-2 text-xs border border-sand-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20"
-                    />
+                )}
+
+                {/* Auto-calculated Progress and Attendance Telemetry (Read-only) */}
+                {editingStudent && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                    <div className="p-3 rounded-xl bg-sand-50/90 border border-sand-200">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-ink-700 flex items-center gap-1.5">
+                          <CheckCircle2 size={13} className="text-primary-700" />
+                          Curriculum Progress
+                        </span>
+                        <span className="text-xs font-bold text-ink-900 bg-white px-2 py-0.5 rounded-full border border-sand-200 shadow-2xs">
+                          {studentFormData.progress ?? 0}%
+                        </span>
+                      </div>
+                      <div className="w-full h-1.5 bg-sand-200 rounded-full overflow-hidden mt-1.5 mb-1">
+                        <div
+                          className="h-full bg-primary-700 rounded-full transition-all"
+                          style={{ width: `${studentFormData.progress ?? 0}%` }}
+                        />
+                      </div>
+                      <p className="text-[10px] text-ink-400 mt-1">
+                        Auto-calculated from watched / completed lessons
+                      </p>
+                    </div>
+
+                    <div className="p-3 rounded-xl bg-sand-50/90 border border-sand-200">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-ink-700 flex items-center gap-1.5">
+                          <Clock size={13} className="text-emerald-700" />
+                          Attendance Rate
+                        </span>
+                        <span className="text-xs font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 shadow-2xs">
+                          {studentFormData.attendance || '100%'}
+                        </span>
+                      </div>
+                      <div className="w-full h-1.5 bg-sand-200 rounded-full overflow-hidden mt-1.5 mb-1">
+                        <div
+                          className="h-full bg-emerald-600 rounded-full transition-all"
+                          style={{ width: studentFormData.attendance || '100%' }}
+                        />
+                      </div>
+                      <p className="text-[10px] text-ink-400 mt-1">
+                        Auto-calculated from class attendance records
+                      </p>
+                    </div>
                   </div>
-                </div>
+                )}
 
                 {/* Account Security & Password */}
                 <div className="pt-2 border-t border-sand-200 space-y-2.5">
                   <div className="flex items-center justify-between">
                     <label className="text-xs font-bold text-ink-900 flex items-center gap-1.5">
                       <Lock size={13} className="text-primary-800" />
-                      Account Password &amp; Portal Access
+                      Password
                     </label>
                     <button
                       type="button"
@@ -5237,6 +5761,963 @@ export default function AdminDashboard() {
             </div>
           </div>
         )}
+
+        {/* ATTENDANCE MANAGER & DAILY ROLL-CALL MODAL (MINIMAL & LESSONS INTEGRATED) */}
+        {isAttendanceModalOpen && (() => {
+          const currentCourse = courses.find((c) => c.id === attendanceCourseId) || courses[0];
+          const totalEnrolled = attendanceEnrolledStudents.length;
+          const onsiteEnrolled = attendanceEnrolledStudents.filter((s) => (s.format || '').toLowerCase().includes('onsite')).length;
+          const onlineEnrolled = attendanceEnrolledStudents.filter((s) => (s.format || '').toLowerCase().includes('online')).length;
+          const presentCount = attendanceEnrolledStudents.filter((s) => (attendanceRecords[s.id] || 'present') === 'present').length;
+          const lateCount = attendanceEnrolledStudents.filter((s) => attendanceRecords[s.id] === 'late').length;
+          const absentCount = attendanceEnrolledStudents.filter((s) => attendanceRecords[s.id] === 'absent').length;
+          const currentRatePct = totalEnrolled > 0 ? Math.round(((presentCount + lateCount * 0.75) / totalEnrolled) * 100) : 0;
+
+          const filteredStudents = attendanceEnrolledStudents.filter((s) => {
+            const fmt = (s.format || 'online').toLowerCase();
+            if (attendanceFormatFilter === 'all') return true;
+            return fmt.includes(attendanceFormatFilter);
+          });
+
+          // All sessions for this course
+          const thisCourseSessions = attendanceSessions.filter((s) => s.courseId === attendanceCourseId);
+
+          // Course average attendance rate
+          let courseAvgRate = null;
+          if (thisCourseSessions.length > 0) {
+            let sum = 0;
+            thisCourseSessions.forEach((sess) => {
+              let p = 0, l = 0, a = 0;
+              if (sess.records) {
+                Object.values(sess.records).forEach((st) => {
+                  if (st === 'present') p++;
+                  else if (st === 'late') l++;
+                  else if (st === 'absent') a++;
+                });
+              }
+              const tot = p + l + a;
+              sum += tot > 0 ? ((p + l * 0.75) / tot) * 100 : 100;
+            });
+            courseAvgRate = Math.round(sum / thisCourseSessions.length);
+          }
+
+          // Unmatched historical/custom sessions for this course that aren't in availableCourseLessons
+          const unmatchedSessions = thisCourseSessions.filter((s) => {
+            if (!s.topic) return true;
+            const sTopic = s.topic.trim().toLowerCase();
+            return !availableCourseLessons.some((l) => {
+              const lTitle = (l.title || '').trim().toLowerCase();
+              return sTopic === lTitle || sTopic.includes(lTitle) || lTitle.includes(sTopic);
+            });
+          });
+
+          // Count of pending (unrecorded) curriculum lessons
+          const pendingLessonsCount = availableCourseLessons.filter((l) => {
+            const lTitle = (l.title || '').trim().toLowerCase();
+            return !thisCourseSessions.some((s) => {
+              const sTopic = (s.topic || '').trim().toLowerCase();
+              return sTopic === lTitle || sTopic.includes(lTitle) || lTitle.includes(sTopic);
+            });
+          }).length;
+
+          return (
+            <div className="fixed inset-0 bg-primary-950/70 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4">
+              <div
+                className={`bg-white rounded-2xl shadow-2xl ${
+                  attendanceModalMode === 'lessons' ? 'max-w-3xl' : 'max-w-2xl'
+                } w-full border border-sand-200 overflow-hidden flex flex-col max-h-[90vh] animate-in fade-in zoom-in-95 duration-150`}
+              >
+                {/* ========================================================= */}
+                {/* VIEW 1: COURSE LESSONS & ATTENDANCE HISTORY LIST */}
+                {/* ========================================================= */}
+                {attendanceModalMode === 'lessons' && (
+                  <>
+                    {/* Header */}
+                    <div className="px-5 py-3.5 bg-sand-50 border-b border-sand-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 rounded-xl bg-primary-900 text-white shadow-xs">
+                          <BookOpen size={17} />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h3 className="text-sm sm:text-base font-bold text-ink-900">
+                              {currentCourse?.title || 'Course Attendance'}
+                            </h3>
+                            <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-md bg-sand-200 text-ink-700">
+                              {currentCourse?.category || 'Course'}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-ink-500 mt-0.5">
+                            Instructor: <span className="font-semibold text-ink-800">{currentCourse?.instructor || 'Faculty Scholar'}</span> • {totalEnrolled} Enrolled • Mode: <span className="capitalize font-semibold text-ink-800">{currentCourse?.format || 'Hybrid'}</span>
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 self-end sm:self-center">
+                        {/* Course Switcher */}
+                        <select
+                          value={attendanceCourseId}
+                          onChange={(e) => handleAttendanceCourseChange(e.target.value)}
+                          className="px-2.5 py-1.5 text-xs border border-sand-300 rounded-lg bg-white font-semibold text-ink-900 focus:outline-none focus:ring-2 focus:ring-primary-500/20 cursor-pointer max-w-[190px] truncate"
+                        >
+                          {courses.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.title}
+                            </option>
+                          ))}
+                        </select>
+
+                        <button
+                          type="button"
+                          onClick={() => setIsAttendanceModalOpen(false)}
+                          className="p-1.5 rounded-lg text-ink-400 hover:text-ink-700 hover:bg-sand-200/60 transition-colors cursor-pointer"
+                        >
+                          <X size={18} />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Minimal Metrics Telemetry Strip */}
+                    <div className="px-5 py-2.5 bg-sand-50/60 border-b border-sand-200 grid grid-cols-2 sm:grid-cols-4 gap-2 shrink-0">
+                      <div className="bg-white px-3 py-1.5 rounded-lg border border-sand-200">
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-ink-500">Curriculum</div>
+                        <div className="text-xs font-bold text-ink-900 mt-0.5">{availableCourseLessons.length} Lessons</div>
+                      </div>
+                      <div className="bg-white px-3 py-1.5 rounded-lg border border-sand-200">
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-ink-500">Sessions Logged</div>
+                        <div className="text-xs font-bold text-emerald-800 mt-0.5">{thisCourseSessions.length} Recorded</div>
+                      </div>
+                      <div className="bg-white px-3 py-1.5 rounded-lg border border-sand-200">
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-ink-500">Unrecorded</div>
+                        <div className="text-xs font-bold text-ink-700 mt-0.5">{pendingLessonsCount} Pending</div>
+                      </div>
+                      <div className="bg-white px-3 py-1.5 rounded-lg border border-sand-200">
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-ink-500">Attendance Rate</div>
+                        <div className={`text-xs font-bold mt-0.5 ${courseAvgRate !== null && courseAvgRate >= 85 ? 'text-emerald-800' : 'text-amber-800'}`}>
+                          {courseAvgRate !== null ? `${courseAvgRate}% Avg` : '—'}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Sub Navigation Bar inside Modal */}
+                    <div className="px-5 border-b border-sand-200 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 shrink-0">
+                      <div className="flex items-center gap-4">
+                        <button
+                          type="button"
+                          onClick={() => setAttendanceLessonsTab('lessons')}
+                          className={`py-2.5 text-xs font-bold border-b-2 transition-colors cursor-pointer ${
+                            attendanceLessonsTab === 'lessons'
+                              ? 'border-primary-900 text-primary-950'
+                              : 'border-transparent text-ink-400 hover:text-ink-700'
+                          }`}
+                        >
+                          Course Lessons ({availableCourseLessons.length})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setAttendanceLessonsTab('history')}
+                          className={`py-2.5 text-xs font-bold border-b-2 transition-colors cursor-pointer ${
+                            attendanceLessonsTab === 'history'
+                              ? 'border-primary-900 text-primary-950'
+                              : 'border-transparent text-ink-400 hover:text-ink-700'
+                          }`}
+                        >
+                          Session History ({thisCourseSessions.length})
+                        </button>
+                      </div>
+
+                      <div className="flex items-center gap-2 py-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsCustomTopic(true);
+                            setAttendanceTopic('');
+                            setEditingAttendanceSessionId(null);
+                            setAttendanceModalMode('rollcall');
+                            setAttendanceActiveTab('register');
+                          }}
+                          className="inline-flex items-center gap-1 text-[11px] font-bold text-primary-900 bg-sand-100 hover:bg-sand-200 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
+                        >
+                          <Plus size={12} />
+                          Custom Session
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingAttendanceSessionId(null);
+                            setAttendanceModalMode('rollcall');
+                            setAttendanceActiveTab('upload');
+                          }}
+                          className="inline-flex items-center gap-1 text-[11px] font-bold text-ink-700 bg-sand-100 hover:bg-sand-200 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
+                        >
+                          <UploadCloud size={12} />
+                          Upload Sheet
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Lessons View Body */}
+                    <div className="flex-1 overflow-y-auto p-4 sm:p-5">
+                      {/* TAB 1: CURRICULUM LESSONS */}
+                      {attendanceLessonsTab === 'lessons' && (
+                        <div className="space-y-3">
+                          {availableCourseLessons.length === 0 ? (
+                            <div className="p-8 text-center bg-sand-50 rounded-xl border border-sand-200 space-y-2">
+                              <p className="text-xs text-ink-600 font-medium">
+                                No pre-configured syllabus lessons found for this course.
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setIsCustomTopic(true);
+                                  setAttendanceTopic('');
+                                  setEditingAttendanceSessionId(null);
+                                  setAttendanceModalMode('rollcall');
+                                }}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary-900 hover:bg-primary-800 text-white text-xs font-bold cursor-pointer"
+                              >
+                                <Plus size={13} />
+                                Take Custom Roll Call
+                              </button>
+                            </div>
+                          ) : (
+                            availableCourseLessons.map((les, idx) => {
+                              const matchedSessions = thisCourseSessions.filter((s) => {
+                                if (!s.topic) return false;
+                                const sTopic = s.topic.trim().toLowerCase();
+                                const lTitle = (les.title || '').trim().toLowerCase();
+                                return sTopic === lTitle || sTopic.includes(lTitle) || lTitle.includes(sTopic);
+                              });
+                              const hasRecorded = matchedSessions.length > 0;
+                              const latest = hasRecorded ? matchedSessions[matchedSessions.length - 1] : null;
+
+                              let presentTotal = 0;
+                              let lateTotal = 0;
+                              let absentTotal = 0;
+                              if (latest && latest.records) {
+                                Object.values(latest.records).forEach((st) => {
+                                  if (st === 'present') presentTotal++;
+                                  else if (st === 'late') lateTotal++;
+                                  else if (st === 'absent') absentTotal++;
+                                });
+                              }
+                              const sessionRate = (presentTotal + lateTotal + absentTotal) > 0
+                                ? Math.round(((presentTotal + lateTotal * 0.75) / (presentTotal + lateTotal + absentTotal)) * 100)
+                                : null;
+
+                              return (
+                                <div
+                                  key={les.id || idx}
+                                  className={`p-3 sm:p-3.5 rounded-xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                                    hasRecorded
+                                      ? 'bg-emerald-50/30 border-emerald-200/80 hover:border-emerald-300'
+                                      : 'bg-white border-sand-200 hover:border-sand-300'
+                                  }`}
+                                >
+                                  <div className="flex items-start gap-3 min-w-0">
+                                    <div
+                                      className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs shrink-0 mt-0.5 ${
+                                        hasRecorded
+                                          ? 'bg-emerald-100 text-emerald-900 border border-emerald-200'
+                                          : 'bg-sand-100 text-ink-600 border border-sand-200'
+                                      }`}
+                                    >
+                                      {idx + 1}
+                                    </div>
+                                    <div className="min-w-0">
+                                      <h4 className="text-xs font-bold text-ink-900 truncate sm:whitespace-normal">
+                                        {les.title}
+                                      </h4>
+                                      <div className="flex flex-wrap items-center gap-2 mt-1 text-[11px] text-ink-500">
+                                        {les.duration && <span>{les.duration}</span>}
+                                        {hasRecorded ? (
+                                          <>
+                                            <span>•</span>
+                                            <span className="font-semibold text-emerald-800">
+                                              Recorded on {latest.date} ({latest.deliveryMode || 'hybrid'})
+                                            </span>
+                                            <span>•</span>
+                                            <span className="font-bold text-ink-700">
+                                              {presentTotal} Present • {absentTotal} Absent ({sessionRate}%)
+                                            </span>
+                                          </>
+                                        ) : (
+                                          <>
+                                            <span>•</span>
+                                            <span className="text-ink-400">Not yet recorded</span>
+                                          </>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                                    {hasRecorded ? (
+                                      <>
+                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 font-bold text-[10px]">
+                                          <Check size={11} />
+                                          Recorded
+                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleViewSessionAttendance(latest)}
+                                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-sand-300 bg-white hover:bg-sand-100 text-ink-800 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+                                          title="View & inspect recorded student roll call for this lesson"
+                                        >
+                                          <Eye size={13} />
+                                          View Attendance
+                                        </button>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-sand-100 text-ink-500 font-semibold text-[10px]">
+                                          Pending
+                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleStartLessonAttendance(les)}
+                                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary-900 hover:bg-primary-800 text-white text-xs font-bold transition-all shadow-xs cursor-pointer"
+                                          title="Mark attendance for this lesson"
+                                        >
+                                          <ClipboardCheck size={13} />
+                                          Mark Attendance
+                                        </button>
+                                      </>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })
+                          )}
+
+                          {/* Historical or Additional Custom Sessions for this Course */}
+                          {unmatchedSessions.length > 0 && (
+                            <div className="pt-3 border-t border-sand-200 space-y-2 mt-4">
+                              <div className="flex items-center justify-between">
+                                <h5 className="text-[11px] font-bold uppercase tracking-wider text-ink-600">
+                                  Additional Recorded Sessions ({unmatchedSessions.length})
+                                </h5>
+                                <span className="text-[11px] text-ink-400">
+                                  Custom or historical lectures recorded for this course
+                                </span>
+                              </div>
+                              {unmatchedSessions.map((sess) => {
+                                let presentTotal = 0;
+                                let absentTotal = 0;
+                                let lateTotal = 0;
+                                if (sess.records) {
+                                  Object.values(sess.records).forEach((st) => {
+                                    if (st === 'present') presentTotal++;
+                                    else if (st === 'late') lateTotal++;
+                                    else if (st === 'absent') absentTotal++;
+                                  });
+                                }
+                                const sRate = (presentTotal + lateTotal + absentTotal) > 0
+                                  ? Math.round(((presentTotal + lateTotal * 0.75) / (presentTotal + lateTotal + absentTotal)) * 100)
+                                  : null;
+
+                                return (
+                                  <div
+                                    key={sess.id}
+                                    className="p-3 bg-emerald-50/20 rounded-xl border border-emerald-200/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs"
+                                  >
+                                    <div className="flex items-center gap-2.5 min-w-0">
+                                      <div className="p-1.5 rounded-lg bg-emerald-100 text-emerald-900 shrink-0">
+                                        <Calendar size={14} />
+                                      </div>
+                                      <div className="truncate">
+                                        <div className="font-bold text-ink-900 truncate">{sess.topic}</div>
+                                        <div className="text-[11px] text-ink-500 mt-0.5">
+                                          {sess.date} • {sess.deliveryMode || 'hybrid'} • {presentTotal} Present, {absentTotal} Absent ({sRate}%)
+                                        </div>
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 font-bold text-[10px]">
+                                        <Check size={11} />
+                                        Recorded
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleViewSessionAttendance(sess)}
+                                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-sand-300 bg-white hover:bg-sand-100 text-ink-800 text-xs font-bold transition-colors cursor-pointer"
+                                      >
+                                        <Eye size={12} />
+                                        View Attendance
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* TAB 2: COURSE SESSION HISTORY TABLE */}
+                      {attendanceLessonsTab === 'history' && (
+                        <div className="space-y-3">
+                          {thisCourseSessions.length === 0 ? (
+                            <div className="py-10 text-center text-xs text-ink-500">
+                              No attendance sessions logged yet for this course. Click "Mark Attendance" on any lesson to record your first roll call.
+                            </div>
+                          ) : (
+                            <div className="overflow-x-auto rounded-xl border border-sand-200">
+                              <table className="w-full text-left text-sm min-w-[620px]">
+                                <thead className="bg-sand-100/70 text-ink-700 text-xs font-semibold uppercase tracking-wider border-b border-sand-200">
+                                  <tr>
+                                    <th className="py-2.5 px-3">Date</th>
+                                    <th className="py-2.5 px-3">Lesson / Topic</th>
+                                    <th className="py-2.5 px-3">Mode</th>
+                                    <th className="py-2.5 px-3">Present / Absent</th>
+                                    <th className="py-2.5 px-3">Rate</th>
+                                    <th className="py-2.5 px-3 text-right">Actions</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-sand-200 text-xs">
+                                  {thisCourseSessions.map((sess) => {
+                                    let pCount = 0;
+                                    let lCount = 0;
+                                    let aCount = 0;
+                                    if (sess.records) {
+                                      Object.values(sess.records).forEach((st) => {
+                                        if (st === 'present') pCount++;
+                                        else if (st === 'late') lCount++;
+                                        else if (st === 'absent') aCount++;
+                                      });
+                                    }
+                                    const totalLogged = pCount + lCount + aCount;
+                                    const rate = totalLogged > 0 ? Math.round(((pCount + lCount * 0.75) / totalLogged) * 100) : 0;
+
+                                    return (
+                                      <tr key={sess.id} className="hover:bg-sand-50/60 transition-colors">
+                                        <td className="py-2.5 px-3 font-semibold text-ink-900 whitespace-nowrap">
+                                          {sess.date}
+                                        </td>
+                                        <td className="py-2.5 px-3 text-ink-900 font-medium max-w-xs truncate">
+                                          {sess.topic}
+                                        </td>
+                                        <td className="py-2.5 px-3 uppercase text-[10px] font-bold text-ink-600 whitespace-nowrap">
+                                          {sess.deliveryMode || 'hybrid'}
+                                        </td>
+                                        <td className="py-2.5 px-3 text-ink-700 whitespace-nowrap">
+                                          <span className="font-semibold text-emerald-800">{pCount} Present</span>
+                                          {aCount > 0 && <span className="ml-1 text-rose-700 font-semibold">• {aCount} Absent</span>}
+                                        </td>
+                                        <td className="py-2.5 px-3 font-bold whitespace-nowrap">
+                                          <span className={rate >= 85 ? 'text-emerald-800' : 'text-amber-800'}>
+                                            {rate}%
+                                          </span>
+                                        </td>
+                                        <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                                          <div className="flex items-center justify-end gap-1.5">
+                                            <button
+                                              type="button"
+                                              onClick={() => handleViewSessionAttendance(sess)}
+                                              className="px-2.5 py-1 rounded-md bg-sand-100 hover:bg-sand-200 text-ink-800 font-bold text-[11px] transition-colors cursor-pointer"
+                                            >
+                                              View / Edit
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() => handleDeleteAttendanceSession(sess.id)}
+                                              className="p-1 rounded-md text-ink-400 hover:text-rose-700 hover:bg-rose-50 transition-colors cursor-pointer"
+                                              title="Delete session"
+                                            >
+                                              <Trash2 size={13} />
+                                            </button>
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Lessons View Footer */}
+                    <div className="px-5 py-3 bg-sand-50 border-t border-sand-200 flex items-center justify-between shrink-0">
+                      <div className="text-xs text-ink-500">
+                        {attendanceToast ? (
+                          <span className="font-bold text-emerald-800">• {attendanceToast}</span>
+                        ) : (
+                          'Select any lesson to mark attendance or click "View Attendance" to inspect student records.'
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setIsAttendanceModalOpen(false)}
+                        className="px-4 py-1.5 rounded-lg bg-sand-200 hover:bg-sand-300 text-ink-800 text-xs font-semibold cursor-pointer transition-colors"
+                      >
+                        Close
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                {/* ========================================================= */}
+                {/* VIEW 2: DAILY ROLL CALL / ATTENDANCE REGISTER */}
+                {/* ========================================================= */}
+                {attendanceModalMode === 'rollcall' && (
+                  <>
+                    {/* Header */}
+                    <div className="px-5 py-3.5 bg-sand-50 border-b border-sand-200 flex items-center justify-between shrink-0">
+                      <div className="flex items-center gap-2.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAttendanceModalMode('lessons');
+                            setEditingAttendanceSessionId(null);
+                          }}
+                          className="inline-flex items-center gap-1.5 text-xs font-bold text-ink-700 hover:text-ink-900 bg-sand-100 hover:bg-sand-200 border border-sand-300 px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer mr-1"
+                          title="Return to course lessons list"
+                        >
+                          <ArrowLeft size={13} />
+                          Back to Lessons
+                        </button>
+                        <div>
+                          <h3 className="text-sm font-bold text-ink-900">
+                            {editingAttendanceSessionId ? 'View / Edit Lesson Attendance' : 'Mark Lesson Attendance'}
+                          </h3>
+                          <p className="text-[11px] text-ink-500">
+                            {currentCourse?.title} • {attendanceTopic || 'Selected Lesson'}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setIsAttendanceModalOpen(false)}
+                        className="p-1 rounded-lg text-ink-400 hover:text-ink-700 hover:bg-sand-200/60 transition-colors cursor-pointer"
+                      >
+                        <X size={18} />
+                      </button>
+                    </div>
+
+                {/* Session Configuration (Compact Row) */}
+                <div className="p-4 bg-sand-50/40 border-b border-sand-200 space-y-2.5 shrink-0">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    <div>
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-ink-500 block mb-1">
+                        Course
+                      </label>
+                      <select
+                        value={attendanceCourseId}
+                        onChange={(e) => handleAttendanceCourseChange(e.target.value)}
+                        className="w-full px-2.5 py-1.5 text-xs border border-sand-300 rounded-lg bg-white font-semibold text-ink-900 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                      >
+                        {courses.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.title}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-ink-500 block mb-1">
+                        Date
+                      </label>
+                      <input
+                        type="date"
+                        value={attendanceDate}
+                        onChange={(e) => setAttendanceDate(e.target.value)}
+                        className="w-full px-2.5 py-1.5 text-xs border border-sand-300 rounded-lg bg-white font-semibold text-ink-900 focus:outline-none focus:ring-2 focus:ring-primary-500/20 cursor-pointer"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-ink-500 block mb-1">
+                        Delivery Mode
+                      </label>
+                      <select
+                        value={attendanceDeliveryMode}
+                        onChange={(e) => setAttendanceDeliveryMode(e.target.value)}
+                        className="w-full px-2.5 py-1.5 text-xs border border-sand-300 rounded-lg bg-white font-semibold text-ink-900 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                      >
+                        <option value="hybrid">Hybrid (Both)</option>
+                        <option value="onsite">Onsite (DHA)</option>
+                        <option value="online">Online (Meet)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-ink-500">
+                        Lecture / Topic
+                      </label>
+                      {availableCourseLessons.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const next = !isCustomTopic;
+                            setIsCustomTopic(next);
+                            if (next) {
+                              setAttendanceTopic('');
+                            } else if (availableCourseLessons[0]) {
+                              setAttendanceTopic(availableCourseLessons[0].title);
+                            }
+                          }}
+                          className="text-[10px] text-primary-800 hover:underline font-semibold cursor-pointer"
+                        >
+                          {isCustomTopic ? '← Select from Course Lessons' : '+ Custom Topic'}
+                        </button>
+                      )}
+                    </div>
+
+                    {!isCustomTopic && availableCourseLessons.length > 0 ? (
+                      <select
+                        value={attendanceTopic}
+                        onChange={(e) => setAttendanceTopic(e.target.value)}
+                        className="w-full px-2.5 py-1.5 text-xs border border-sand-300 rounded-lg bg-white font-semibold text-ink-900 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                      >
+                        {availableCourseLessons.map((l, i) => (
+                          <option key={l.id || i} value={l.title}>
+                            {l.title}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        type="text"
+                        value={attendanceTopic}
+                        onChange={(e) => setAttendanceTopic(e.target.value)}
+                        placeholder="e.g. Lesson 4: The Definite Noun or Exam Review"
+                        className="w-full px-2.5 py-1.5 text-xs border border-sand-300 rounded-lg bg-white font-semibold text-ink-900 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                      />
+                    )}
+                  </div>
+                </div>
+
+                {/* Sub Tabs */}
+                <div className="px-5 border-b border-sand-200 bg-white flex items-center justify-between shrink-0">
+                  <div className="flex items-center gap-4">
+                    <button
+                      type="button"
+                      onClick={() => setAttendanceActiveTab('register')}
+                      className={`py-2.5 text-xs font-bold border-b-2 transition-colors cursor-pointer ${
+                        attendanceActiveTab === 'register'
+                          ? 'border-primary-900 text-primary-950'
+                          : 'border-transparent text-ink-400 hover:text-ink-700'
+                      }`}
+                    >
+                      Roll Call ({totalEnrolled})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAttendanceActiveTab('upload')}
+                      className={`py-2.5 text-xs font-bold border-b-2 flex items-center gap-1.5 transition-colors cursor-pointer ${
+                        attendanceActiveTab === 'upload'
+                          ? 'border-primary-900 text-primary-950'
+                          : 'border-transparent text-ink-400 hover:text-ink-700'
+                      }`}
+                    >
+                      Upload Sheet
+                      {attendanceParseResult && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Modal Body */}
+                <div className="flex-1 overflow-y-auto p-4 sm:p-5">
+                  {/* TAB 1: ROLL CALL */}
+                  {attendanceActiveTab === 'register' && (
+                    <div className="space-y-3">
+                      {/* Single Compact Toolbar Row */}
+                      <div className="flex flex-wrap items-center justify-between gap-2 pb-1">
+                        <div className="flex items-center gap-1 bg-sand-100 p-0.5 rounded-lg">
+                          <button
+                            type="button"
+                            onClick={() => setAttendanceFormatFilter('all')}
+                            className={`px-2 py-1 text-[11px] font-semibold rounded-md transition-all cursor-pointer ${
+                              attendanceFormatFilter === 'all'
+                                ? 'bg-white text-ink-900 shadow-xs font-bold'
+                                : 'text-ink-600 hover:text-ink-900'
+                            }`}
+                          >
+                            All ({totalEnrolled})
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setAttendanceFormatFilter('onsite')}
+                            className={`px-2 py-1 text-[11px] font-semibold rounded-md transition-all cursor-pointer ${
+                              attendanceFormatFilter === 'onsite'
+                                ? 'bg-white text-ink-900 shadow-xs font-bold'
+                                : 'text-ink-600 hover:text-ink-900'
+                            }`}
+                          >
+                            Onsite ({onsiteEnrolled})
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setAttendanceFormatFilter('online')}
+                            className={`px-2 py-1 text-[11px] font-semibold rounded-md transition-all cursor-pointer ${
+                              attendanceFormatFilter === 'online'
+                                ? 'bg-white text-ink-900 shadow-xs font-bold'
+                                : 'text-ink-600 hover:text-ink-900'
+                            }`}
+                          >
+                            Online ({onlineEnrolled})
+                          </button>
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleMarkAllAttendance('present', 'all')}
+                            className="text-[11px] font-semibold text-emerald-800 hover:text-emerald-950 px-2 py-1 rounded hover:bg-emerald-50 transition-colors cursor-pointer"
+                          >
+                            Mark All Present
+                          </button>
+                          <span className="text-sand-300">•</span>
+                          <button
+                            type="button"
+                            onClick={() => handleMarkAllAttendance('absent', 'all')}
+                            className="text-[11px] font-semibold text-rose-700 hover:text-rose-900 px-2 py-1 rounded hover:bg-rose-50 transition-colors cursor-pointer"
+                          >
+                            Mark All Absent
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Roster List */}
+                      {totalEnrolled === 0 ? (
+                        <div className="p-6 text-center text-xs text-ink-500 bg-sand-50 rounded-xl">
+                          No students enrolled in this course.
+                        </div>
+                      ) : (
+                        <div className="divide-y divide-sand-100 rounded-xl border border-sand-200 overflow-hidden">
+                          {filteredStudents.map((std) => {
+                            const status = attendanceRecords[std.id] || 'present';
+                            const initial = (std.name || 'S').charAt(0).toUpperCase();
+
+                            return (
+                              <div
+                                key={std.id}
+                                className="p-3 flex items-center justify-between gap-3 hover:bg-sand-50/50 transition-colors"
+                              >
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                  <div className="w-7 h-7 rounded-full bg-sand-200 text-ink-800 font-bold flex items-center justify-center text-[11px] shrink-0">
+                                    {initial}
+                                  </div>
+                                  <div className="min-w-0">
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="text-xs font-bold text-ink-900 truncate">{std.name}</span>
+                                      <span className="px-1.5 py-0.2 rounded text-[9px] font-semibold bg-sand-100 text-ink-600 uppercase">
+                                        {std.format || 'online'}
+                                      </span>
+                                    </div>
+                                    <div className="text-[11px] text-ink-400 truncate">{std.email}</div>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSetStudentAttendance(std.id, 'present')}
+                                    className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all cursor-pointer ${
+                                      status === 'present'
+                                        ? 'bg-emerald-600 text-white font-bold shadow-xs'
+                                        : 'bg-sand-100 text-ink-600 hover:bg-sand-200'
+                                    }`}
+                                  >
+                                    Present
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSetStudentAttendance(std.id, 'late')}
+                                    className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all cursor-pointer ${
+                                      status === 'late'
+                                        ? 'bg-amber-500 text-white font-bold shadow-xs'
+                                        : 'bg-sand-100 text-ink-600 hover:bg-sand-200'
+                                    }`}
+                                  >
+                                    Late
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSetStudentAttendance(std.id, 'absent')}
+                                    className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all cursor-pointer ${
+                                      status === 'absent'
+                                        ? 'bg-rose-600 text-white font-bold shadow-xs'
+                                        : 'bg-sand-100 text-ink-600 hover:bg-sand-200'
+                                    }`}
+                                  >
+                                    Absent
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* TAB 2: UPLOAD SHEET */}
+                  {attendanceActiveTab === 'upload' && (
+                    <div className="space-y-3.5 text-xs">
+                      <div className="p-3 bg-sand-50 rounded-xl border border-sand-200 text-ink-600">
+                        Upload or paste Google Meet CSV attendance. Attendees will automatically match by email/name.
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <label className="p-4 rounded-xl border-2 border-dashed border-sand-300 hover:border-sand-400 flex flex-col items-center justify-center text-center cursor-pointer space-y-1.5 transition-colors">
+                          <UploadCloud size={20} className="text-ink-400" />
+                          <span className="font-semibold text-ink-800">Upload CSV file</span>
+                          <span className="text-[10px] text-ink-400">Google Meet or Roll-call CSV</span>
+                          <input
+                            type="file"
+                            accept=".csv,.tsv,.txt"
+                            onChange={handleAttendanceFileUpload}
+                            className="hidden"
+                          />
+                        </label>
+
+                        <div className="space-y-1.5">
+                          <textarea
+                            rows={4}
+                            value={attendanceSheetText}
+                            onChange={(e) => setAttendanceSheetText(e.target.value)}
+                            placeholder="Or paste attendee emails or CSV rows here..."
+                            className="w-full p-2.5 text-xs font-mono border border-sand-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                          />
+                          <button
+                            type="button"
+                            onClick={handleParseAttendanceSheet}
+                            disabled={!attendanceSheetText.trim()}
+                            className="w-full py-1.5 px-3 text-xs font-bold rounded-lg bg-sand-200 hover:bg-sand-300 text-ink-800 transition-colors disabled:opacity-50 cursor-pointer"
+                          >
+                            Parse Pasted Text
+                          </button>
+                        </div>
+                      </div>
+
+                      {attendanceParseResult && (
+                        <div className="p-3.5 bg-sand-50 rounded-xl border border-sand-200 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-xs text-ink-900">
+                              Matched: {attendanceParseResult.matched.length} of {totalEnrolled} enrolled
+                            </span>
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => handleApplyParsedAttendance('safe_hybrid')}
+                                className="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition-all cursor-pointer"
+                              >
+                                Sync Online (Keep Onsite)
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleApplyParsedAttendance('all')}
+                                className="px-2.5 py-1 rounded-lg bg-sand-200 hover:bg-sand-300 text-ink-800 font-semibold text-xs transition-colors cursor-pointer"
+                              >
+                                Full Override
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Unmatched / External Attendees */}
+                          {attendanceParseResult.unmatchedRows?.length > 0 && (
+                            <div className="pt-2.5 border-t border-sand-200 space-y-2">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-1.5">
+                                  <AlertCircle className="w-3.5 h-3.5 text-amber-700" />
+                                  <span className="text-xs font-bold text-amber-900">
+                                    {attendanceParseResult.unmatchedRows.length} Unmatched {attendanceParseResult.unmatchedRows.length === 1 ? 'Attendee' : 'Attendees'} (Not in Course Roster)
+                                  </span>
+                                </div>
+                                <span className="text-[11px] text-ink-500">
+                                  Ask in class to identify students who joined with alternate emails
+                                </span>
+                              </div>
+                              <div className="max-h-36 overflow-y-auto space-y-1 pr-1">
+                                {attendanceParseResult.unmatchedRows.map((unmatched, uIdx) => (
+                                  <div
+                                    key={uIdx}
+                                    className="flex items-center justify-between px-2.5 py-1.5 bg-white border border-sand-200 rounded-lg text-xs"
+                                  >
+                                    <div className="flex items-center gap-2 min-w-0">
+                                      <div className="w-5 h-5 rounded-full bg-sand-100 text-ink-600 font-bold text-[10px] flex items-center justify-center shrink-0">
+                                        {(unmatched.detectedName?.[0] || unmatched.detectedEmail?.[0] || '?').toUpperCase()}
+                                      </div>
+                                      <div className="truncate">
+                                        <span className="font-semibold text-ink-900">
+                                          {unmatched.detectedName || 'Unknown Name'}
+                                        </span>
+                                        {unmatched.detectedEmail && (
+                                          <span className="ml-1.5 text-ink-500 font-mono text-[11px]">
+                                            &lt;{unmatched.detectedEmail}&gt;
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setAttendanceActiveTab('register');
+                                        setAttendanceToast(`Check roster for: ${unmatched.detectedName || unmatched.detectedEmail}`);
+                                        setTimeout(() => setAttendanceToast(''), 4000);
+                                      }}
+                                      className="ml-2 px-2 py-0.5 text-[11px] font-semibold text-primary-900 bg-sand-100 hover:bg-sand-200 rounded transition-colors shrink-0 cursor-pointer"
+                                    >
+                                      Mark in Roll Call &rarr;
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Footer */}
+                <div className="px-5 py-3 bg-sand-50 border-t border-sand-200 flex items-center justify-between shrink-0">
+                  <div className="text-xs text-ink-600 font-medium">
+                    {presentCount} of {totalEnrolled} Present ({currentRatePct}%)
+                    {attendanceToast && (
+                      <span className="ml-2 font-bold text-emerald-800">
+                        • {attendanceToast}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAttendanceModalMode('lessons');
+                        setEditingAttendanceSessionId(null);
+                      }}
+                      className="px-3.5 py-1.5 rounded-lg text-ink-600 hover:bg-sand-200/80 text-xs font-semibold cursor-pointer transition-colors"
+                    >
+                      Back to Lessons
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveAttendance}
+                      className="px-4 py-1.5 rounded-lg bg-primary-900 hover:bg-primary-800 text-white text-xs font-bold shadow-xs transition-all cursor-pointer"
+                    >
+                      {editingAttendanceSessionId ? 'Save & Update Session' : 'Save Attendance'}
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      );
+    })()}
+
 
         {/* ADD / EDIT INSTRUCTOR MODAL */}
         {isInstructorModalOpen && (
@@ -6405,149 +7886,113 @@ export default function AdminDashboard() {
           const totalChallansToCreate = targetStudentList.length * (createPlanMode === 'plan' ? milestones.length : 1);
 
           return (
-            <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-fadeIn">
-              <div className="bg-white rounded-2xl max-w-3xl w-full border border-sand-300 shadow-2xl overflow-hidden my-6 flex flex-col max-h-[92vh]">
+            <div className="fixed inset-0 z-50 bg-ink-950/40 backdrop-blur-2xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-fadeIn">
+              <div className="bg-white rounded-2xl max-w-2xl w-full border border-sand-200 shadow-xl overflow-hidden my-6 flex flex-col max-h-[90vh]">
                 {/* Modal Header */}
-                <div className="px-6 py-4 bg-sand-50 border-b border-sand-200 flex items-center justify-between shrink-0">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-[#0B3324]/10 text-[#0B3324] flex items-center justify-center shrink-0 border border-[#0B3324]/20">
-                      <Layers size={20} />
-                    </div>
-                    <div>
-                      <h3 className="font-heading text-lg font-bold text-ink-900">
-                        Create Fee Installments &amp; Payment Plans
-                      </h3>
-                      <p className="text-xs text-ink-500">
-                        Configure multi-stage installment plans (e.g. 2, 3, or 4 installments) or single custom milestones with scheduled deadlines.
-                      </p>
-                    </div>
+                <div className="px-5 py-4 bg-white border-b border-sand-200 flex items-center justify-between shrink-0">
+                  <div>
+                    <h3 className="font-heading text-base font-bold text-ink-900">
+                      Create Fee Installments
+                    </h3>
+                    <p className="text-xs text-ink-500 mt-0.5">
+                      Configure installment schedules and assign payment milestones to students.
+                    </p>
                   </div>
                   <button
                     type="button"
                     onClick={() => setShowCreateInstallmentModal(false)}
-                    className="p-1.5 rounded-lg text-ink-400 hover:text-ink-900 hover:bg-sand-200 transition-colors cursor-pointer"
+                    className="p-1.5 rounded-lg text-ink-400 hover:text-ink-700 hover:bg-sand-100 transition-colors cursor-pointer"
                   >
                     <X size={18} />
                   </button>
                 </div>
 
-                <form onSubmit={handleCreateInstallmentsSubmit} className="p-6 overflow-y-auto space-y-6 flex-1">
-                  {/* Step 1: Mode Switcher (Multi-Installment Plan vs Single Milestone) */}
-                  <div>
-                    <label className="text-xs font-bold text-ink-800 uppercase tracking-wider block mb-2">
-                      Installment Configuration Mode
-                    </label>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                      <button
-                        type="button"
-                        onClick={() => setCreatePlanMode('plan')}
-                        className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex items-start gap-3 ${
-                          createPlanMode === 'plan'
-                            ? 'bg-[#0B3324]/5 border-[#0B3324] ring-2 ring-[#0B3324]/20 shadow-xs'
-                            : 'bg-sand-50/70 border-sand-200 hover:bg-sand-100 text-ink-600'
-                        }`}
-                      >
-                        <div className={`p-2 rounded-lg ${createPlanMode === 'plan' ? 'bg-[#0B3324] text-white' : 'bg-sand-200 text-ink-600'}`}>
-                          <Split size={16} />
-                        </div>
-                        <div>
-                          <div className="font-bold text-xs text-ink-900 flex items-center gap-1.5">
-                            <span>Multi-Installment Plan</span>
-                            <span className="text-[10px] px-1.5 py-0.2 rounded font-extrabold bg-emerald-100 text-emerald-800">
-                              Recommended
-                            </span>
-                          </div>
-                          <p className="text-[11px] text-ink-500 mt-0.5">
-                            Auto-split total program fee into 2, 3, 4, or custom milestones with progressive due dates.
-                          </p>
-                        </div>
-                      </button>
+                <form onSubmit={handleCreateInstallmentsSubmit} className="p-5 overflow-y-auto space-y-4 flex-1 text-xs">
+                  {/* Mode Toggle: Multi-Installment vs Single Milestone */}
+                  <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-sand-100 border border-sand-200">
+                    <button
+                      type="button"
+                      onClick={() => setCreatePlanMode('plan')}
+                      className={`py-1.5 px-3 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                        createPlanMode === 'plan'
+                          ? 'bg-white text-ink-900 shadow-2xs font-bold'
+                          : 'text-ink-600 hover:text-ink-900'
+                      }`}
+                    >
+                      <Split size={13} />
+                      <span>Multi-Installment Plan</span>
+                    </button>
 
-                      <button
-                        type="button"
-                        onClick={() => setCreatePlanMode('single')}
-                        className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex items-start gap-3 ${
-                          createPlanMode === 'single'
-                            ? 'bg-[#0B3324]/5 border-[#0B3324] ring-2 ring-[#0B3324]/20 shadow-xs'
-                            : 'bg-sand-50/70 border-sand-200 hover:bg-sand-100 text-ink-600'
-                        }`}
-                      >
-                        <div className={`p-2 rounded-lg ${createPlanMode === 'single' ? 'bg-[#0B3324] text-white' : 'bg-sand-200 text-ink-600'}`}>
-                          <Receipt size={16} />
-                        </div>
-                        <div>
-                          <div className="font-bold text-xs text-ink-900">
-                            Single Milestone Installment
-                          </div>
-                          <p className="text-[11px] text-ink-500 mt-0.5">
-                            Create a single standalone installment challan (e.g. registration fee or late exam fee).
-                          </p>
-                        </div>
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setCreatePlanMode('single')}
+                      className={`py-1.5 px-3 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                        createPlanMode === 'single'
+                          ? 'bg-white text-ink-900 shadow-2xs font-bold'
+                          : 'text-ink-600 hover:text-ink-900'
+                      }`}
+                    >
+                      <Receipt size={13} />
+                      <span>Single Milestone</span>
+                    </button>
                   </div>
 
-                  {/* Step 2: Target Students Assignment */}
-                  <div className="p-4 rounded-xl bg-sand-50/70 border border-sand-200 space-y-3">
-                    <label className="text-xs font-bold text-ink-800 uppercase tracking-wider block">
-                      Target Student Assignment
-                    </label>
+                  {/* Target Student Assignment */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-ink-400 uppercase tracking-wider">
+                        Target Students
+                      </span>
+                      <span className="text-[11px] font-semibold text-ink-500">
+                        {targetStudentList.length} Selected
+                      </span>
+                    </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                      <label className={`flex items-center gap-2 p-2.5 rounded-xl border text-xs font-semibold cursor-pointer transition-all ${
-                        targetStudentMode === 'all'
-                          ? 'bg-white border-[#0B3324] text-[#0B3324] shadow-xs ring-1 ring-[#0B3324]'
-                          : 'bg-white/60 border-sand-200 text-ink-700 hover:bg-white'
-                      }`}>
-                        <input
-                          type="radio"
-                          name="targetStudentMode"
-                          checked={targetStudentMode === 'all'}
-                          onChange={() => setTargetStudentMode('all')}
-                          className="text-[#0B3324] focus:ring-[#0B3324]"
-                        />
-                        <span>All Students ({students.length})</span>
-                      </label>
+                    <div className="grid grid-cols-3 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setTargetStudentMode('all')}
+                        className={`py-1.5 px-2.5 rounded-xl border text-xs font-semibold cursor-pointer transition-all ${
+                          targetStudentMode === 'all'
+                            ? 'bg-primary-900 text-white border-primary-900 shadow-2xs font-bold'
+                            : 'bg-white border-sand-200 text-ink-700 hover:bg-sand-50'
+                        }`}
+                      >
+                        All ({students.length})
+                      </button>
 
-                      <label className={`flex items-center gap-2 p-2.5 rounded-xl border text-xs font-semibold cursor-pointer transition-all ${
-                        targetStudentMode === 'program'
-                          ? 'bg-white border-[#0B3324] text-[#0B3324] shadow-xs ring-1 ring-[#0B3324]'
-                          : 'bg-white/60 border-sand-200 text-ink-700 hover:bg-white'
-                      }`}>
-                        <input
-                          type="radio"
-                          name="targetStudentMode"
-                          checked={targetStudentMode === 'program'}
-                          onChange={() => setTargetStudentMode('program')}
-                          className="text-[#0B3324] focus:ring-[#0B3324]"
-                        />
-                        <span>By Program / Cohort</span>
-                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setTargetStudentMode('program')}
+                        className={`py-1.5 px-2.5 rounded-xl border text-xs font-semibold cursor-pointer transition-all ${
+                          targetStudentMode === 'program'
+                            ? 'bg-primary-900 text-white border-primary-900 shadow-2xs font-bold'
+                            : 'bg-white border-sand-200 text-ink-700 hover:bg-sand-50'
+                        }`}
+                      >
+                        By Program
+                      </button>
 
-                      <label className={`flex items-center gap-2 p-2.5 rounded-xl border text-xs font-semibold cursor-pointer transition-all ${
-                        targetStudentMode === 'specific'
-                          ? 'bg-white border-[#0B3324] text-[#0B3324] shadow-xs ring-1 ring-[#0B3324]'
-                          : 'bg-white/60 border-sand-200 text-ink-700 hover:bg-white'
-                      }`}>
-                        <input
-                          type="radio"
-                          name="targetStudentMode"
-                          checked={targetStudentMode === 'specific'}
-                          onChange={() => setTargetStudentMode('specific')}
-                          className="text-[#0B3324] focus:ring-[#0B3324]"
-                        />
-                        <span>Specific Students ({selectedStudentIds.length})</span>
-                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setTargetStudentMode('specific')}
+                        className={`py-1.5 px-2.5 rounded-xl border text-xs font-semibold cursor-pointer transition-all ${
+                          targetStudentMode === 'specific'
+                            ? 'bg-primary-900 text-white border-primary-900 shadow-2xs font-bold'
+                            : 'bg-white border-sand-200 text-ink-700 hover:bg-sand-50'
+                        }`}
+                      >
+                        Specific ({selectedStudentIds.length})
+                      </button>
                     </div>
 
                     {/* Program dropdown if 'program' mode */}
                     {targetStudentMode === 'program' && (
-                      <div className="pt-2 flex items-center gap-3">
-                        <span className="text-xs font-medium text-ink-600 shrink-0">Filter by Program:</span>
+                      <div className="pt-1 flex items-center gap-2">
                         <select
                           value={selectedProgramFilter}
                           onChange={(e) => setSelectedProgramFilter(e.target.value)}
-                          className="px-3 py-1.5 rounded-lg border border-sand-300 bg-white text-xs font-semibold text-ink-800 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                          className="w-full px-3 py-1.5 rounded-xl border border-sand-200 bg-white text-xs font-medium text-ink-800 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
                         >
                           <option value="all">All Programs ({students.length} students)</option>
                           {uniquePrograms.map((prog) => {
@@ -6564,43 +8009,43 @@ export default function AdminDashboard() {
 
                     {/* Specific students checklist if 'specific' mode */}
                     {targetStudentMode === 'specific' && (
-                      <div className="pt-2 space-y-2">
-                        <div className="flex items-center justify-between gap-3">
+                      <div className="pt-1 space-y-1.5">
+                        <div className="flex items-center justify-between gap-2">
                           <div className="relative flex-1">
-                            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-ink-400" />
+                            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-ink-400" />
                             <input
                               type="text"
                               value={studentSearchInModal}
                               onChange={(e) => setStudentSearchInModal(e.target.value)}
-                              placeholder="Search students by name or email..."
-                              className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-sand-300 bg-white text-xs focus:outline-none focus:ring-1 focus:ring-primary-500"
+                              placeholder="Search by name or email..."
+                              className="w-full pl-7 pr-3 py-1.5 rounded-lg border border-sand-200 bg-white text-xs focus:outline-none focus:ring-2 focus:ring-primary-500/20"
                             />
                           </div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 text-[11px]">
                             <button
                               type="button"
                               onClick={() => setSelectedStudentIds(students.map((s) => s.id))}
-                              className="text-[11px] font-bold text-[#0B3324] hover:underline"
+                              className="font-semibold text-primary-900 hover:underline cursor-pointer"
                             >
-                              Select All
+                              All
                             </button>
-                            <span className="text-sand-300">|</span>
+                            <span className="text-sand-300">•</span>
                             <button
                               type="button"
                               onClick={() => setSelectedStudentIds([])}
-                              className="text-[11px] font-bold text-ink-500 hover:underline"
+                              className="font-semibold text-ink-500 hover:underline cursor-pointer"
                             >
-                              Clear
+                              None
                             </button>
                           </div>
                         </div>
 
-                        <div className="max-h-44 overflow-y-auto border border-sand-200 rounded-xl bg-white p-2 divide-y divide-sand-100">
+                        <div className="max-h-36 overflow-y-auto border border-sand-200 rounded-xl bg-white p-1 divide-y divide-sand-100">
                           {filteredStudentsForModal.map((std) => {
                             const isChecked = selectedStudentIds.includes(std.id);
                             return (
-                              <label key={std.id} className="flex items-center justify-between py-1.5 px-2 hover:bg-sand-50 rounded-lg cursor-pointer">
-                                <div className="flex items-center gap-2.5 min-w-0">
+                              <label key={std.id} className="flex items-center justify-between py-1 px-2 hover:bg-sand-50 rounded-lg cursor-pointer">
+                                <div className="flex items-center gap-2 min-w-0">
                                   <input
                                     type="checkbox"
                                     checked={isChecked}
@@ -6610,14 +8055,14 @@ export default function AdminDashboard() {
                                         : selectedStudentIds.filter((id) => id !== std.id);
                                       setSelectedStudentIds(next);
                                     }}
-                                    className="rounded text-[#0B3324] focus:ring-[#0B3324]"
+                                    className="rounded text-primary-900 focus:ring-primary-500 accent-primary-900"
                                   />
                                   <div className="min-w-0">
                                     <span className="text-xs font-semibold text-ink-900 block truncate">{std.name}</span>
                                     <span className="text-[10px] text-ink-500 block truncate">{std.email}</span>
                                   </div>
                                 </div>
-                                <span className="text-[10px] px-2 py-0.5 rounded bg-sand-100 text-ink-600 font-medium shrink-0 ml-2">
+                                <span className="text-[10px] px-1.5 py-0.2 rounded bg-sand-100 text-ink-600 font-medium shrink-0 ml-2">
                                   {std.program || 'Ilm Foundations'}
                                 </span>
                               </label>
@@ -6628,53 +8073,50 @@ export default function AdminDashboard() {
                     )}
                   </div>
 
+                  <div className="border-t border-sand-200" />
+
                   {/* Step 3: Multi-Installment Plan Builder Form */}
                   {createPlanMode === 'plan' ? (
-                    <div className="space-y-4">
-                      {/* Quick Presets */}
+                    <div className="space-y-3">
+                      {/* Quick Presets Pills */}
                       <div>
-                        <div className="flex items-center justify-between mb-1.5">
-                          <span className="text-xs font-bold text-ink-800 uppercase tracking-wider flex items-center gap-1.5">
-                            <Sparkles size={13} className="text-amber-500" />
-                            Quick Plan Presets
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-[11px] font-bold text-ink-400 uppercase tracking-wider">
+                            Quick Presets
                           </span>
-                          <span className="text-[11px] text-ink-500">Click to instantly populate plan</span>
                         </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <div className="flex flex-wrap items-center gap-1.5">
                           <button
                             type="button"
                             onClick={() => handleAutoSplitPlan(3, 45000, 30)}
-                            className="p-2.5 rounded-xl border border-emerald-200 bg-emerald-50/60 hover:bg-emerald-100/70 text-left transition-colors cursor-pointer"
+                            className="px-2.5 py-1 rounded-lg border border-sand-200 bg-sand-50 hover:bg-white text-ink-800 text-xs font-medium transition-colors cursor-pointer"
                           >
-                            <span className="text-xs font-bold text-emerald-950 block">3-Stage Semester</span>
-                            <span className="text-[10px] text-emerald-800 block mt-0.5">PKR 15,000 &times; 3 = PKR 45,000</span>
+                            3-Stage Semester <span className="text-[10px] text-ink-500">(PKR 15k × 3)</span>
                           </button>
 
                           <button
                             type="button"
                             onClick={() => handleAutoSplitPlan(2, 45000, 45)}
-                            className="p-2.5 rounded-xl border border-sand-200 bg-sand-50 hover:bg-sand-100 text-left transition-colors cursor-pointer"
+                            className="px-2.5 py-1 rounded-lg border border-sand-200 bg-sand-50 hover:bg-white text-ink-800 text-xs font-medium transition-colors cursor-pointer"
                           >
-                            <span className="text-xs font-bold text-ink-900 block">2-Stage Semi-Annual</span>
-                            <span className="text-[10px] text-ink-600 block mt-0.5">PKR 22,500 &times; 2 = PKR 45,000</span>
+                            2-Stage Semi-Annual <span className="text-[10px] text-ink-500">(PKR 22.5k × 2)</span>
                           </button>
 
                           <button
                             type="button"
                             onClick={() => handleAutoSplitPlan(4, 45000, 30)}
-                            className="p-2.5 rounded-xl border border-sand-200 bg-sand-50 hover:bg-sand-100 text-left transition-colors cursor-pointer"
+                            className="px-2.5 py-1 rounded-lg border border-sand-200 bg-sand-50 hover:bg-white text-ink-800 text-xs font-medium transition-colors cursor-pointer"
                           >
-                            <span className="text-xs font-bold text-ink-900 block">4-Stage Quarterly</span>
-                            <span className="text-[10px] text-ink-600 block mt-0.5">PKR 11,250 &times; 4 = PKR 45,000</span>
+                            4-Stage Quarterly <span className="text-[10px] text-ink-500">(PKR 11.25k × 4)</span>
                           </button>
                         </div>
                       </div>
 
                       {/* Generator Controls */}
-                      <div className="p-4 rounded-xl bg-sand-100/60 border border-sand-200 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                         <div>
-                          <label className="text-[11px] font-bold text-ink-700 block mb-1">
-                            Total Program Tuition (PKR)
+                          <label className="text-[11px] font-medium text-ink-700 block mb-1">
+                            Total Tuition (PKR)
                           </label>
                           <input
                             type="number"
@@ -6686,24 +8128,24 @@ export default function AdminDashboard() {
                               setPlanTotalFee(val);
                               handleAutoSplitPlan(planInstallmentCount, val, planIntervalDays);
                             }}
-                            className="w-full px-3 py-1.5 rounded-lg border border-sand-300 bg-white text-xs font-bold text-ink-900 font-mono focus:outline-none focus:ring-1 focus:ring-primary-500"
+                            className="w-full px-2.5 py-1.5 rounded-xl border border-sand-200 bg-white text-xs font-bold text-ink-900 font-mono focus:outline-none focus:ring-2 focus:ring-primary-500/20"
                           />
                         </div>
 
                         <div>
-                          <label className="text-[11px] font-bold text-ink-700 block mb-1">
-                            Number of Installments
+                          <label className="text-[11px] font-medium text-ink-700 block mb-1">
+                            Installments
                           </label>
-                          <div className="flex items-center gap-1.5">
+                          <div className="grid grid-cols-4 gap-1">
                             {[2, 3, 4, 5].map((cnt) => (
                               <button
                                 key={cnt}
                                 type="button"
                                 onClick={() => handleAutoSplitPlan(cnt, planTotalFee, planIntervalDays)}
-                                className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer border ${
+                                className={`py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                                   milestones.length === cnt
-                                    ? 'bg-[#0B3324] text-white border-[#0B3324] shadow-xs'
-                                    : 'bg-white text-ink-700 border-sand-300 hover:bg-sand-100'
+                                    ? 'bg-primary-900 text-white shadow-2xs'
+                                    : 'bg-sand-50 border border-sand-200 text-ink-700 hover:bg-sand-100'
                                 }`}
                               >
                                 {cnt}
@@ -6713,8 +8155,8 @@ export default function AdminDashboard() {
                         </div>
 
                         <div>
-                          <label className="text-[11px] font-bold text-ink-700 block mb-1">
-                            Spacing Between Dues
+                          <label className="text-[11px] font-medium text-ink-700 block mb-1">
+                            Interval
                           </label>
                           <select
                             value={planIntervalDays}
@@ -6723,7 +8165,7 @@ export default function AdminDashboard() {
                               setPlanIntervalDays(days);
                               handleAutoSplitPlan(milestones.length, planTotalFee, days);
                             }}
-                            className="w-full px-3 py-1.5 rounded-lg border border-sand-300 bg-white text-xs font-semibold text-ink-800 focus:outline-none focus:ring-1 focus:ring-primary-500"
+                            className="w-full px-2.5 py-1.5 rounded-xl border border-sand-200 bg-white text-xs font-medium text-ink-800 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
                           >
                             <option value={30}>Every 30 Days (Monthly)</option>
                             <option value={45}>Every 45 Days</option>
@@ -6733,200 +8175,179 @@ export default function AdminDashboard() {
                       </div>
 
                       {/* Milestone Table */}
-                      <div className="space-y-2">
+                      <div className="space-y-1.5">
                         <div className="flex items-center justify-between">
-                          <span className="text-xs font-bold text-ink-800 uppercase tracking-wider">
-                            Installment Milestones Breakdown ({milestones.length} Stages)
+                          <span className="text-[11px] font-bold text-ink-400 uppercase tracking-wider">
+                            Milestones ({milestones.length})
                           </span>
                           <button
                             type="button"
                             onClick={handleAddMilestoneRow}
-                            className="inline-flex items-center gap-1 text-xs font-bold text-[#0B3324] hover:underline cursor-pointer"
+                            className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary-900 hover:underline cursor-pointer"
                           >
-                            <Plus size={13} />
-                            <span>Add Another Milestone</span>
+                            <Plus size={12} />
+                            <span>Add Milestone</span>
                           </button>
                         </div>
 
                         <div className="border border-sand-200 rounded-xl overflow-hidden bg-white">
                           <table className="w-full text-left text-xs">
-                            <thead className="bg-sand-100/70 border-b border-sand-200 text-ink-700 font-semibold text-[11px] uppercase tracking-wider">
+                            <thead className="bg-sand-50/80 border-b border-sand-200 text-ink-600 font-semibold text-[10px] uppercase tracking-wider">
                               <tr>
-                                <th className="py-2.5 px-3 w-12">#</th>
-                                <th className="py-2.5 px-3">Milestone Title</th>
-                                <th className="py-2.5 px-3 w-36">Amount (PKR)</th>
-                                <th className="py-2.5 px-3 w-36">Due Date</th>
-                                <th className="py-2.5 px-3 w-12 text-center">Del</th>
+                                <th className="py-2 px-3 w-8">#</th>
+                                <th className="py-2 px-3">Title</th>
+                                <th className="py-2 px-3 w-28">Amount (PKR)</th>
+                                <th className="py-2 px-3 w-32">Due Date</th>
+                                <th className="py-2 px-2 w-8 text-center"></th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-sand-100">
                               {milestones.map((m, idx) => (
-                                <tr key={m.id || idx} className="hover:bg-sand-50/50">
-                                  <td className="py-2.5 px-3 font-bold text-ink-400">
-                                    #{idx + 1}
-                                  </td>
-                                  <td className="py-2.5 px-3">
-                                    <input
-                                      type="text"
-                                      required
-                                      value={m.title}
-                                      onChange={(e) => handleUpdateMilestone(idx, 'title', e.target.value)}
-                                      placeholder={`Installment ${idx + 1}`}
-                                      className="w-full px-2.5 py-1.5 rounded-lg border border-sand-200 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-primary-500"
-                                    />
-                                  </td>
-                                  <td className="py-2.5 px-3">
-                                    <input
-                                      type="number"
-                                      min="1"
-                                      required
-                                      value={m.amount}
-                                      onChange={(e) => handleUpdateMilestone(idx, 'amount', Number(e.target.value))}
-                                      className="w-full px-2.5 py-1.5 rounded-lg border border-sand-200 text-xs font-bold font-mono focus:outline-none focus:ring-1 focus:ring-primary-500"
-                                    />
-                                  </td>
-                                  <td className="py-2.5 px-3">
-                                    <input
-                                      type="date"
-                                      required
-                                      value={m.dueDate}
-                                      onChange={(e) => handleUpdateMilestone(idx, 'dueDate', e.target.value)}
-                                      className="w-full px-2.5 py-1.5 rounded-lg border border-sand-200 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-primary-500"
-                                    />
-                                  </td>
-                                  <td className="py-2.5 px-3 text-center">
-                                    <button
-                                      type="button"
-                                      disabled={milestones.length <= 1}
-                                      onClick={() => handleRemoveMilestoneRow(idx)}
-                                      className="p-1 rounded text-ink-400 hover:text-red-600 hover:bg-red-50 disabled:opacity-30 cursor-pointer"
-                                      title="Remove this milestone"
-                                    >
-                                      <Trash2 size={13} />
-                                    </button>
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
+                                <tr key={m.id || idx} className="hover:bg-sand-50/40">
+                                <td className="py-1.5 px-3 font-semibold text-ink-400">
+                                  {idx + 1}
+                                </td>
+                                <td className="py-1.5 px-3">
+                                  <input
+                                    type="text"
+                                    required
+                                    value={m.title}
+                                    onChange={(e) => handleUpdateMilestone(idx, 'title', e.target.value)}
+                                    placeholder={`Installment ${idx + 1}`}
+                                    className="w-full px-2 py-1 rounded-lg border border-sand-200 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                  />
+                                </td>
+                                <td className="py-1.5 px-3">
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    required
+                                    value={m.amount}
+                                    onChange={(e) => handleUpdateMilestone(idx, 'amount', Number(e.target.value))}
+                                    className="w-full px-2 py-1 rounded-lg border border-sand-200 text-xs font-bold font-mono focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                  />
+                                </td>
+                                <td className="py-1.5 px-3">
+                                  <input
+                                    type="date"
+                                    required
+                                    value={m.dueDate}
+                                    onChange={(e) => handleUpdateMilestone(idx, 'dueDate', e.target.value)}
+                                    className="w-full px-2 py-1 rounded-lg border border-sand-200 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                  />
+                                </td>
+                                <td className="py-1.5 px-2 text-center">
+                                  <button
+                                    type="button"
+                                    disabled={milestones.length <= 1}
+                                    onClick={() => handleRemoveMilestoneRow(idx)}
+                                    className="p-1 rounded text-ink-400 hover:text-rose-600 disabled:opacity-20 cursor-pointer"
+                                  >
+                                    <Trash2 size={12} />
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
 
-                          <div className="px-4 py-2.5 bg-sand-50/80 border-t border-sand-200 flex items-center justify-between text-xs">
-                            <span className="font-semibold text-ink-600">
-                              Total Sum of {milestones.length} Milestones:
+                        <div className="px-3 py-2 bg-sand-50/60 border-t border-sand-200 flex items-center justify-between text-xs">
+                          <span className="text-[11px] font-medium text-ink-500">
+                            Total: <strong className="text-ink-900 font-mono">PKR {totalMilestoneSum.toLocaleString()}</strong>
+                          </span>
+                          {totalMilestoneSum === planTotalFee ? (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                              <Check size={10} /> Balanced
                             </span>
-                            <div className="flex items-center gap-2">
-                              <span className="font-mono font-bold text-sm text-ink-900">
-                                PKR {totalMilestoneSum.toLocaleString()}
-                              </span>
-                              {totalMilestoneSum === planTotalFee ? (
-                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full">
-                                  <Check size={11} /> Balanced
-                                </span>
-                              ) : (
-                                <span className="text-[10px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full">
-                                  Custom Sum (Target: PKR {planTotalFee.toLocaleString()})
-                                </span>
-                              )}
-                            </div>
-                          </div>
+                          ) : (
+                            <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+                              Target: PKR {planTotalFee.toLocaleString()}
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
-                  ) : (
-                    /* Single Milestone Form */
-                    <div className="p-4 rounded-xl bg-white border border-sand-200 space-y-4">
+                  </div>
+                ) : (
+                  /* Single Milestone Form */
+                  <div className="space-y-3">
+                    <div>
+                      <label className="text-xs font-medium text-ink-700 block mb-1">
+                        Installment Title
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={singleTitle}
+                        onChange={(e) => setSingleTitle(e.target.value)}
+                        placeholder="e.g. Registration Fee, Semester 1 Dues"
+                        className="w-full px-3 py-2 rounded-xl border border-sand-200 text-xs focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
-                        <label className="text-xs font-bold text-ink-800 block mb-1">
-                          Installment Title / Milestone Name
+                        <label className="text-xs font-medium text-ink-700 block mb-1">
+                          Amount (PKR)
                         </label>
                         <input
-                          type="text"
+                          type="number"
+                          min="1"
                           required
-                          value={singleTitle}
-                          onChange={(e) => setSingleTitle(e.target.value)}
-                          placeholder="e.g. Registration Fee, Semester 1 Dues, Thesis Fee"
-                          className="w-full px-3 py-2 rounded-xl border border-sand-200 text-xs focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+                          value={singleAmount}
+                          onChange={(e) => setSingleAmount(Number(e.target.value))}
+                          placeholder="15000"
+                          className="w-full px-3 py-2 rounded-xl border border-sand-200 text-xs focus:outline-none focus:ring-2 focus:ring-primary-500/20 font-mono font-bold"
                         />
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div>
-                          <label className="text-xs font-bold text-ink-800 block mb-1">
-                            Fixed Amount (PKR)
-                          </label>
-                          <input
-                            type="number"
-                            min="1"
-                            required
-                            value={singleAmount}
-                            onChange={(e) => setSingleAmount(Number(e.target.value))}
-                            placeholder="15000"
-                            className="w-full px-3 py-2 rounded-xl border border-sand-200 text-xs focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 font-mono"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="text-xs font-bold text-ink-800 block mb-1">
-                            Payment Due Date
-                          </label>
-                          <input
-                            type="date"
-                            required
-                            value={singleDueDate}
-                            onChange={(e) => setSingleDueDate(e.target.value)}
-                            className="w-full px-3 py-2 rounded-xl border border-sand-200 text-xs focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Summary Callout Banner */}
-                  <div className="p-4 rounded-xl bg-emerald-50/80 border border-emerald-200 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-lg bg-emerald-700 text-white flex items-center justify-center shrink-0">
-                        <CheckCircle2 size={16} />
-                      </div>
                       <div>
-                        <span className="font-bold text-emerald-950 block text-[13px]">
-                          Ready to Generate {totalChallansToCreate} Installment Challan{totalChallansToCreate !== 1 ? 's' : ''}
-                        </span>
-                        <p className="text-[11px] text-emerald-800 mt-0.5">
-                          {targetStudentList.length} enrolled student(s) will receive {createPlanMode === 'plan' ? milestones.length : 1} milestone(s) each in their student fee ledger.
-                        </p>
+                        <label className="text-xs font-medium text-ink-700 block mb-1">
+                          Due Date
+                        </label>
+                        <input
+                          type="date"
+                          required
+                          value={singleDueDate}
+                          onChange={(e) => setSingleDueDate(e.target.value)}
+                          className="w-full px-3 py-2 rounded-xl border border-sand-200 text-xs focus:outline-none focus:ring-2 focus:ring-primary-500/20 font-medium"
+                        />
                       </div>
                     </div>
-                    <div className="text-right sm:border-l sm:border-emerald-200 sm:pl-4">
-                      <span className="text-[10px] uppercase font-bold text-emerald-800 block">Total Plan Value</span>
-                      <span className="font-mono font-bold text-sm text-emerald-950">
-                        PKR {(targetStudentList.length * (createPlanMode === 'plan' ? totalMilestoneSum : Number(singleAmount))).toLocaleString()}
-                      </span>
-                    </div>
                   </div>
+                )}
 
-                  {/* Modal Footer */}
-                  <div className="pt-2 border-t border-sand-200 flex items-center justify-end gap-2.5">
-                    <button
-                      type="button"
-                      onClick={() => setShowCreateInstallmentModal(false)}
-                      className="px-4 py-2 rounded-xl text-xs font-semibold text-ink-600 hover:text-ink-900 hover:bg-sand-100 transition-colors cursor-pointer"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={targetStudentList.length === 0}
-                      className="px-6 py-2.5 rounded-xl bg-[#0B3324] hover:bg-[#072419] disabled:opacity-50 text-white text-xs font-bold transition-all shadow-sm cursor-pointer inline-flex items-center gap-2"
-                    >
-                      <Plus size={15} />
-                      <span>
-                        Generate &amp; Assign Plan ({totalChallansToCreate} Challans)
-                      </span>
-                    </button>
-                  </div>
-                </form>
-              </div>
+                {/* Summary Info Strip */}
+                <div className="p-2.5 rounded-xl bg-sand-50 border border-sand-200 text-xs flex items-center justify-between text-ink-600">
+                  <span>
+                    Assigning <strong className="text-ink-900">{totalChallansToCreate} challans</strong> to <strong className="text-ink-900">{targetStudentList.length} students</strong>
+                  </span>
+                  <span className="font-mono font-bold text-ink-900">
+                    PKR {(targetStudentList.length * (createPlanMode === 'plan' ? totalMilestoneSum : Number(singleAmount))).toLocaleString()}
+                  </span>
+                </div>
+
+                {/* Modal Footer */}
+                <div className="pt-2 border-t border-sand-200 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowCreateInstallmentModal(false)}
+                    className="px-3.5 py-2 rounded-xl text-xs font-semibold text-ink-600 hover:text-ink-900 hover:bg-sand-100 transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={targetStudentList.length === 0}
+                    className="px-4 py-2 rounded-xl bg-primary-900 hover:bg-primary-800 disabled:opacity-50 text-white text-xs font-bold transition-all shadow-xs cursor-pointer inline-flex items-center gap-1.5"
+                  >
+                    <Plus size={13} />
+                    <span>Generate &amp; Assign Plan</span>
+                  </button>
+                </div>
+              </form>
             </div>
+          </div>
           );
         })()}
 

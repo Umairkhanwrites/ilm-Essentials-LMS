@@ -1246,9 +1246,6 @@ export default function CreateCourse() {
               <h1 className="text-2xl sm:text-3xl font-heading font-bold text-ink-900 leading-tight">
                 {isEditMode ? `Edit Course: ${formData.title || 'Course'}` : 'Course & Curriculum Builder'}
               </h1>
-              <p className="text-xs sm:text-sm text-ink-500 mt-1">
-                Configure classical Islamic curriculum, video links, reading materials, interactive quizzes, faculty, and live schedules.
-              </p>
             </div>
 
             <div className="flex items-center gap-2 self-start md:self-auto">
@@ -1299,9 +1296,6 @@ export default function CreateCourse() {
                     <span className={`block text-xs font-bold leading-tight ${isActive ? 'text-white' : 'text-ink-900'}`}>
                       {step.title}
                     </span>
-                    <span className={`block text-[10px] mt-0.5 truncate ${isActive ? 'text-primary-200' : 'text-ink-400'}`}>
-                      {step.desc}
-                    </span>
                   </div>
                 </button>
               );
@@ -1315,7 +1309,6 @@ export default function CreateCourse() {
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
                 <div className="border-b border-sand-100 pb-4">
                   <h2 className="text-lg font-heading font-bold text-ink-900">1. Course General Overview</h2>
-                  <p className="text-xs text-ink-500">Provide core course details, pathway category, and student learning level.</p>
                 </div>
 
                 <div className="space-y-4">
@@ -1393,7 +1386,6 @@ export default function CreateCourse() {
                                 </span>
                               </div>
                               <div className="text-xs font-bold text-ink-900">{cat.tagline}</div>
-                              <p className="text-[11px] text-ink-500 mt-1 leading-snug">{cat.desc}</p>
                             </div>
                           </button>
                         );
@@ -1437,14 +1429,9 @@ export default function CreateCourse() {
                       if (isMultiSemester) {
                         return (
                           <div>
-                            <div className="flex items-center justify-between mb-1.5">
-                              <label className="block text-xs font-bold uppercase tracking-wider text-ink-700">
-                                Program Semester *
-                              </label>
-                              <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100/70 px-2 py-0.5 rounded-full">
-                                Flagship Cohort
-                              </span>
-                            </div>
+                            <label className="block text-xs font-bold uppercase tracking-wider text-ink-700 mb-1.5">
+                              Program Semester *
+                            </label>
                             <select
                               value={formData.semester || 'Semester 1'}
                               onChange={(e) => updateFormField('semester', e.target.value)}
@@ -1492,32 +1479,6 @@ export default function CreateCourse() {
                         <option value="Advanced">Advanced / Scholarly Track</option>
                       </select>
                     </div>
-
-                    {(() => {
-                      const currentSelected = pathways.find((p) => (p.slug || p.id) === formData.category);
-                      if (!currentSelected) return null;
-                      const isMultiSemester = currentSelected.programStructure === 'multi_semester' || currentSelected.type === 'cohort';
-
-                      return (
-                        <div className={`p-3.5 rounded-xl border text-xs flex items-start gap-2.5 ${
-                          isMultiSemester ? 'bg-emerald-50 border-emerald-200 text-emerald-950' : 'bg-amber-50/80 border-amber-200 text-amber-950'
-                        }`}>
-                          <Sparkles size={16} className={`${isMultiSemester ? 'text-emerald-700' : 'text-amber-700'} shrink-0 mt-0.5`} />
-                          <div>
-                            <strong>{currentSelected.name}</strong> {isMultiSemester ? `• ${formData.semester || 'Semester 1'}` : '• Non-Semester Collection'}
-                            {isMultiSemester ? (
-                              <span className="block mt-0.5 text-[11px] font-medium text-emerald-800">
-                                Main Cohort Program: Students enrolled in {formData.semester || 'this semester'} are automatically enrolled. Tuition is included in the program fee.
-                              </span>
-                            ) : (
-                              <span className="block mt-0.5 text-[11px] font-medium text-amber-800">
-                                Non-semester collection of individual courses (e.g. Ilm Intensives). Students enroll and pay specifically for this course.
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })()}
                   </div>
 
                   <div>
@@ -1567,7 +1528,6 @@ export default function CreateCourse() {
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
                 <div className="border-b border-sand-100 pb-4">
                   <h2 className="text-lg font-heading font-bold text-ink-900">2. Faculty Assignment &amp; Class Schedule</h2>
-                  <p className="text-xs text-ink-500">Assign the lead scholar, customize class days, timings, and campus venue or online meeting link.</p>
                 </div>
 
                 {/* Faculty Selection */}
@@ -1652,14 +1612,7 @@ export default function CreateCourse() {
                         Course Academic Dates &amp; Duration
                       </h3>
                     </div>
-                    <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-sand-100 text-ink-700">
-                      Independent Course Timeline
-                    </span>
                   </div>
-
-                  <p className="text-xs text-ink-500 leading-relaxed">
-                    Set the starting and ending dates for this course. While the master Ilm Foundations program spans 8 months, individual courses have specific start/end dates and session durations.
-                  </p>
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div>
@@ -1840,14 +1793,7 @@ export default function CreateCourse() {
                           Live Online Class Meeting Link &amp; Platform
                         </h3>
                       </div>
-                      <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-900 border border-emerald-300">
-                        Live Notifications Active
-                      </span>
                     </div>
-
-                    <p className="text-xs text-emerald-800 leading-relaxed">
-                      Students enrolled in this course will receive notifications before each scheduled class with this meeting link, allowing them to join the live session with one click.
-                    </p>
 
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                       <div className="sm:col-span-2">
@@ -1974,9 +1920,6 @@ export default function CreateCourse() {
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
                 <div className="border-b border-sand-100 pb-4">
                   <h2 className="text-lg font-heading font-bold text-ink-900">3. Tuition &amp; Enrollment Settings</h2>
-                  <p className="text-xs text-ink-500">
-                    Configure individual course tuition fee, student capacity, and publication status. (Fees vary course-by-course across all programs).
-                  </p>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1998,11 +1941,6 @@ export default function CreateCourse() {
                         className="w-full pl-14 pr-4 py-3 border border-sand-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-primary-500/20"
                       />
                     </div>
-                    <p className="text-[11px] text-ink-400 mt-1">
-                      {formData.category === 'foundations'
-                        ? 'PKR 30,000 is the tuition fee for the whole semester, covering all courses in this cohort.'
-                        : 'Tuition fee for this individual standalone course.'}
-                    </p>
                     {formErrors.fee && <p className="text-red-500 text-xs mt-1">{formErrors.fee}</p>}
                   </div>
 
@@ -2208,9 +2146,6 @@ export default function CreateCourse() {
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-sand-100 pb-4">
                   <div>
                     <h2 className="text-lg font-heading font-bold text-ink-900">4. Interactive Curriculum Builder &amp; Lesson Media</h2>
-                    <p className="text-xs text-ink-500">
-                      Organize modules, specify video lecture streaming links, write classical reading texts, or assemble interactive quizzes.
-                    </p>
                   </div>
                   <button
                     type="button"
@@ -2678,7 +2613,6 @@ export default function CreateCourse() {
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
                 <div className="border-b border-sand-100 pb-4">
                   <h2 className="text-lg font-heading font-bold text-ink-900">5. Learning Objectives &amp; Study Materials</h2>
-                  <p className="text-xs text-ink-500">Highlight key educational outcomes and attach course handouts or syllabus PDFs.</p>
                 </div>
 
                 {/* Learning Objectives */}
@@ -2729,9 +2663,6 @@ export default function CreateCourse() {
                         <BookOpen size={14} className="text-primary-800" />
                         Downloadable Handouts &amp; Reading Materials
                       </label>
-                      <p className="text-xs text-ink-500">
-                        Attach classical texts, syllabus roadmaps, lecture slides, or supplementary reading handouts for enrolled students.
-                      </p>
                     </div>
 
                     <button
@@ -2863,7 +2794,6 @@ export default function CreateCourse() {
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
                 <div className="border-b border-sand-100 pb-4">
                   <h2 className="text-lg font-heading font-bold text-ink-900">6. Final Review &amp; Publication</h2>
-                  <p className="text-xs text-ink-500">Verify course dates, delivery mode, class schedule, and meeting link before launching.</p>
                 </div>
 
                 <div className="bg-sand-50 border border-sand-200 rounded-2xl p-6 space-y-4">
