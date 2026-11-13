@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import clsx from 'clsx';
 import { enrolledCourses as defaultEnrolledCourses } from '../../data/mockData';
-import { getEnrolledCourses } from '../../services/courseStorage';
+import { getEnrolledCourses, getCourseDetailById } from '../../services/courseStorage';
 import ProgressBar from '../../components/ui/ProgressBar';
 
 /** Category definitions */
@@ -164,6 +164,15 @@ export default function ProgressOverview() {
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
               {filteredCourses.map((course, index) => {
+                const courseDetail = getCourseDetailById(course.id);
+                const allCourseLessons = (courseDetail?.modules || []).flatMap((m) => m.lessons || []);
+                const nextAccessibleLesson = allCourseLessons.find((l) => !l.completed);
+                const isCourseCompleted = allCourseLessons.length > 0 && !nextAccessibleLesson;
+
+                const targetLessonUrl = nextAccessibleLesson?.id
+                  ? `/course/${course.id}?lessonId=${nextAccessibleLesson.id}`
+                  : `/course/${course.id}`;
+
                 return (
                   <motion.div
                     key={course.id}
@@ -173,7 +182,7 @@ export default function ProgressOverview() {
                     className="flex"
                   >
                     <Link
-                      to={`/course/${course.id}`}
+                      to={targetLessonUrl}
                       className={clsx(
                         'group/card relative flex h-full w-full flex-col justify-between rounded-2xl bg-white shadow-2xs transition-all duration-300',
                         'hover:shadow-card hover:-translate-y-0.5 border border-sand-200 border-l-4 border-l-[#0B3324] overflow-hidden block cursor-pointer'
@@ -221,7 +230,13 @@ export default function ProgressOverview() {
                         {/* Actionable Solid Forest-Green Resume Button */}
                         <div className="pt-2">
                           <div className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-white bg-[#0B3324] group-hover/card:bg-[#072318] active:scale-[0.99] transition-all shadow-2xs">
-                            <span>{course.progress > 0 ? '▶ Resume Lesson' : '▶ Start Learning'}</span>
+                            <span>
+                              {isCourseCompleted
+                                ? '▶ Review Course'
+                                : course.progress > 0
+                                ? '▶ Resume Lesson'
+                                : '▶ Start Learning'}
+                            </span>
                           </div>
                         </div>
                       </div>

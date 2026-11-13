@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import Layout from '../components/layout/Layout';
 import { enrolledCourses as defaultEnrolledCourses, courseFormats } from '../data/mockData';
-import { getEnrolledCourses } from '../services/courseStorage';
+import { getEnrolledCourses, getCourseDetailById } from '../services/courseStorage';
 
 /**
  * MyCourses Page — Lists all enrolled courses with filtering.
@@ -136,6 +136,12 @@ export function MyCourses() {
           {filteredCourses.map((course, index) => {
             const FormatIcon = formatIcons[course.format] || BookOpen;
             const format = courseFormats[course.format];
+            const courseDetail = getCourseDetailById(course.id);
+            const allCourseLessons = (courseDetail?.modules || []).flatMap((m) => m.lessons || []);
+            const nextAccessibleLesson = allCourseLessons.find((l) => !l.completed);
+            const targetUrl = nextAccessibleLesson?.id
+              ? `/course/${course.id}?lessonId=${nextAccessibleLesson.id}`
+              : `/course/${course.id}`;
 
             return (
               <motion.div
@@ -145,7 +151,7 @@ export function MyCourses() {
                 transition={{ delay: index * 0.1 }}
               >
                 <Link
-                  to={`/course/${course.id}`}
+                  to={targetUrl}
                   className="block bg-white rounded-2xl border border-sand-200 overflow-hidden
                              hover:shadow-soft hover:border-sand-300 transition-all duration-300 group"
                 >

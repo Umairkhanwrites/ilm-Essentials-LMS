@@ -15,12 +15,15 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
+import clsx from 'clsx';
 import {
   BookOpen,
   FileText,
   MessageSquare,
   ListOrdered,
   ChevronRight,
+  ChevronLeft,
+  ArrowRight,
   Target,
   Info,
   CheckCircle,
@@ -47,6 +50,16 @@ import { useAuth } from '../context/AuthContext';
 export default function CourseView() {
   const { user } = useAuth();
   const [restriction, setRestriction] = useState(() => getStudentVideoRestriction());
+  const [toastMessage, setToastMessage] = useState(null);
+
+  const showToast = useCallback((toast) => {
+    if (typeof toast === 'string') {
+      setToastMessage({ type: 'info', text: toast });
+    } else {
+      setToastMessage(toast);
+    }
+    setTimeout(() => setToastMessage(null), 3200);
+  }, []);
 
   useEffect(() => {
     const handleRestrictionUpdate = () => {
@@ -78,18 +91,47 @@ export default function CourseView() {
 
   const formatMeta = courseFormats[course.format] || courseFormats['live-online'];
 
-  // Flatten lessons to find the default current lesson
+  // Flatten lessons to find all lessons in linear sequence
   const allLessons = useMemo(() => {
-    return course.modules.flatMap((m) => m.lessons);
+    return (course.modules || []).flatMap((m) => m.lessons || []);
   }, [course]);
 
-  const defaultLesson = useMemo(() => {
-    return (
-      allLessons.find((l) => l.current) ||
-      allLessons.find((l) => !l.completed) ||
-      allLessons[0]
-    );
+  // Sequential Lesson Progression Rule:
+  // Lesson i is unlocked ONLY if all earlier lessons (0 ... i-1) are completed
+  const { unlockedLessonIds, lockedLessonReasons } = useMemo(() => {
+    const unlocked = new Set();
+    const reasons = {};
+    let canUnlock = true;
+
+    for (let i = 0; i < allLessons.length; i++) {
+      const les = allLessons[i];
+      if (i === 0) {
+        unlocked.add(les.id);
+        canUnlock = Boolean(les.completed);
+      } else {
+        const prev = allLessons[i - 1];
+        if (canUnlock) {
+          unlocked.add(les.id);
+          canUnlock = Boolean(les.completed);
+        } else {
+          reasons[les.id] = `Complete "${prev.title}" to unlock this lesson.`;
+        }
+      }
+    }
+
+    return { unlockedLessonIds: unlocked, lockedLessonReasons: reasons };
   }, [allLessons]);
+
+  // Default accessible lesson: earliest incomplete lesson that is unlocked
+  const defaultLesson = useMemo(() => {
+    const firstIncomplete = allLessons.find((l) => unlockedLessonIds.has(l.id) && !l.completed);
+    if (firstIncomplete) return firstIncomplete;
+
+    const firstUnlocked = allLessons.find((l) => unlockedLessonIds.has(l.id));
+    if (firstUnlocked) return firstUnlocked;
+
+    return allLessons[0];
+  }, [allLessons, unlockedLessonIds]);
 
   const [currentLesson, setCurrentLesson] = useState(defaultLesson);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -99,15 +141,39 @@ export default function CourseView() {
   const [searchParams] = useSearchParams();
   const queryLessonId = searchParams.get('lessonId');
 
-  // If a specific lesson was requested via query param (e.g. from notification), activate it
+  // If a specific lesson was requested via query param, verify lock status before activating
   useEffect(() => {
     if (queryLessonId && allLessons.length > 0) {
       const match = allLessons.find((l) => l.id === queryLessonId);
       if (match) {
-        setCurrentLesson(match);
+        if (unlockedLessonIds.has(match.id) || user?.role === 'admin') {
+          setCurrentLesson(match);
+        } else {
+          showToast({
+            type: 'locked',
+            title: 'Lesson Locked',
+            text: 'Complete earlier lessons to unlock this lecture.',
+          });
+          const fallback = allLessons.find((l) => unlockedLessonIds.has(l.id) && !l.completed)
+            || allLessons.find((l) => unlockedLessonIds.has(l.id))
+            || allLessons[0];
+          if (fallback) setCurrentLesson(fallback);
+        }
       }
     }
-  }, [queryLessonId, allLessons]);
+  }, [queryLessonId, allLessons, unlockedLessonIds, user, showToast]);
+
+  // If current lesson becomes locked (e.g. earlier lesson uncompleted), fall back to highest unlocked
+  useEffect(() => {
+    if (currentLesson && !unlockedLessonIds.has(currentLesson.id) && user?.role !== 'admin') {
+      const fallback = allLessons.find((l) => unlockedLessonIds.has(l.id) && !l.completed)
+        || allLessons.find((l) => unlockedLessonIds.has(l.id))
+        || allLessons[0];
+      if (fallback) {
+        setCurrentLesson(fallback);
+      }
+    }
+  }, [unlockedLessonIds, currentLesson, allLessons, user]);
 
   // Keep currentLesson synchronized with course changes
   useEffect(() => {
@@ -125,21 +191,42 @@ export default function CourseView() {
     return () => clearTimeout(timer);
   }, [id]);
 
-  // Handle lesson selection from syllabus (accepts ID or lesson object)
+  // Handle lesson selection from syllabus with strict lock check
   const handleLessonSelect = useCallback(
     (lessonOrId) => {
       const lessonId = typeof lessonOrId === 'object' && lessonOrId ? lessonOrId.id : lessonOrId;
       const selected = allLessons.find((l) => l.id === lessonId);
-      if (selected) {
-        setCurrentLesson(selected);
+      if (!selected) return;
+
+      const isUnlocked = unlockedLessonIds.has(selected.id);
+      if (!isUnlocked && user?.role !== 'admin') {
+        showToast({
+          type: 'locked',
+          title: 'Lesson Locked',
+          text: 'Complete earlier lessons to unlock this lecture.',
+        });
+        return;
       }
+
+      setCurrentLesson(selected);
     },
-    [allLessons]
+    [allLessons, unlockedLessonIds, user, showToast]
   );
 
   // Interactive toggle for lesson completion
   const handleToggleLessonCompletion = useCallback((lessonId) => {
     if (!lessonId) return;
+
+    // Guard: only allow completing unlocked lessons
+    if (!unlockedLessonIds.has(lessonId) && user?.role !== 'admin') {
+      showToast({
+        type: 'locked',
+        title: 'Lesson Locked',
+        text: 'Complete earlier lessons to unlock this lecture.',
+      });
+      return;
+    }
+
     setCourse((prevCourse) => {
       let isNowCompleted = false;
       const updatedModules = prevCourse.modules.map((mod) => ({
@@ -174,9 +261,50 @@ export default function CourseView() {
       saveCourseDetail(prevCourse.id, updatedCourseObj);
       updateCourseProgress(prevCourse.id, completedLessons, totalLessons, progress);
 
+      if (isNowCompleted) {
+        showToast({
+          type: 'success',
+          title: 'Lesson Completed',
+          text: 'Next lesson is now unlocked.',
+        });
+      }
+
       return updatedCourseObj;
     });
-  }, []);
+  }, [unlockedLessonIds, user, showToast]);
+
+  // Current lesson sequence helpers
+  const currentLessonIndex = useMemo(() => {
+    if (!currentLesson) return -1;
+    return allLessons.findIndex((l) => l.id === currentLesson.id);
+  }, [allLessons, currentLesson]);
+
+  const prevLessonInSequence = useMemo(() => {
+    if (currentLessonIndex > 0) return allLessons[currentLessonIndex - 1];
+    return null;
+  }, [allLessons, currentLessonIndex]);
+
+  const nextLessonInSequence = useMemo(() => {
+    if (currentLessonIndex >= 0 && currentLessonIndex < allLessons.length - 1) {
+      return allLessons[currentLessonIndex + 1];
+    }
+    return null;
+  }, [allLessons, currentLessonIndex]);
+
+  const isNextLessonUnlocked = useMemo(() => {
+    if (!nextLessonInSequence) return false;
+    return unlockedLessonIds.has(nextLessonInSequence.id) || Boolean(currentLesson?.completed) || user?.role === 'admin';
+  }, [nextLessonInSequence, unlockedLessonIds, currentLesson, user]);
+
+  const activeLessonForPlayer = useMemo(() => {
+    if (!currentLesson) return null;
+    const isUnlocked = unlockedLessonIds.has(currentLesson.id);
+    return {
+      ...currentLesson,
+      isLocked: !isUnlocked && user?.role !== 'admin',
+      lockReason: lockedLessonReasons[currentLesson.id],
+    };
+  }, [currentLesson, unlockedLessonIds, lockedLessonReasons, user]);
 
   // Add discussion thread to active course state
   const handleAddDiscussion = useCallback((newThread) => {
@@ -295,9 +423,19 @@ export default function CourseView() {
               completedLessons={course.completedLessons}
               progress={course.progress}
               activeLessonId={currentLesson?.id}
+              unlockedLessonIds={unlockedLessonIds}
+              lockedLessonReasons={lockedLessonReasons}
+              isAdmin={user?.role === 'admin'}
               onLessonSelect={(id) => {
                 handleLessonSelect(id);
                 setIsMobileDrawerOpen(false);
+              }}
+              onLockedLessonClick={() => {
+                showToast({
+                  type: 'locked',
+                  title: 'Lesson Locked',
+                  text: 'Complete earlier lessons to unlock this lecture.',
+                });
               }}
               onToggleLessonCompletion={handleToggleLessonCompletion}
               isCollapsed={isSidebarCollapsed}
@@ -311,20 +449,32 @@ export default function CourseView() {
               {/* Media Player */}
               <div className="bg-black rounded-xl sm:rounded-2xl overflow-hidden shadow-elevated">
                 <MediaPlayer
-                  currentLesson={currentLesson}
+                  currentLesson={activeLessonForPlayer}
                   isLive={false}
+                  onGoToUnlockedLesson={() => setCurrentLesson(defaultLesson)}
                 />
               </div>
 
               {/* Lesson Info Pill */}
-              <div className="bg-white rounded-xl border border-sand-200 p-3.5 sm:p-4 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                <div className="min-w-0">
+              <div className="bg-white rounded-xl border border-sand-200 p-3.5 sm:p-4 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-primary-900 bg-sand-100 px-2 py-0.5 rounded border border-sand-200">
+                      Lesson {currentLessonIndex >= 0 ? currentLessonIndex + 1 : 1} of {allLessons.length}
+                    </span>
+                    {currentLesson?.completed && (
+                      <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded border border-emerald-300 inline-flex items-center gap-1">
+                        <CheckCircle size={11} className="text-emerald-700" />
+                        Completed
+                      </span>
+                    )}
+                  </div>
                   <h2 className="text-base sm:text-lg font-heading font-semibold text-ink-900 leading-snug">
                     {currentLesson?.title}
                   </h2>
                 </div>
 
-                <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end pt-2 sm:pt-0 border-t sm:border-t-0 border-sand-100">
+                <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-between md:justify-end pt-2 md:pt-0 border-t md:border-t-0 border-sand-100">
                   {/* Quick Mobile Curriculum Drawer Button */}
                   <button
                     type="button"
@@ -338,6 +488,20 @@ export default function CourseView() {
                     </span>
                   </button>
 
+                  {/* Previous Lesson Button */}
+                  {prevLessonInSequence && (
+                    <button
+                      type="button"
+                      onClick={() => handleLessonSelect(prevLessonInSequence.id)}
+                      className="inline-flex items-center gap-1 px-3 py-2 rounded-lg text-xs font-semibold bg-sand-100 hover:bg-sand-200 text-ink-700 transition-colors cursor-pointer border border-sand-200"
+                      title={`Back to: ${prevLessonInSequence.title}`}
+                    >
+                      <ChevronLeft size={14} />
+                      <span className="hidden sm:inline">Previous</span>
+                    </button>
+                  )}
+
+                  {/* Mark as Completed Button */}
                   <button
                     onClick={() => handleToggleLessonCompletion(currentLesson?.id)}
                     className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer shadow-xs ${
@@ -349,6 +513,26 @@ export default function CourseView() {
                     <CheckCircle className={`w-4 h-4 ${currentLesson?.completed ? 'text-gold-300' : 'text-primary-600'}`} />
                     {currentLesson?.completed ? 'Completed' : 'Mark as Completed'}
                   </button>
+
+                  {/* Next Lesson Button — only visible once unlocked! */}
+                  {nextLessonInSequence && isNextLessonUnlocked && (
+                    <button
+                      type="button"
+                      onClick={() => handleLessonSelect(nextLessonInSequence.id)}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold bg-[#0B3324] hover:bg-[#072419] text-white cursor-pointer transition-all shadow-xs"
+                      title={`Next: ${nextLessonInSequence.title}`}
+                    >
+                      <span>Next Lesson</span>
+                      <ArrowRight size={13} />
+                    </button>
+                  )}
+
+                  {/* Final Lesson Completed Badge */}
+                  {!nextLessonInSequence && currentLesson?.completed && (
+                    <span className="inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-bold">
+                      <span>🎉 Course Complete</span>
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -438,6 +622,38 @@ export default function CourseView() {
             </div>
           </div>
         </div>
+        {/* Floating Notification Toast */}
+        <AnimatePresence>
+          {toastMessage && (
+            <motion.div
+              initial={{ opacity: 0, y: 16, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 10, scale: 0.95 }}
+              transition={{ duration: 0.2 }}
+              className="fixed bottom-6 right-6 z-50 bg-[#0B3324] text-white px-4 py-3 rounded-2xl shadow-xl border border-white/10 flex items-center gap-3 text-xs max-w-sm pointer-events-none select-none"
+            >
+              {toastMessage.type === 'locked' ? (
+                <div className="w-7 h-7 rounded-lg bg-amber-400/20 text-amber-300 flex items-center justify-center shrink-0">
+                  <Lock size={13} />
+                </div>
+              ) : toastMessage.type === 'success' ? (
+                <div className="w-7 h-7 rounded-lg bg-emerald-400/20 text-emerald-300 flex items-center justify-center shrink-0">
+                  <CheckCircle size={14} />
+                </div>
+              ) : null}
+              <div className="min-w-0">
+                {toastMessage.title && (
+                  <p className="font-heading font-bold text-white text-xs leading-tight">
+                    {toastMessage.title}
+                  </p>
+                )}
+                <p className="text-[11px] text-sand-200 mt-0.5 leading-snug">
+                  {toastMessage.text || (typeof toastMessage === 'string' ? toastMessage : '')}
+                </p>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </Layout>
   );

@@ -31,6 +31,7 @@ import { getEmbedVideoUrl, getStudentVideoRestriction } from '../../services/cou
 export default function MediaPlayer({
   currentLesson,
   isLive = false,
+  onGoToUnlockedLesson,
 }) {
   const [iframeLoaded, setIframeLoaded] = useState(false);
   const [restriction, setRestriction] = useState(() => getStudentVideoRestriction());
@@ -53,7 +54,47 @@ export default function MediaPlayer({
   const rawVideoUrl = currentLesson?.videoUrl || DEFAULT_BUNNY_VIDEO_URL;
   const embedUrl = getEmbedVideoUrl(rawVideoUrl);
 
-  // ---- 0. VIDEO ACCESS RESTRICTION GUARD ----
+  // ---- 0.1 SEQUENTIAL LOCK GUARD ----
+  if (currentLesson?.isLocked) {
+    return (
+      <div className="relative w-full bg-gradient-to-br from-[#071810] via-[#0B2519] to-black rounded-xl sm:rounded-2xl overflow-hidden shadow-elevated select-none text-white border border-sand-300/20">
+        <div className="relative w-full" style={{ paddingBottom: '56.25%' }}>
+          <div className="absolute inset-0 p-6 sm:p-10 flex flex-col items-center justify-center text-center space-y-4 z-10">
+            <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-white/10 border border-sand-300/30 text-sand-200 flex items-center justify-center shadow-lg">
+              <Lock size={28} className="text-sand-200" />
+            </div>
+
+            <div className="max-w-md sm:max-w-lg space-y-2">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-sand-100/10 text-sand-200 border border-sand-200/20 text-[11px] font-bold uppercase tracking-wider">
+                <Lock size={12} />
+                <span>Sequential Curriculum Access</span>
+              </div>
+              <h3 className="text-lg sm:text-xl font-heading font-bold text-white leading-snug">
+                This Lesson is Locked
+              </h3>
+              <p className="text-xs sm:text-sm text-sand-300 leading-relaxed">
+                {currentLesson.lockReason || 'You must complete the earlier lessons in this course before accessing this lecture.'}
+              </p>
+            </div>
+
+            {onGoToUnlockedLesson && (
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={onGoToUnlockedLesson}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary-600 hover:bg-primary-500 text-white font-bold text-xs sm:text-sm transition-all shadow-md cursor-pointer"
+                >
+                  <span>Resume Current Accessible Lesson →</span>
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ---- 0.2 VIDEO ACCESS RESTRICTION GUARD ----
   if (restriction.isVideoRestricted && lessonType === 'video') {
     return (
       <div className="relative w-full bg-gradient-to-br from-ink-950 via-[#140808] to-black rounded-xl sm:rounded-2xl overflow-hidden shadow-elevated select-none text-white border border-red-500/40">

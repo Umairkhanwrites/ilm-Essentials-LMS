@@ -39,6 +39,7 @@ import {
   PanelLeftClose,
   PanelLeft,
   GraduationCap,
+  Lock,
 } from 'lucide-react';
 import ProgressBar from '../../components/ui/ProgressBar';
 
@@ -60,6 +61,10 @@ function ModuleAccordion({
   onToggleLessonCompletion,
   expandedMap,
   toggleExpand,
+  unlockedLessonIds,
+  lockedLessonReasons,
+  onLockedLessonClick,
+  isAdmin = false,
 }) {
   const isExpanded = expandedMap[module.id] ?? module.expanded ?? false;
   const completedCount = module.lessons.filter((l) => l.completed).length;
@@ -114,25 +119,41 @@ function ModuleAccordion({
             <ul className="pb-2">
               {module.lessons.map((lesson) => {
                 const isActive = lesson.id === activeLessonId;
+                const isUnlocked = unlockedLessonIds ? unlockedLessonIds.has(lesson.id) : true;
+                const isLocked = !isUnlocked;
+                const lockReason = lockedLessonReasons?.[lesson.id] || 'Complete earlier lessons first to unlock';
                 const Icon = LESSON_TYPE_ICONS[lesson.type] || Play;
 
                 return (
                   <li key={lesson.id}>
                     <button
-                      onClick={() => onLessonSelect(lesson)}
+                      onClick={() => {
+                        if (isLocked && !isAdmin) {
+                          onLockedLessonClick?.(lesson, lockReason);
+                          return;
+                        }
+                        onLessonSelect(lesson);
+                      }}
                       className={clsx(
-                        'w-full flex items-center gap-3 px-4 pl-10 py-2.5 text-left transition-colors cursor-pointer',
-                        isActive
-                          ? 'bg-primary-50 border-l-3 border-primary-500'
-                          : 'hover:bg-sand-50 border-l-3 border-transparent'
+                        'w-full flex items-center gap-3 px-4 pl-10 py-2.5 text-left transition-colors',
+                        isLocked && !isAdmin
+                          ? 'opacity-60 bg-sand-50/50 cursor-not-allowed border-l-3 border-transparent select-none'
+                          : isActive
+                          ? 'bg-primary-50 border-l-3 border-primary-500 cursor-pointer'
+                          : 'hover:bg-sand-50 border-l-3 border-transparent cursor-pointer'
                       )}
+                      title={isLocked && !isAdmin ? 'Locked • Complete earlier lessons to unlock' : lesson.title}
                     >
                       {/* Type icon */}
                       <Icon
                         size={15}
                         className={clsx(
                           'flex-shrink-0',
-                          isActive ? 'text-primary-600' : 'text-ink-400'
+                          isLocked && !isAdmin
+                            ? 'text-ink-300'
+                            : isActive
+                            ? 'text-primary-600'
+                            : 'text-ink-400'
                         )}
                       />
 
@@ -141,7 +162,9 @@ function ModuleAccordion({
                         <p
                           className={clsx(
                             'text-sm truncate',
-                            isActive
+                            isLocked && !isAdmin
+                              ? 'text-ink-400 font-normal'
+                              : isActive
                               ? 'font-semibold text-primary-800'
                               : 'text-ink-700'
                           )}
@@ -153,36 +176,49 @@ function ModuleAccordion({
                         </p>
                       </div>
 
-                      {/* Completion Toggle */}
-                      <span
-                        role="button"
-                        tabIndex={0}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onToggleLessonCompletion?.(lesson.id);
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault();
+                      {/* Completion Toggle or Single Sleek Lock Icon */}
+                      {isLocked && !isAdmin ? (
+                        <span
+                          className="p-1 -m-1 text-ink-300 cursor-not-allowed flex-shrink-0"
+                          title={lockReason}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onLockedLessonClick?.(lesson, lockReason);
+                          }}
+                        >
+                          <Lock size={15} className="text-ink-300" />
+                        </span>
+                      ) : (
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          onClick={(e) => {
                             e.stopPropagation();
                             onToggleLessonCompletion?.(lesson.id);
-                          }
-                        }}
-                        className="p-1 -m-1 hover:scale-115 transition-transform cursor-pointer focus:outline-none flex-shrink-0"
-                        title={lesson.completed ? 'Mark lesson as incomplete' : 'Mark lesson as completed'}
-                      >
-                        {lesson.completed ? (
-                          <CheckCircle2
-                            size={18}
-                            className="text-primary-600 transition-colors"
-                          />
-                        ) : (
-                          <Circle
-                            size={18}
-                            className="text-ink-300 hover:text-primary-600 transition-colors"
-                          />
-                        )}
-                      </span>
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              onToggleLessonCompletion?.(lesson.id);
+                            }
+                          }}
+                          className="p-1 -m-1 hover:scale-115 transition-transform cursor-pointer focus:outline-none flex-shrink-0"
+                          title={lesson.completed ? 'Mark lesson as incomplete' : 'Mark lesson as completed'}
+                        >
+                          {lesson.completed ? (
+                            <CheckCircle2
+                              size={18}
+                              className="text-primary-600 transition-colors"
+                            />
+                          ) : (
+                            <Circle
+                              size={18}
+                              className="text-ink-300 hover:text-primary-600 transition-colors"
+                            />
+                          )}
+                        </span>
+                      )}
                     </button>
                   </li>
                 );
@@ -211,6 +247,10 @@ export default function CurriculumSidebar({
   onToggle,
   isMobileOpen = false,
   onMobileClose,
+  unlockedLessonIds,
+  lockedLessonReasons,
+  onLockedLessonClick,
+  isAdmin = false,
 }) {
   /* Track which modules are expanded */
   const [expandedMap, setExpandedMap] = useState(() => {
@@ -259,13 +299,14 @@ export default function CurriculumSidebar({
       </div>
 
       {/* ---- Progress summary ---- */}
-      <div className="px-4 py-3 border-b border-sand-200 space-y-2">
-        <div className="flex items-center justify-between text-xs text-ink-500">
-          <span className="font-semibold">
+      <div className="px-4 py-3 border-b border-sand-200 space-y-1.5">
+        <div className="flex items-center justify-between text-xs text-ink-600">
+          <span className="font-semibold text-ink-700">
             {completedLessons}/{totalLessons} Lessons
           </span>
+          <span className="font-bold text-primary-900">{progress}%</span>
         </div>
-        <ProgressBar value={progress} />
+        <ProgressBar value={progress} showLabel={false} size="sm" />
       </div>
 
       {/* ---- Module list (scrollable) ---- */}
@@ -280,6 +321,10 @@ export default function CurriculumSidebar({
             onToggleLessonCompletion={onToggleLessonCompletion}
             expandedMap={expandedMap}
             toggleExpand={toggleExpand}
+            unlockedLessonIds={unlockedLessonIds}
+            lockedLessonReasons={lockedLessonReasons}
+            onLockedLessonClick={onLockedLessonClick}
+            isAdmin={isAdmin}
           />
         ))}
       </div>
