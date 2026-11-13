@@ -199,7 +199,26 @@ export function getAllStudents() {
     if (stored) {
       const parsed = JSON.parse(stored);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
+        // Ensure baseline students from adminStudentsList are always present
+        const existingEmails = new Set(parsed.map((s) => (s.email || '').trim().toLowerCase()));
+        let needsUpdate = false;
+        const merged = [...parsed];
+
+        for (const baseline of adminStudentsList) {
+          const bEmail = (baseline.email || '').trim().toLowerCase();
+          if (bEmail && !existingEmails.has(bEmail)) {
+            merged.push(baseline);
+            existingEmails.add(bEmail);
+            needsUpdate = true;
+          }
+        }
+
+        if (needsUpdate) {
+          try {
+            localStorage.setItem(STORAGE_KEY_STUDENTS, JSON.stringify(merged));
+          } catch (e) {}
+        }
+        return merged;
       }
     }
   } catch (err) {
@@ -213,13 +232,19 @@ export function getAllStudents() {
  */
 export function saveStudent(studentData) {
   const current = getAllStudents();
-  const id = studentData.id || `std_${Date.now()}`;
-  const existing = current.find((s) => s.id === id);
+  const targetEmail = (studentData.email || '').trim().toLowerCase();
+  const existing = current.find(
+    (s) => (studentData.id && s.id === studentData.id) || (targetEmail && (s.email || '').trim().toLowerCase() === targetEmail)
+  );
+  const id = existing?.id || studentData.id || `std_${Date.now()}`;
 
-  const defaultPassword = studentData.password || (existing?.password ?? generateTemporaryPassword());
+  const defaultPassword =
+    studentData.password ||
+    existing?.password ||
+    (targetEmail ? `${targetEmail.split('@')[0]}123` : 'student123');
   const mustChangePassword = studentData.mustChangePassword !== undefined
     ? studentData.mustChangePassword
-    : (existing?.mustChangePassword ?? true);
+    : (existing?.mustChangePassword ?? false);
 
   const record = {
     ...existing,

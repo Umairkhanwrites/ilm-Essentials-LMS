@@ -15,6 +15,7 @@ import { motion } from 'framer-motion';
 import { Quote, BookOpen, Sparkles } from 'lucide-react';
 import { currentUser } from '../../data/mockData';
 import { getTodaysQuote } from '../../services/courseStorage';
+import { useAuth } from '../../context/AuthContext';
 
 /**
  * Formats a Date into a readable string like "Monday, November 3, 2026"
@@ -31,6 +32,7 @@ function formatDate(date) {
 }
 
 export default function WelcomeSection() {
+  const { user } = useAuth();
   const [quote, setQuote] = useState(() => getTodaysQuote());
   const today = useMemo(() => formatDate(new Date()), []);
 
@@ -70,7 +72,7 @@ export default function WelcomeSection() {
             transition={{ delay: 0.2, duration: 0.4 }}
             className="font-heading text-2xl sm:text-3xl lg:text-4xl font-bold tracking-tight text-white"
           >
-            {currentUser.name}
+            {user?.name || currentUser.name}
           </motion.h1>
 
           {/* Date */}

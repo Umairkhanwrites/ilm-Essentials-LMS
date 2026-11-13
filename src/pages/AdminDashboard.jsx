@@ -322,8 +322,8 @@ export default function AdminDashboard() {
       name: '',
       email: '',
       phone: '',
-      password: generateTemporaryPassword(),
-      mustChangePassword: true,
+      password: '',
+      mustChangePassword: false,
       program: 'Ilm Foundations',
       semester: 'Semester 1',
       selectedCourses: [],
@@ -388,9 +388,14 @@ export default function AdminDashboard() {
       return;
     }
 
+    const defaultPassFromName = studentFormData.email.includes('@')
+      ? `${studentFormData.email.split('@')[0].trim()}123`
+      : 'student123';
+
     const chosenPassword =
       studentFormData.password.trim() ||
-      (editingStudent?.password ?? generateTemporaryPassword());
+      editingStudent?.password ||
+      defaultPassFromName;
 
     const finalSemester = isIntensive
       ? studentFormData.selectedCourses.join(', ')
@@ -5633,10 +5638,9 @@ export default function AdminDashboard() {
                   <div className="relative">
                     <input
                       type={showStudentPassword ? 'text' : 'password'}
-                      required
                       value={studentFormData.password}
                       onChange={(e) => setStudentFormData({ ...studentFormData, password: e.target.value })}
-                      placeholder="Enter or generate student password"
+                      placeholder="e.g. maaz123 (or leave empty for email123)"
                       className="w-full pl-3.5 pr-10 py-2 text-xs border border-sand-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 font-semibold text-ink-900"
                     />
                     <button
