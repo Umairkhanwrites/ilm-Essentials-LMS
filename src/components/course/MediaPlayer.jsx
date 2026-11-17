@@ -54,8 +54,10 @@ export default function MediaPlayer({
   const rawVideoUrl = currentLesson?.videoUrl || DEFAULT_BUNNY_VIDEO_URL;
   const embedUrl = getEmbedVideoUrl(rawVideoUrl);
 
-  // ---- 0.1 SEQUENTIAL LOCK GUARD ----
+  // ---- 0.1 SEQUENTIAL / ADMIN LOCK GUARD ----
   if (currentLesson?.isLocked) {
+    const isAdminLocked = currentLesson?.isOverrideLocked;
+
     return (
       <div className="relative w-full bg-gradient-to-br from-[#071810] via-[#0B2519] to-black rounded-xl sm:rounded-2xl overflow-hidden shadow-elevated select-none text-white border border-sand-300/20">
         <div className="relative w-full" style={{ paddingBottom: '56.25%' }}>
@@ -67,10 +69,10 @@ export default function MediaPlayer({
             <div className="max-w-md sm:max-w-lg space-y-2">
               <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-sand-100/10 text-sand-200 border border-sand-200/20 text-[11px] font-bold uppercase tracking-wider">
                 <Lock size={12} />
-                <span>Sequential Curriculum Access</span>
+                <span>{isAdminLocked ? 'Admin Lecture Restriction' : 'Sequential Curriculum Access'}</span>
               </div>
               <h3 className="text-lg sm:text-xl font-heading font-bold text-white leading-snug">
-                This Lesson is Locked
+                {isAdminLocked ? 'Lecture Restricted by Administration' : 'This Lesson is Locked'}
               </h3>
               <p className="text-xs sm:text-sm text-sand-300 leading-relaxed">
                 {currentLesson.lockReason || 'You must complete the earlier lessons in this course before accessing this lecture.'}

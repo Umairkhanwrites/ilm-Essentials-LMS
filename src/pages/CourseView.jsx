@@ -30,6 +30,7 @@ import {
   Video,
   ExternalLink,
   Lock,
+  Clock,
 } from 'lucide-react';
 
 import Layout from '../components/layout/Layout';
@@ -44,7 +45,13 @@ import Card from '../components/ui/Card';
 import Avatar from '../components/ui/Avatar';
 
 import { courseDetail as defaultCourseDetail, courseFormats, enrolledCourses } from '../data/mockData';
-import { getCourseDetailById, saveCourseDetail, updateCourseProgress, getStudentVideoRestriction } from '../services/courseStorage';
+import {
+  getCourseDetailById,
+  saveCourseDetail,
+  updateCourseProgress,
+  getStudentVideoRestriction,
+  getStudentCourseAccessOverrides,
+} from '../services/courseStorage';
 import { useAuth } from '../context/AuthContext';
 
 export default function CourseView() {
@@ -96,15 +103,63 @@ export default function CourseView() {
     return (course.modules || []).flatMap((m) => m.lessons || []);
   }, [course]);
 
-  // Sequential Lesson Progression Rule:
-  // Lesson i is unlocked ONLY if all earlier lessons (0 ... i-1) are completed
-  const { unlockedLessonIds, lockedLessonReasons } = useMemo(() => {
+  // Load custom admin lecture access overrides for active user and course
+  const [accessOverrides, setAccessOverrides] = useState(() => {
+    return user?.id ? getStudentCourseAccessOverrides(user.id, course.id) : {};
+  });
+
+  useEffect(() => {
+    if (user?.id) {
+      setAccessOverrides(getStudentCourseAccessOverrides(user.id, course.id));
+    }
+  }, [user, course.id]);
+
+  useEffect(() => {
+    const handleUpdate = () => {
+      if (user?.id) {
+        setAccessOverrides(getStudentCourseAccessOverrides(user.id, course.id));
+      }
+    };
+    window.addEventListener('ilm-lesson-access-updated', handleUpdate);
+    return () => window.removeEventListener('ilm-lesson-access-updated', handleUpdate);
+  }, [user, course.id]);
+
+  // Sequential Lesson Progression Rule + Admin Granular Overrides
+  const { unlockedLessonIds, lockedLessonReasons, overrideDetails } = useMemo(() => {
     const unlocked = new Set();
     const reasons = {};
+    const details = {};
     let canUnlock = true;
 
     for (let i = 0; i < allLessons.length; i++) {
       const les = allLessons[i];
+      const override = accessOverrides[les.id];
+
+      // 1. Check if admin force-locked this lesson for the student
+      if (override?.status === 'locked') {
+        reasons[les.id] = override.reason || 'This video lecture has been locked by administration.';
+        details[les.id] = { type: 'locked', reason: override.reason };
+        canUnlock = Boolean(les.completed);
+        continue;
+      }
+
+      // 2. Check if admin force-granted access (7-day or lifetime)
+      if (override?.status === 'granted') {
+        const isExpired = override.durationType === '7_days' && override.expiresAt && Date.now() > override.expiresAt;
+        if (!isExpired) {
+          unlocked.add(les.id);
+          details[les.id] = {
+            type: 'granted',
+            durationType: override.durationType,
+            expiresAt: override.expiresAt,
+            expiryDateFormatted: override.expiryDateFormatted,
+          };
+          canUnlock = Boolean(les.completed);
+          continue;
+        }
+      }
+
+      // 3. Fallback to standard sequential progression
       if (i === 0) {
         unlocked.add(les.id);
         canUnlock = Boolean(les.completed);
@@ -119,8 +174,8 @@ export default function CourseView() {
       }
     }
 
-    return { unlockedLessonIds: unlocked, lockedLessonReasons: reasons };
-  }, [allLessons]);
+    return { unlockedLessonIds: unlocked, lockedLessonReasons: reasons, overrideDetails: details };
+  }, [allLessons, accessOverrides]);
 
   // Default accessible lesson: earliest incomplete lesson that is unlocked
   const defaultLesson = useMemo(() => {
@@ -303,8 +358,10 @@ export default function CourseView() {
       ...currentLesson,
       isLocked: !isUnlocked && user?.role !== 'admin',
       lockReason: lockedLessonReasons[currentLesson.id],
+      isOverrideLocked: Boolean(accessOverrides[currentLesson.id]?.status === 'locked'),
+      overrideInfo: overrideDetails[currentLesson.id],
     };
-  }, [currentLesson, unlockedLessonIds, lockedLessonReasons, user]);
+  }, [currentLesson, unlockedLessonIds, lockedLessonReasons, accessOverrides, overrideDetails, user]);
 
   // Add discussion thread to active course state
   const handleAddDiscussion = useCallback((newThread) => {
@@ -430,11 +487,11 @@ export default function CourseView() {
                 handleLessonSelect(id);
                 setIsMobileDrawerOpen(false);
               }}
-              onLockedLessonClick={() => {
+              onLockedLessonClick={(lesson, lockReason) => {
                 showToast({
                   type: 'locked',
                   title: 'Lesson Locked',
-                  text: 'Complete earlier lessons to unlock this lecture.',
+                  text: lockReason || 'Complete earlier lessons to unlock this lecture.',
                 });
               }}
               onToggleLessonCompletion={handleToggleLessonCompletion}
@@ -446,6 +503,23 @@ export default function CourseView() {
 
             {/* Right: Media Player & Content Panels */}
             <div className="flex-1 min-w-0 w-full space-y-4 sm:space-y-6">
+              {/* 7-Day Temporary Access Banner */}
+              {overrideDetails?.[currentLesson?.id]?.type === 'granted' &&
+                overrideDetails?.[currentLesson?.id]?.durationType === '7_days' && (
+                  <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs flex items-center justify-between gap-2 shadow-xs animate-fade-in">
+                    <div className="flex items-center gap-2">
+                      <Clock size={15} className="text-emerald-700 shrink-0" />
+                      <span>
+                        <strong>Special 7-Day Access:</strong> Granted by administration until{' '}
+                        <strong>{overrideDetails[currentLesson.id]?.expiryDateFormatted}</strong>.
+                      </span>
+                    </div>
+                    <span className="text-[10px] font-bold uppercase bg-emerald-200/70 text-emerald-900 px-2 py-0.5 rounded tracking-wider shrink-0">
+                      Active
+                    </span>
+                  </div>
+                )}
+
               {/* Media Player */}
               <div className="bg-black rounded-xl sm:rounded-2xl overflow-hidden shadow-elevated">
                 <MediaPlayer

@@ -50,6 +50,7 @@ const STORAGE_KEY_LIBRARY = 'ilm_elibrary_catalog';
 const STORAGE_KEY_DAILY_QUOTES = 'ilm_daily_quotes';
 const STORAGE_KEY_INSTALLMENTS = 'ilm_fee_installments';
 const STORAGE_KEY_ATTENDANCE_SESSIONS = 'ilm_attendance_sessions';
+const STORAGE_KEY_LESSON_ACCESS = 'ilm_lesson_access_overrides';
 
 /**
  * Retrieve current student enrolled courses synchronized with live lesson progress
@@ -3975,4 +3976,260 @@ export function parseAttendanceSheet(sheetText, courseStudents = []) {
     absentStudentIds: Array.from(absentStudentIds),
     unmatchedRows,
   };
+}
+
+/**
+ * =========================================================================
+ * Granular Lecture Access Control System (View B)
+ * =========================================================================
+ */
+
+/**
+ * Get all active lesson access overrides from local storage
+ */
+export function getAllLessonAccessOverrides() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_LESSON_ACCESS);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch (e) {
+    console.error('Failed to load lesson access overrides:', e);
+  }
+  return [];
+}
+
+/**
+ * Save access overrides list to localStorage and dispatch update event
+ */
+function saveAllLessonAccessOverrides(overrides) {
+  try {
+    localStorage.setItem(STORAGE_KEY_LESSON_ACCESS, JSON.stringify(overrides));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('ilm-lesson-access-updated', { detail: { overrides } }));
+    }
+  } catch (e) {
+    console.error('Failed to save lesson access overrides:', e);
+  }
+}
+
+/**
+ * Get access overrides for a specific lesson
+ */
+export function getLessonAccessOverrides(lessonId) {
+  if (!lessonId) return [];
+  const all = getAllLessonAccessOverrides();
+  return all.filter((o) => o.lessonId === lessonId);
+}
+
+/**
+ * Get all lesson overrides for a specific student and course
+ * Automatically checks 7-day expiration: if expired, treats as default.
+ */
+export function getStudentCourseAccessOverrides(studentId, courseId = null) {
+  if (!studentId) return {};
+  const all = getAllLessonAccessOverrides();
+  const studentOverrides = all.filter((o) => {
+    if (o.studentId !== studentId && o.studentEmail?.toLowerCase() !== studentId?.toLowerCase()) {
+      return false;
+    }
+    if (courseId && o.courseId && o.courseId !== courseId) {
+      return false;
+    }
+    return true;
+  });
+
+  const map = {};
+  const now = Date.now();
+
+  studentOverrides.forEach((override) => {
+    if (override.status === 'granted') {
+      // Check 7-day expiration
+      if (override.durationType === '7_days' && override.expiresAt && now > override.expiresAt) {
+        // Expired grant -> ignore
+        return;
+      }
+    }
+    map[override.lessonId] = override;
+  });
+
+  return map;
+}
+
+/**
+ * Count total active custom overrides across the entire LMS
+ */
+export function getActiveAccessOverridesCount() {
+  const all = getAllLessonAccessOverrides();
+  const now = Date.now();
+  return all.filter((o) => {
+    if (o.status === 'default') return false;
+    if (o.status === 'granted' && o.durationType === '7_days' && o.expiresAt && now > overrideExpires(o)) {
+      return false;
+    }
+    return true;
+  }).length;
+}
+
+function overrideExpires(o) {
+  return o.expiresAt || 0;
+}
+
+/**
+ * Set or update lecture access for a single student
+ *
+ * Rules:
+ * - When granted: generates notification with 7-day expiration date or Lifetime tag.
+ * - When locked: completely SILENT (no notification sent).
+ * - When reset to default: removes override, completely SILENT.
+ */
+export async function setStudentLessonAccess({
+  studentId,
+  studentName = 'Student',
+  studentEmail = '',
+  courseId,
+  courseTitle = 'Course',
+  lessonId,
+  lessonTitle = 'Lecture',
+  status = 'default', // 'granted' | 'locked' | 'default'
+  durationType = '7_days', // '7_days' | 'lifetime'
+  reason = '',
+  adminName = 'Administrator',
+}) {
+  const all = getAllLessonAccessOverrides();
+  const docId = `${studentId}_${lessonId}`;
+
+  // If resetting to default: remove from list
+  if (status === 'default') {
+    const updated = all.filter((o) => o.id !== docId && !(o.studentId === studentId && o.lessonId === lessonId));
+    saveAllLessonAccessOverrides(updated);
+
+    try {
+      await deleteDoc(doc(db, 'lesson_access', docId));
+    } catch (e) {
+      console.warn('Firestore deleteDoc note:', e);
+    }
+    return { success: true, status: 'default' };
+  }
+
+  const now = Date.now();
+  let expiresAt = null;
+  let expiryDateFormatted = null;
+
+  if (status === 'granted') {
+    if (durationType === '7_days') {
+      expiresAt = now + 7 * 24 * 60 * 60 * 1000;
+      expiryDateFormatted = new Date(expiresAt).toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      });
+    }
+  }
+
+  const record = {
+    id: docId,
+    studentId,
+    studentName,
+    studentEmail,
+    courseId,
+    courseTitle,
+    lessonId,
+    lessonTitle,
+    status, // 'granted' or 'locked'
+    durationType: status === 'granted' ? durationType : null,
+    expiresAt,
+    expiryDateFormatted,
+    reason: (reason || '').trim(),
+    adminName,
+    updatedAt: new Date().toISOString(),
+    timestamp: now,
+  };
+
+  // Update in local cache
+  const existingIndex = all.findIndex((o) => o.id === docId || (o.studentId === studentId && o.lessonId === lessonId));
+  const updatedList = existingIndex >= 0 ? all.map((o, idx) => (idx === existingIndex ? record : o)) : [record, ...all];
+  saveAllLessonAccessOverrides(updatedList);
+
+  // Sync to Cloud Firestore
+  try {
+    await setDoc(doc(db, 'lesson_access', docId), {
+      ...record,
+      serverUpdatedAt: serverTimestamp(),
+    }, { merge: true });
+  } catch (fsErr) {
+    console.warn('Failed to sync lesson access to Firestore:', fsErr);
+  }
+
+  // Automated In-App Notification:
+  // Dispatched ONLY when access is granted (silent when locked)
+  if (status === 'granted') {
+    try {
+      const currentNotifs = getStudentNotifications(studentId);
+      const is7Days = durationType === '7_days';
+      const notifId = `notif_access_${now}_${Math.random().toString(36).substring(2, 6)}`;
+
+      const newNotif = {
+        id: notifId,
+        studentId,
+        studentEmail,
+        isFoundations: true,
+        courseId,
+        title: is7Days ? 'Special Lecture Access (7 Days)' : 'Lecture Unlocked',
+        message: is7Days
+          ? `You have been granted 7-day temporary access to "${lessonTitle}" in ${courseTitle}. Valid until ${expiryDateFormatted}.`
+          : `You have been granted full access to "${lessonTitle}" in ${courseTitle} by administration.`,
+        time: 'Just now',
+        timestamp: now,
+        read: false,
+        type: 'lecture_access',
+        link: `/course/${courseId}?lesson=${lessonId}`,
+        icon: is7Days ? 'clock' : 'unlock',
+      };
+
+      saveStudentNotifications([newNotif, ...currentNotifs]);
+    } catch (notifErr) {
+      console.warn('Failed to dispatch access notification:', notifErr);
+    }
+  }
+
+  return { success: true, record };
+}
+
+/**
+ * Bulk update lecture access for multiple students in a single action
+ */
+export async function setBulkLessonAccess({
+  students, // array of student objects: { id, name, email }
+  courseId,
+  courseTitle,
+  lessonId,
+  lessonTitle,
+  status, // 'granted' | 'locked' | 'default'
+  durationType = '7_days',
+  reason = '',
+  adminName = 'Administrator',
+}) {
+  if (!Array.isArray(students) || students.length === 0) return { success: false, updatedCount: 0 };
+
+  let updatedCount = 0;
+  for (const std of students) {
+    await setStudentLessonAccess({
+      studentId: std.id,
+      studentName: std.name,
+      studentEmail: std.email,
+      courseId,
+      courseTitle,
+      lessonId,
+      lessonTitle,
+      status,
+      durationType,
+      reason,
+      adminName,
+    });
+    updatedCount++;
+  }
+
+  return { success: true, updatedCount };
 }

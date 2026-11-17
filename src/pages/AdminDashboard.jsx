@@ -78,6 +78,7 @@ import {
   BookMarked,
   Quote,
   ShieldAlert,
+  ShieldCheck,
   Unlock,
   Image,
   ZoomIn,
@@ -92,6 +93,7 @@ import logoWhite from '../assets/logo-white.png';
 import FeeInvoiceModal from '../components/admin/FeeInvoiceModal';
 import BillingDrawer from '../components/admin/BillingDrawer';
 import ScheduleDrawer from '../components/admin/ScheduleDrawer';
+import LectureAccessSection from '../components/admin/LectureAccessSection';
 import {
   adminOverviewStats,
   adminStudentsList,
@@ -150,6 +152,7 @@ import {
   getTodaysQuote,
   getFeeInstallments,
   saveFeeInstallments,
+  getActiveAccessOverridesCount,
   getGlobalAccountsSummary,
   getStudentVideoRestriction,
   setStudentVideoRestriction,
@@ -166,7 +169,17 @@ export default function AdminDashboard() {
   const { user, logout } = useAuth();
 
   // Tabs state
-  const [activeTab, setActiveTab] = useState('courses'); // 'courses' | 'students' | 'applications' | 'schedules'
+  const [activeTab, setActiveTab] = useState('courses'); // 'courses' | 'access' | 'students' | 'applications' | 'schedules'
+  const [activeLectureOverridesCount, setActiveLectureOverridesCount] = useState(() => getActiveAccessOverridesCount());
+  const [accessToast, setAccessToast] = useState(null);
+
+  useEffect(() => {
+    const handleAccessUpdate = () => {
+      setActiveLectureOverridesCount(getActiveAccessOverridesCount());
+    };
+    window.addEventListener('ilm-lesson-access-updated', handleAccessUpdate);
+    return () => window.removeEventListener('ilm-lesson-access-updated', handleAccessUpdate);
+  }, []);
 
   // Student search & filter
   const [studentSearch, setStudentSearch] = useState('');
@@ -1955,6 +1968,7 @@ export default function AdminDashboard() {
                 <nav className="space-y-1">
                   {[
                     { id: 'courses', label: 'Course Management', icon: BookOpen, count: courses.length },
+                    { id: 'access', label: 'Lecture Access', icon: ShieldCheck, count: activeLectureOverridesCount },
                     { id: 'pathways', label: 'Academic Pathways', icon: Compass, count: pathways.length },
                     { id: 'library', label: 'e-Library', icon: Library, count: libraryList.length },
                     { id: 'quotes', label: 'Quotes', icon: Quote, count: quotesList.length },
@@ -2223,6 +2237,16 @@ export default function AdminDashboard() {
                 </table>
               </div>
             </div>
+          )}
+
+          {/* Tab: Lecture Access Control */}
+          {activeTab === 'access' && (
+            <LectureAccessSection
+              onShowToast={(msg) => {
+                setAccessToast({ title: 'Access Updated', message: msg });
+                setTimeout(() => setAccessToast(null), 4000);
+              }}
+            />
           )}
 
           {/* Tab 2: Academic Pathways */}
@@ -8509,6 +8533,26 @@ export default function AdminDashboard() {
             <button
               type="button"
               onClick={() => setAccountsToast(null)}
+              className="text-primary-300 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-colors"
+            >
+              <X size={15} />
+            </button>
+          </div>
+        )}
+
+        {/* 5. LECTURE ACCESS FLOATING TOAST NOTIFICATION */}
+        {accessToast && (
+          <div className="fixed bottom-6 right-6 z-50 max-w-md bg-[#0B3324] text-white p-4 rounded-2xl shadow-2xl border border-emerald-800 flex items-start gap-3 animate-slideIn">
+            <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center shrink-0 mt-0.5">
+              <ShieldCheck size={18} className="text-emerald-300" />
+            </div>
+            <div className="flex-1 text-xs leading-relaxed">
+              <span className="font-bold text-emerald-300 block mb-0.5">{accessToast.title}</span>
+              <p className="text-sand-100">{accessToast.message}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setAccessToast(null)}
               className="text-primary-300 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-colors"
             >
               <X size={15} />
