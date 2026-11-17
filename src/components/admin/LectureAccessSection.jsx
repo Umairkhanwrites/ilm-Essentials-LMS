@@ -34,6 +34,95 @@ import {
   getActiveAccessOverridesCount,
 } from '../../services/courseStorage';
 
+/**
+ * Minimalist Custom Dropdown
+ * Replaces native OS <select> popups with modern, sleek, styled floating menus
+ */
+function MinimalDropdown({
+  value,
+  onChange,
+  options = [],
+  placeholder = 'Select...',
+  disabled = false,
+  className = '',
+  menuWidth = 'w-60',
+  align = 'left',
+  title = '',
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleClickOutside = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isOpen]);
+
+  const selectedOption = options.find((o) => o.value === value);
+  const displayLabel = selectedOption ? selectedOption.label : placeholder;
+
+  return (
+    <div className={`relative ${className}`} ref={containerRef} title={title}>
+      <button
+        type="button"
+        disabled={disabled || options.length === 0}
+        onClick={() => setIsOpen((prev) => !prev)}
+        className={`w-full h-9 px-3 py-2 text-xs font-semibold rounded-xl border border-sand-200 bg-sand-50/70 hover:bg-sand-100/70 text-ink-800 flex items-center justify-between gap-2 transition-all cursor-pointer select-none ${
+          isOpen ? 'ring-2 ring-primary-500/15 border-sand-300 bg-white shadow-2xs' : ''
+        } ${disabled || options.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+      >
+        <span className="truncate text-left">{displayLabel}</span>
+        <ChevronDown
+          size={13}
+          className={`text-ink-400 shrink-0 transition-transform duration-150 ${isOpen ? 'rotate-180 text-ink-700' : ''}`}
+        />
+      </button>
+
+      {isOpen && !disabled && options.length > 0 && (
+        <div
+          className={`absolute ${align === 'right' ? 'right-0' : 'left-0'} top-full mt-1.5 ${menuWidth} max-w-[90vw] bg-white rounded-xl shadow-xl border border-sand-200/90 py-1.5 z-40 text-xs animate-in fade-in zoom-in-95 duration-100`}
+        >
+          <div className="max-h-64 overflow-y-auto px-1 space-y-0.5">
+            {options.map((opt) => {
+              const isSelected = opt.value === value;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => {
+                    onChange(opt.value);
+                    setIsOpen(false);
+                  }}
+                  className={`w-full text-left px-3 py-2 rounded-lg flex items-center justify-between gap-2.5 transition-colors cursor-pointer ${
+                    isSelected
+                      ? 'bg-emerald-50 text-emerald-950 font-semibold'
+                      : 'text-ink-700 hover:bg-sand-100/75 hover:text-ink-900 font-medium'
+                  }`}
+                >
+                  <div className="flex flex-col min-w-0 pr-1">
+                    <span className="truncate">{opt.label}</span>
+                    {opt.sublabel && (
+                      <span className="text-[10px] text-ink-400 font-normal leading-tight">
+                        {opt.sublabel}
+                      </span>
+                    )}
+                  </div>
+                  {isSelected && <Check size={13} className="text-emerald-700 shrink-0" />}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function LectureAccessSection({ onShowToast }) {
   const allCourses = useMemo(() => getAllCourses(), []);
   const allStudents = useMemo(() => getAllStudents(), []);
@@ -115,6 +204,28 @@ export default function LectureAccessSection({ onShowToast }) {
     });
     return list;
   }, [activeCourse]);
+
+  // Dropdown options
+  const pathwayOptions = useMemo(() => [
+    { value: 'all', label: 'All Programs' },
+    ...allPathways.map((p) => ({ value: p.id, label: p.name })),
+  ], [allPathways]);
+
+  const courseOptions = useMemo(() => {
+    return filteredCourses.map((c) => ({
+      value: c.id,
+      label: c.title,
+      sublabel: c.semester || (c.category === 'foundations' ? 'Foundations' : 'Intensive'),
+    }));
+  }, [filteredCourses]);
+
+  const lessonOptions = useMemo(() => {
+    return courseLessons.map((les) => ({
+      value: les.id,
+      label: `${les.lessonNumber ? `Lesson ${les.lessonNumber}: ` : ''}${les.title}`,
+      sublabel: les.duration || '45m',
+    }));
+  }, [courseLessons]);
 
   // Set default lesson when course changes
   useEffect(() => {
@@ -282,82 +393,61 @@ export default function LectureAccessSection({ onShowToast }) {
           {/* Unified Selectors & Cohort Action Menu */}
           <div className="flex flex-wrap items-center gap-2.5">
             {/* Academic Pathway / Program Dropdown */}
-            <div className="relative">
-              <select
-                value={selectedPathwayId}
-                onChange={(e) => setSelectedPathwayId(e.target.value)}
-                className="appearance-none pl-3 pr-8 py-2 text-xs font-semibold rounded-xl border border-sand-200 bg-sand-50/70 hover:bg-sand-100/70 text-ink-800 focus:outline-none cursor-pointer transition-colors"
-                title="Filter by Academic Pathway / Program"
-              >
-                <option value="all">All Programs</option>
-                {allPathways.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-400 pointer-events-none" />
-            </div>
+            <MinimalDropdown
+              value={selectedPathwayId}
+              onChange={setSelectedPathwayId}
+              options={pathwayOptions}
+              placeholder="All Programs"
+              menuWidth="w-52"
+              title="Filter by Academic Pathway / Program"
+            />
 
             {/* Course Dropdown */}
-            <div className="relative max-w-[200px] sm:max-w-[240px]">
-              <select
-                value={selectedCourseId}
-                onChange={(e) => setSelectedCourseId(e.target.value)}
-                disabled={filteredCourses.length === 0}
-                className="appearance-none w-full pl-3 pr-8 py-2 text-xs font-semibold rounded-xl border border-sand-200 bg-sand-50/70 hover:bg-sand-100/70 text-ink-800 focus:outline-none cursor-pointer transition-colors truncate"
-              >
-                {filteredCourses.length === 0 ? (
-                  <option value="">No courses available</option>
-                ) : (
-                  filteredCourses.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.title}
-                    </option>
-                  ))
-                )}
-              </select>
-              <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-400 pointer-events-none" />
-            </div>
+            <MinimalDropdown
+              value={selectedCourseId}
+              onChange={setSelectedCourseId}
+              options={courseOptions}
+              placeholder="No courses"
+              disabled={courseOptions.length === 0}
+              className="max-w-[210px] sm:max-w-[240px]"
+              menuWidth="w-64"
+              title="Select Enrolled Course"
+            />
 
             {/* Lesson Dropdown */}
-            <div className="relative max-w-[260px] sm:max-w-[320px]">
-              <select
-                value={selectedLessonId}
-                onChange={(e) => setSelectedLessonId(e.target.value)}
-                disabled={courseLessons.length === 0}
-                className="appearance-none w-full pl-3 pr-8 py-2 text-xs font-semibold rounded-xl border border-sand-200 bg-sand-50/70 hover:bg-sand-100/70 text-ink-800 focus:outline-none cursor-pointer transition-colors truncate"
-              >
-                {courseLessons.length === 0 ? (
-                  <option value="">No lessons available</option>
-                ) : (
-                  courseLessons.map((les) => (
-                    <option key={les.id} value={les.id}>
-                      {les.lessonNumber ? `Lesson ${les.lessonNumber}: ` : ''}{les.title} ({les.duration || '45m'})
-                    </option>
-                  ))
-                )}
-              </select>
-              <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-400 pointer-events-none" />
-            </div>
+            <MinimalDropdown
+              value={selectedLessonId}
+              onChange={setSelectedLessonId}
+              options={lessonOptions}
+              placeholder="No lessons"
+              disabled={lessonOptions.length === 0}
+              className="max-w-[250px] sm:max-w-[320px]"
+              menuWidth="w-80"
+              title="Select Target Lecture / Video"
+            />
 
             {/* Cohort Actions Dropdown */}
             <div className="relative" ref={cohortMenuRef}>
               <button
                 type="button"
                 onClick={() => setIsCohortMenuOpen((prev) => !prev)}
-                className="px-3 py-2 text-xs font-semibold rounded-xl border border-sand-200 bg-white hover:bg-sand-50 text-ink-700 flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+                className={`h-9 px-3 py-2 text-xs font-semibold rounded-xl border border-sand-200 bg-sand-50/70 hover:bg-sand-100/70 text-ink-800 flex items-center gap-1.5 transition-all cursor-pointer select-none ${
+                  isCohortMenuOpen ? 'ring-2 ring-primary-500/15 border-sand-300 bg-white shadow-2xs' : ''
+                }`}
               >
                 <span>Cohort Actions</span>
-                <ChevronDown size={12} className={`text-ink-400 transition-transform ${isCohortMenuOpen ? 'rotate-180' : ''}`} />
+                <ChevronDown size={12} className={`text-ink-400 transition-transform duration-150 ${isCohortMenuOpen ? 'rotate-180 text-ink-700' : ''}`} />
               </button>
 
               {isCohortMenuOpen && (
-                <div className="absolute right-0 mt-1.5 w-52 bg-white rounded-xl shadow-lg border border-sand-200 py-1.5 z-30 text-xs">
+                <div className="absolute right-0 top-full mt-1.5 w-52 bg-white rounded-xl shadow-xl border border-sand-200/90 py-1.5 z-40 text-xs animate-in fade-in zoom-in-95 duration-100">
                   <button
                     type="button"
-                    onClick={() => handleBulkAction('granted', '7_days')}
-                    className="w-full text-left px-3.5 py-2 hover:bg-emerald-50 text-emerald-900 flex items-center gap-2 cursor-pointer font-medium"
+                    onClick={() => {
+                      handleBulkAction('granted', '7_days');
+                      setIsCohortMenuOpen(false);
+                    }}
+                    className="w-full text-left px-3.5 py-2 hover:bg-emerald-50 text-emerald-900 flex items-center gap-2 cursor-pointer font-medium transition-colors"
                   >
                     <Clock size={13} className="text-emerald-700" />
                     <span>Grant All (7 Days)</span>
@@ -365,8 +455,11 @@ export default function LectureAccessSection({ onShowToast }) {
 
                   <button
                     type="button"
-                    onClick={() => handleBulkAction('granted', 'lifetime')}
-                    className="w-full text-left px-3.5 py-2 hover:bg-sand-50 text-ink-800 flex items-center gap-2 cursor-pointer font-medium"
+                    onClick={() => {
+                      handleBulkAction('granted', 'lifetime');
+                      setIsCohortMenuOpen(false);
+                    }}
+                    className="w-full text-left px-3.5 py-2 hover:bg-sand-50 text-ink-800 flex items-center gap-2 cursor-pointer font-medium transition-colors"
                   >
                     <InfinityIcon size={13} className="text-primary-700" />
                     <span>Grant All (Lifetime)</span>
@@ -374,8 +467,11 @@ export default function LectureAccessSection({ onShowToast }) {
 
                   <button
                     type="button"
-                    onClick={() => handleBulkAction('locked', 'lifetime', 'Restricted by administrator')}
-                    className="w-full text-left px-3.5 py-2 hover:bg-red-50 text-red-800 flex items-center gap-2 cursor-pointer font-medium"
+                    onClick={() => {
+                      handleBulkAction('locked', 'lifetime', 'Restricted by administrator');
+                      setIsCohortMenuOpen(false);
+                    }}
+                    className="w-full text-left px-3.5 py-2 hover:bg-red-50 text-red-800 flex items-center gap-2 cursor-pointer font-medium transition-colors"
                   >
                     <Lock size={13} className="text-red-700" />
                     <span>Lock All (Silent)</span>
@@ -385,8 +481,11 @@ export default function LectureAccessSection({ onShowToast }) {
 
                   <button
                     type="button"
-                    onClick={() => handleBulkAction('default')}
-                    className="w-full text-left px-3.5 py-2 hover:bg-sand-50 text-ink-600 flex items-center gap-2 cursor-pointer font-medium"
+                    onClick={() => {
+                      handleBulkAction('default');
+                      setIsCohortMenuOpen(false);
+                    }}
+                    className="w-full text-left px-3.5 py-2 hover:bg-sand-50 text-ink-600 flex items-center gap-2 cursor-pointer font-medium transition-colors"
                   >
                     <RotateCcw size={13} />
                     <span>Reset All to Default</span>
