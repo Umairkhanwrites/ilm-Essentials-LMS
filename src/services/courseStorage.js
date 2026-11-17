@@ -3544,8 +3544,9 @@ export const INITIAL_ATTENDANCE_SESSIONS = [
     id: 'att_ses_01',
     courseId: 'crs_found_01',
     courseTitle: "Qur'ānic Arabic",
+    lessonId: 'les_found_01_01',
     date: '2026-03-02',
-    topic: 'Lecture 1: The Noun (Ism) & Fundamentals',
+    topic: "Lesson 3: The Noun (Ism): Number (Mufrad, Muthanna, Jam')",
     deliveryMode: 'hybrid',
     records: {
       std_001: 'present',
@@ -3562,17 +3563,22 @@ export const INITIAL_ATTENDANCE_SESSIONS = [
       std_013: 'present',
       std_014: 'present',
       std_015: 'present',
+      std_016: 'present',
+      std_017: 'present',
+      std_018: 'present',
+      std_019: 'present',
     },
-    totalEnrolled: 14,
-    presentCount: 12,
+    totalEnrolled: 18,
+    presentCount: 17,
     createdAt: '2026-03-02T19:00:00.000Z',
   },
   {
     id: 'att_ses_02',
     courseId: 'crs_found_01',
     courseTitle: "Qur'ānic Arabic",
+    lessonId: 'les_found_01_02',
     date: '2026-03-05',
-    topic: 'Lecture 2: Definite & Indefinite Noun Drills',
+    topic: "Lesson 4: The Definite & Indefinite Noun (Ma'rifah & Nakirah)",
     deliveryMode: 'online',
     records: {
       std_001: 'present',
@@ -3589,17 +3595,22 @@ export const INITIAL_ATTENDANCE_SESSIONS = [
       std_013: 'present',
       std_014: 'present',
       std_015: 'present',
+      std_016: 'present',
+      std_017: 'present',
+      std_018: 'present',
+      std_019: 'present',
     },
-    totalEnrolled: 14,
-    presentCount: 12,
+    totalEnrolled: 18,
+    presentCount: 17,
     createdAt: '2026-03-05T19:00:00.000Z',
   },
   {
     id: 'att_ses_03',
     courseId: 'crs_found_02',
     courseTitle: 'Tajwīd',
+    lessonId: 'les_found_02_01',
     date: '2026-03-04',
-    topic: 'Lecture 1: Makhaarij Al-Huroof (Articulation Points)',
+    topic: 'Lesson 4: Makharij al-Huruf: Tongue Articulations (Part 1)',
     deliveryMode: 'onsite',
     records: {
       std_001: 'present',
@@ -3616,15 +3627,20 @@ export const INITIAL_ATTENDANCE_SESSIONS = [
       std_013: 'absent',
       std_014: 'present',
       std_015: 'present',
+      std_016: 'present',
+      std_017: 'present',
+      std_018: 'present',
+      std_019: 'present',
     },
-    totalEnrolled: 14,
-    presentCount: 12,
+    totalEnrolled: 18,
+    presentCount: 17,
     createdAt: '2026-03-04T18:30:00.000Z',
   },
   {
     id: 'att_ses_04',
     courseId: 'crs_202',
     courseTitle: 'The Prophetic Biography (Sīrah)',
+    lessonId: 'les_202_01',
     date: '2026-03-07',
     topic: 'Seminar 1: Pre-Islamic Arabia & Lineage of Rasulullah ﷺ',
     deliveryMode: 'online',
@@ -3649,8 +3665,59 @@ export function getAttendanceSessions(courseId = null) {
     let list = INITIAL_ATTENDANCE_SESSIONS;
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        list = parsed;
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        // Upgrade legacy session records and topic titles to match current curriculum & enrolled students
+        list = parsed.map((s) => {
+          let updated = { ...s };
+          if (s.id === 'att_ses_01') {
+            updated = {
+              ...updated,
+              lessonId: updated.lessonId || 'les_found_01_01',
+              topic: updated.topic?.includes('Fundamentals') ? "Lesson 3: The Noun (Ism): Number (Mufrad, Muthanna, Jam')" : updated.topic,
+              records: {
+                std_016: 'present',
+                std_017: 'present',
+                std_018: 'present',
+                std_019: 'present',
+                ...updated.records,
+              },
+            };
+          } else if (s.id === 'att_ses_02') {
+            updated = {
+              ...updated,
+              lessonId: updated.lessonId || 'les_found_01_02',
+              topic: updated.topic?.includes('Drills') ? "Lesson 4: The Definite & Indefinite Noun (Ma'rifah & Nakirah)" : updated.topic,
+              records: {
+                std_016: 'present',
+                std_017: 'present',
+                std_018: 'present',
+                std_019: 'present',
+                ...updated.records,
+              },
+            };
+          } else if (s.id === 'att_ses_03') {
+            updated = {
+              ...updated,
+              lessonId: updated.lessonId || 'les_found_02_01',
+              topic: updated.topic?.includes('Makhaarij') ? "Lesson 4: Makharij al-Huruf: Tongue Articulations (Part 1)" : updated.topic,
+              records: {
+                std_016: 'present',
+                std_017: 'present',
+                std_018: 'present',
+                std_019: 'present',
+                ...updated.records,
+              },
+            };
+          }
+          const recs = updated.records || {};
+          const totalEnrolled = Object.keys(recs).length;
+          const presentCount = Object.values(recs).filter((r) => r === 'present' || r === 'late').length;
+          return {
+            ...updated,
+            totalEnrolled,
+            presentCount,
+          };
+        });
       }
     }
     if (courseId) {
@@ -3784,9 +3851,9 @@ export function calculateStudentProgressStats(studentId) {
 
 /**
  * Save or record an attendance session (handles both daily roll-call and sheet upload)
- * Automatically synchronizes each student's attendance percentage into the students list.
+ * Automatically synchronizes each student's attendance percentage into the students list and Cloud Firestore.
  */
-export function saveAttendanceSession(sessionData) {
+export async function saveAttendanceSession(sessionData) {
   const current = getAttendanceSessions();
   const id = sessionData.id || `att_${Date.now()}`;
   const existingIdx = current.findIndex((s) => s.id === id);
@@ -3801,6 +3868,7 @@ export function saveAttendanceSession(sessionData) {
     records,
     totalEnrolled,
     presentCount,
+    updatedAt: new Date().toISOString(),
     createdAt: sessionData.createdAt || new Date().toISOString(),
   };
 
@@ -3810,16 +3878,26 @@ export function saveAttendanceSession(sessionData) {
 
   saveAllAttendanceSessions(updatedSessions);
 
+  // Sync to Cloud Firestore
+  try {
+    await setDoc(doc(db, 'attendance_sessions', id), {
+      ...session,
+      serverUpdatedAt: serverTimestamp(),
+    }, { merge: true });
+  } catch (err) {
+    console.warn('Firestore attendance session sync note:', err);
+  }
+
   // Synchronize computed attendance rates back to all affected students
-  syncAllStudentsAttendance(updatedSessions);
+  await syncAllStudentsAttendance(updatedSessions);
 
   return session;
 }
 
 /**
- * Synchronize attendance percentages on student records in storage
+ * Synchronize attendance percentages on student records in storage and Cloud Firestore
  */
-export function syncAllStudentsAttendance(sessions = null) {
+export async function syncAllStudentsAttendance(sessions = null) {
   try {
     const allStudents = getAllStudents();
     const allSessions = sessions || getAttendanceSessions();
@@ -3836,6 +3914,22 @@ export function syncAllStudentsAttendance(sessions = null) {
     });
 
     localStorage.setItem(STORAGE_KEY_STUDENTS, JSON.stringify(updatedStudents));
+
+    // Update attendance percentage in Cloud Firestore student records
+    for (const std of updatedStudents) {
+      const stats = calculateStudentAttendanceStats(std.id, allSessions);
+      if (stats.hasRecords) {
+        try {
+          await updateDoc(doc(db, 'users', std.id), {
+            attendance: stats.rate,
+            serverUpdatedAt: serverTimestamp(),
+          });
+        } catch (e) {
+          // Skip if document not found in Firestore
+        }
+      }
+    }
+
     return updatedStudents;
   } catch (err) {
     console.error('Failed to sync students attendance:', err);
@@ -3845,11 +3939,19 @@ export function syncAllStudentsAttendance(sessions = null) {
 /**
  * Delete an attendance session and re-sync student rates
  */
-export function deleteAttendanceSession(sessionId) {
+export async function deleteAttendanceSession(sessionId) {
   const current = getAttendanceSessions();
   const updated = current.filter((s) => s.id !== sessionId);
   saveAllAttendanceSessions(updated);
-  syncAllStudentsAttendance(updated);
+
+  // Delete from Cloud Firestore
+  try {
+    await deleteDoc(doc(db, 'attendance_sessions', sessionId));
+  } catch (err) {
+    console.warn('Firestore attendance session delete note:', err);
+  }
+
+  await syncAllStudentsAttendance(updated);
   return updated;
 }
 

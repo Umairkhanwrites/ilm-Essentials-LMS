@@ -496,6 +496,16 @@ export default function AdminDashboard() {
   const [attendanceSectionPathwayFilter, setAttendanceSectionPathwayFilter] = useState('all');
   const [attendanceSectionStandingFilter, setAttendanceSectionStandingFilter] = useState('all');
 
+  // Listen for global attendance updates across components
+  useEffect(() => {
+    const handleAttendanceUpdate = () => {
+      setAttendanceSessions(getAttendanceSessions());
+      setStudents(getAllStudents());
+    };
+    window.addEventListener('ilm-attendance-updated', handleAttendanceUpdate);
+    return () => window.removeEventListener('ilm-attendance-updated', handleAttendanceUpdate);
+  }, []);
+
   // Enrolled students for selected course in attendance modal
   const attendanceEnrolledStudents = useMemo(() => {
     if (!attendanceCourseId) return [];
@@ -703,25 +713,28 @@ export default function AdminDashboard() {
     setTimeout(() => setAttendanceToast(''), 4000);
   };
 
-  const handleSaveAttendance = () => {
+  const handleSaveAttendance = async () => {
     if (!attendanceCourseId) return;
     const course = courses.find((c) => c.id === attendanceCourseId);
     const courseTitle = course ? course.title : 'Course';
+
+    const matchedLesson = availableCourseLessons.find((l) => l.title === attendanceTopic);
 
     const sessionPayload = {
       ...(editingAttendanceSessionId ? { id: editingAttendanceSessionId } : {}),
       courseId: attendanceCourseId,
       courseTitle,
+      lessonId: matchedLesson?.id || null,
       date: attendanceDate,
       topic: attendanceTopic.trim() || `Class Session (${attendanceDate})`,
       deliveryMode: attendanceDeliveryMode,
       records: attendanceRecords,
     };
 
-    saveAttendanceSession(sessionPayload);
+    await saveAttendanceSession(sessionPayload);
     setStudents(getAllStudents());
     setAttendanceSessions(getAttendanceSessions());
-    setAttendanceToast('Attendance saved & student rates recalculated successfully!');
+    setAttendanceToast('Attendance saved & session logs synced successfully!');
     setTimeout(() => {
       setAttendanceToast('');
       setAttendanceModalMode('lessons');
@@ -729,9 +742,9 @@ export default function AdminDashboard() {
     }, 900);
   };
 
-  const handleDeleteAttendanceSession = (sessionId) => {
+  const handleDeleteAttendanceSession = async (sessionId) => {
     if (window.confirm('Are you sure you want to delete this attendance session? All student rates will be recalculated.')) {
-      deleteAttendanceSession(sessionId);
+      await deleteAttendanceSession(sessionId);
       setStudents(getAllStudents());
       setAttendanceSessions(getAttendanceSessions());
       setAttendanceToast('Session deleted and attendance rates updated.');
@@ -2836,7 +2849,12 @@ export default function AdminDashboard() {
                                 </span>
                               </td>
                               <td className="py-3 px-4 text-xs text-ink-600 whitespace-nowrap">
-                                <strong className="text-ink-900">{sPresent}</strong> Present • <strong className="text-ink-900">{sTotal - sPresent - sLate}</strong> Absent
+                                <strong className="text-ink-900">{sPresent}</strong> Present
+                                {sLate > 0 && (
+                                  <> • <strong className="text-ink-900">{sLate}</strong> Late</>
+                                )}
+                                {' • '}
+                                <strong className="text-ink-900">{Math.max(0, sTotal - sPresent - sLate)}</strong> Absent
                               </td>
                               <td className="py-3 px-4 whitespace-nowrap">
                                 <span className="text-xs font-bold text-emerald-800">
@@ -5856,97 +5874,105 @@ export default function AdminDashboard() {
                 } w-full border border-sand-200 overflow-hidden flex flex-col max-h-[90vh] animate-in fade-in zoom-in-95 duration-150`}
               >
                 {/* ========================================================= */}
-                {/* VIEW 1: COURSE LESSONS & ATTENDANCE HISTORY LIST (MINIMAL) */}
+                {/* VIEW 1: COURSE LESSONS & ATTENDANCE HISTORY LIST */}
                 {/* ========================================================= */}
                 {attendanceModalMode === 'lessons' && (
                   <>
-                    {/* Minimal Header */}
-                    <div className="px-6 py-4 border-b border-sand-100 flex items-center justify-between gap-3 shrink-0">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <h3 className="text-base font-bold text-ink-900 truncate">
-                            {currentCourse?.title || 'Course Attendance'}
-                          </h3>
-                          <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-sand-100 text-ink-600">
-                            {currentCourse?.category || 'Course'}
-                          </span>
+                    {/* Header */}
+                    <div className="px-5 py-3.5 bg-sand-50 border-b border-sand-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 rounded-xl bg-primary-900 text-white shadow-xs">
+                          <BookOpen size={17} />
                         </div>
-                        <p className="text-xs text-ink-400 mt-0.5 truncate">
-                          {currentCourse?.instructor || 'Faculty Scholar'} • {totalEnrolled} Enrolled • <span className="capitalize">{currentCourse?.format || 'Online'}</span>
-                        </p>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h3 className="text-sm sm:text-base font-bold text-ink-900">
+                              {currentCourse?.title || 'Course Attendance'}
+                            </h3>
+                            <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-md bg-sand-200 text-ink-700">
+                              {currentCourse?.category || 'Course'}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-ink-500 mt-0.5">
+                            Instructor: <span className="font-semibold text-ink-800">{currentCourse?.instructor || 'Faculty Scholar'}</span> • {totalEnrolled} Enrolled • Mode: <span className="capitalize font-semibold text-ink-800">{currentCourse?.format || 'Hybrid'}</span>
+                          </p>
+                        </div>
                       </div>
 
-                      <div className="flex items-center gap-2 shrink-0">
+                      <div className="flex items-center gap-2 self-end sm:self-center">
                         {/* Course Switcher */}
-                        <div className="relative">
-                          <select
-                            value={attendanceCourseId}
-                            onChange={(e) => handleAttendanceCourseChange(e.target.value)}
-                            className="appearance-none pl-3 pr-7 py-1.5 text-xs font-semibold rounded-xl border border-sand-200 bg-sand-50/70 hover:bg-sand-100/70 text-ink-800 focus:outline-none cursor-pointer transition-colors max-w-[180px] truncate"
-                          >
-                            {courses.map((c) => (
-                              <option key={c.id} value={c.id}>
-                                {c.title}
-                              </option>
-                            ))}
-                          </select>
-                          <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-ink-400 pointer-events-none" />
-                        </div>
+                        <select
+                          value={attendanceCourseId}
+                          onChange={(e) => handleAttendanceCourseChange(e.target.value)}
+                          className="px-2.5 py-1.5 text-xs border border-sand-300 rounded-lg bg-white font-semibold text-ink-900 focus:outline-none focus:ring-2 focus:ring-primary-500/20 cursor-pointer max-w-[190px] truncate"
+                        >
+                          {courses.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.title}
+                            </option>
+                          ))}
+                        </select>
 
                         <button
                           type="button"
                           onClick={() => setIsAttendanceModalOpen(false)}
-                          className="p-1.5 rounded-xl text-ink-400 hover:text-ink-700 hover:bg-sand-100 transition-colors cursor-pointer"
+                          className="p-1.5 rounded-lg text-ink-400 hover:text-ink-700 hover:bg-sand-200/60 transition-colors cursor-pointer"
                         >
-                          <X size={16} />
+                          <X size={18} />
                         </button>
                       </div>
                     </div>
 
-                    {/* Unified Minimal Toolbar: Telemetry & Tabs */}
-                    <div className="px-6 py-2.5 bg-sand-50/40 border-b border-sand-100 flex flex-wrap items-center justify-between gap-3 shrink-0 text-xs">
-                      {/* Inline Telemetry */}
-                      <div className="flex items-center gap-2 text-ink-500 text-[11px] font-medium">
-                        <span className="font-semibold text-ink-800">{availableCourseLessons.length} Lessons</span>
-                        <span className="text-sand-300">•</span>
-                        <span className="text-emerald-800 font-semibold">{thisCourseSessions.length} Recorded</span>
-                        <span className="text-sand-300">•</span>
-                        <span>{pendingLessonsCount} Pending</span>
-                        {courseAvgRate !== null && (
-                          <>
-                            <span className="text-sand-300">•</span>
-                            <span className="font-semibold text-ink-900">{courseAvgRate}% Avg</span>
-                          </>
-                        )}
+                    {/* Minimal Metrics Telemetry Strip */}
+                    <div className="px-5 py-2.5 bg-sand-50/60 border-b border-sand-200 grid grid-cols-2 sm:grid-cols-4 gap-2 shrink-0">
+                      <div className="bg-white px-3 py-1.5 rounded-lg border border-sand-200">
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-ink-500">Curriculum</div>
+                        <div className="text-xs font-bold text-ink-900 mt-0.5">{availableCourseLessons.length} Lessons</div>
+                      </div>
+                      <div className="bg-white px-3 py-1.5 rounded-lg border border-sand-200">
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-ink-500">Sessions Logged</div>
+                        <div className="text-xs font-bold text-emerald-800 mt-0.5">{thisCourseSessions.length} Recorded</div>
+                      </div>
+                      <div className="bg-white px-3 py-1.5 rounded-lg border border-sand-200">
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-ink-500">Unrecorded</div>
+                        <div className="text-xs font-bold text-ink-700 mt-0.5">{pendingLessonsCount} Pending</div>
+                      </div>
+                      <div className="bg-white px-3 py-1.5 rounded-lg border border-sand-200">
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-ink-500">Attendance Rate</div>
+                        <div className={`text-xs font-bold mt-0.5 ${courseAvgRate !== null && courseAvgRate >= 85 ? 'text-emerald-800' : 'text-amber-800'}`}>
+                          {courseAvgRate !== null ? `${courseAvgRate}% Avg` : '—'}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Sub Navigation Bar inside Modal */}
+                    <div className="px-5 border-b border-sand-200 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 shrink-0">
+                      <div className="flex items-center gap-4">
+                        <button
+                          type="button"
+                          onClick={() => setAttendanceLessonsTab('lessons')}
+                          className={`py-2.5 text-xs font-bold border-b-2 transition-colors cursor-pointer ${
+                            attendanceLessonsTab === 'lessons'
+                              ? 'border-primary-900 text-primary-950'
+                              : 'border-transparent text-ink-400 hover:text-ink-700'
+                          }`}
+                        >
+                          Course Lessons ({availableCourseLessons.length})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setAttendanceLessonsTab('history')}
+                          className={`py-2.5 text-xs font-bold border-b-2 transition-colors cursor-pointer ${
+                            attendanceLessonsTab === 'history'
+                              ? 'border-primary-900 text-primary-950'
+                              : 'border-transparent text-ink-400 hover:text-ink-700'
+                          }`}
+                        >
+                          Session History ({thisCourseSessions.length})
+                        </button>
                       </div>
 
-                      {/* Minimal Segmented Tabs & Action */}
-                      <div className="flex items-center gap-2">
-                        <div className="inline-flex rounded-lg p-0.5 bg-sand-100/70 border border-sand-200 text-xs">
-                          <button
-                            type="button"
-                            onClick={() => setAttendanceLessonsTab('lessons')}
-                            className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
-                              attendanceLessonsTab === 'lessons'
-                                ? 'bg-white text-ink-900 shadow-2xs font-semibold'
-                                : 'text-ink-500 hover:text-ink-800'
-                            }`}
-                          >
-                            Lessons ({availableCourseLessons.length})
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setAttendanceLessonsTab('history')}
-                            className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
-                              attendanceLessonsTab === 'history'
-                                ? 'bg-white text-ink-900 shadow-2xs font-semibold'
-                                : 'text-ink-500 hover:text-ink-800'
-                            }`}
-                          >
-                            History ({thisCourseSessions.length})
-                          </button>
-                        </div>
-
+                      <div className="flex items-center gap-2 py-1.5">
                         <button
                           type="button"
                           onClick={() => {
@@ -5956,10 +5982,10 @@ export default function AdminDashboard() {
                             setAttendanceModalMode('rollcall');
                             setAttendanceActiveTab('register');
                           }}
-                          className="px-2.5 py-1 rounded-lg border border-sand-200 bg-white hover:bg-sand-50 text-ink-700 text-[11px] font-semibold transition-colors cursor-pointer shadow-2xs flex items-center gap-1"
+                          className="inline-flex items-center gap-1 text-[11px] font-bold text-primary-900 bg-sand-100 hover:bg-sand-200 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
                         >
-                          <Plus size={11} />
-                          Custom
+                          <Plus size={12} />
+                          Custom Session
                         </button>
                         <button
                           type="button"
@@ -5968,26 +5994,42 @@ export default function AdminDashboard() {
                             setAttendanceModalMode('rollcall');
                             setAttendanceActiveTab('upload');
                           }}
-                          className="px-2.5 py-1 rounded-lg border border-sand-200 bg-white hover:bg-sand-50 text-ink-700 text-[11px] font-semibold transition-colors cursor-pointer shadow-2xs flex items-center gap-1"
+                          className="inline-flex items-center gap-1 text-[11px] font-bold text-ink-700 bg-sand-100 hover:bg-sand-200 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
                         >
-                          <UploadCloud size={11} />
-                          Upload
+                          <UploadCloud size={12} />
+                          Upload Sheet
                         </button>
                       </div>
                     </div>
 
-                    {/* Modal Body: Clean Divided List */}
-                    <div className="flex-1 overflow-y-auto">
+                    {/* Lessons View Body */}
+                    <div className="flex-1 overflow-y-auto p-4 sm:p-5">
                       {/* TAB 1: CURRICULUM LESSONS */}
                       {attendanceLessonsTab === 'lessons' && (
-                        <div className="divide-y divide-sand-100">
+                        <div className="space-y-3">
                           {availableCourseLessons.length === 0 ? (
-                            <div className="py-12 text-center text-xs text-ink-400">
-                              No pre-configured syllabus lessons found for this course.
+                            <div className="p-8 text-center bg-sand-50 rounded-xl border border-sand-200 space-y-2">
+                              <p className="text-xs text-ink-600 font-medium">
+                                No pre-configured syllabus lessons found for this course.
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setIsCustomTopic(true);
+                                  setAttendanceTopic('');
+                                  setEditingAttendanceSessionId(null);
+                                  setAttendanceModalMode('rollcall');
+                                }}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary-900 hover:bg-primary-800 text-white text-xs font-bold cursor-pointer"
+                              >
+                                <Plus size={13} />
+                                Take Custom Roll Call
+                              </button>
                             </div>
                           ) : (
                             availableCourseLessons.map((les, idx) => {
                               const matchedSessions = thisCourseSessions.filter((s) => {
+                                if (s.lessonId && les.id && s.lessonId === les.id) return true;
                                 if (!s.topic) return false;
                                 const sTopic = s.topic.trim().toLowerCase();
                                 const lTitle = (les.title || '').trim().toLowerCase();
@@ -6013,56 +6055,81 @@ export default function AdminDashboard() {
                               return (
                                 <div
                                   key={les.id || idx}
-                                  className="px-6 py-3.5 hover:bg-sand-50/50 transition-colors flex items-center justify-between gap-4"
+                                  className={`p-3 sm:p-3.5 rounded-xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                                    hasRecorded
+                                      ? 'bg-emerald-50/30 border-emerald-200/80 hover:border-emerald-300'
+                                      : 'bg-white border-sand-200 hover:border-sand-300'
+                                  }`}
                                 >
-                                  <div className="flex items-center gap-3.5 min-w-0">
-                                    <span className="text-xs font-mono font-medium text-ink-400 w-5 shrink-0">
-                                      {String(idx + 1).padStart(2, '0')}
-                                    </span>
+                                  <div className="flex items-start gap-3 min-w-0">
+                                    <div
+                                      className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs shrink-0 mt-0.5 ${
+                                        hasRecorded
+                                          ? 'bg-emerald-100 text-emerald-900 border border-emerald-200'
+                                          : 'bg-sand-100 text-ink-600 border border-sand-200'
+                                      }`}
+                                    >
+                                      {idx + 1}
+                                    </div>
                                     <div className="min-w-0">
-                                      <p className="text-xs font-semibold text-ink-800 truncate">
+                                      <h4 className="text-xs font-bold text-ink-900 truncate sm:whitespace-normal">
                                         {les.title}
-                                      </p>
-                                      <p className="text-[11px] text-ink-400 mt-0.5 truncate">
-                                        {les.duration || '45m'}
+                                      </h4>
+                                      <div className="flex flex-wrap items-center gap-2 mt-1 text-[11px] text-ink-500">
+                                        {les.duration && <span>{les.duration}</span>}
                                         {hasRecorded ? (
                                           <>
-                                            <span className="mx-1">•</span>
-                                            <span className="text-emerald-800 font-medium">Recorded on {latest.date} ({sessionRate}%)</span>
+                                            <span>•</span>
+                                            <span className="font-semibold text-emerald-800">
+                                              Recorded on {latest.date} ({latest.deliveryMode || 'hybrid'})
+                                            </span>
+                                            <span>•</span>
+                                            <span className="font-bold text-ink-700">
+                                              {presentTotal} Present • {absentTotal} Absent ({sessionRate}%)
+                                            </span>
                                           </>
                                         ) : (
                                           <>
-                                            <span className="mx-1">•</span>
-                                            <span>Not yet recorded</span>
+                                            <span>•</span>
+                                            <span className="text-ink-400">Not yet recorded</span>
                                           </>
                                         )}
-                                      </p>
+                                      </div>
                                     </div>
                                   </div>
 
-                                  <div className="flex items-center gap-2 shrink-0">
+                                  <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
                                     {hasRecorded ? (
                                       <>
-                                        <span className="text-[11px] font-medium text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
+                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 font-bold text-[10px]">
+                                          <Check size={11} />
                                           Recorded
                                         </span>
                                         <button
                                           type="button"
                                           onClick={() => handleViewSessionAttendance(latest)}
-                                          className="px-3 py-1.5 rounded-lg border border-sand-200 bg-white hover:bg-sand-50 text-ink-700 text-xs font-semibold transition-colors cursor-pointer shadow-2xs"
+                                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-sand-300 bg-white hover:bg-sand-100 text-ink-800 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+                                          title="View & inspect recorded student roll call for this lesson"
                                         >
-                                          View
+                                          <Eye size={13} />
+                                          View Attendance
                                         </button>
                                       </>
                                     ) : (
-                                      <button
-                                        type="button"
-                                        onClick={() => handleStartLessonAttendance(les)}
-                                        className="px-3.5 py-1.5 rounded-lg bg-[#0B3324] hover:bg-[#07251a] text-white text-xs font-semibold transition-all shadow-2xs cursor-pointer flex items-center gap-1.5"
-                                      >
-                                        <ClipboardCheck size={12} />
-                                        <span>Mark Attendance</span>
-                                      </button>
+                                      <>
+                                        <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-sand-100 text-ink-500 font-semibold text-[10px]">
+                                          Pending
+                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleStartLessonAttendance(les)}
+                                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary-900 hover:bg-primary-800 text-white text-xs font-bold transition-all shadow-xs cursor-pointer"
+                                          title="Mark attendance for this lesson"
+                                        >
+                                          <ClipboardCheck size={13} />
+                                          Mark Attendance
+                                        </button>
+                                      </>
                                     )}
                                   </div>
                                 </div>
@@ -6070,55 +6137,65 @@ export default function AdminDashboard() {
                             })
                           )}
 
-                          {/* Additional Recorded Sessions */}
+                          {/* Historical or Additional Custom Sessions for this Course */}
                           {unmatchedSessions.length > 0 && (
-                            <div>
-                              <div className="px-6 py-2 bg-sand-50/60 border-y border-sand-100 text-[10px] font-bold uppercase tracking-wider text-ink-400">
-                                Additional Recorded Sessions ({unmatchedSessions.length})
+                            <div className="pt-3 border-t border-sand-200 space-y-2 mt-4">
+                              <div className="flex items-center justify-between">
+                                <h5 className="text-[11px] font-bold uppercase tracking-wider text-ink-600">
+                                  Additional Recorded Sessions ({unmatchedSessions.length})
+                                </h5>
+                                <span className="text-[11px] text-ink-400">
+                                  Custom or historical lectures recorded for this course
+                                </span>
                               </div>
-                              <div className="divide-y divide-sand-100">
-                                {unmatchedSessions.map((sess) => {
-                                  let presentTotal = 0;
-                                  let absentTotal = 0;
-                                  let lateTotal = 0;
-                                  if (sess.records) {
-                                    Object.values(sess.records).forEach((st) => {
-                                      if (st === 'present') presentTotal++;
-                                      else if (st === 'late') lateTotal++;
-                                      else if (st === 'absent') absentTotal++;
-                                    });
-                                  }
-                                  const sRate = (presentTotal + lateTotal + absentTotal) > 0
-                                    ? Math.round(((presentTotal + lateTotal * 0.75) / (presentTotal + lateTotal + absentTotal)) * 100)
-                                    : null;
+                              {unmatchedSessions.map((sess) => {
+                                let presentTotal = 0;
+                                let absentTotal = 0;
+                                let lateTotal = 0;
+                                if (sess.records) {
+                                  Object.values(sess.records).forEach((st) => {
+                                    if (st === 'present') presentTotal++;
+                                    else if (st === 'late') lateTotal++;
+                                    else if (st === 'absent') absentTotal++;
+                                  });
+                                }
+                                const sRate = (presentTotal + lateTotal + absentTotal) > 0
+                                  ? Math.round(((presentTotal + lateTotal * 0.75) / (presentTotal + lateTotal + absentTotal)) * 100)
+                                  : null;
 
-                                  return (
-                                    <div
-                                      key={sess.id}
-                                      className="px-6 py-3 hover:bg-sand-50/50 transition-colors flex items-center justify-between gap-4"
-                                    >
-                                      <div className="min-w-0">
-                                        <p className="text-xs font-semibold text-ink-800 truncate">{sess.topic}</p>
-                                        <p className="text-[11px] text-ink-400 mt-0.5">
-                                          {sess.date} • <span className="capitalize">{sess.deliveryMode || 'hybrid'}</span> • {presentTotal} Present, {absentTotal} Absent ({sRate}%)
-                                        </p>
+                                return (
+                                  <div
+                                    key={sess.id}
+                                    className="p-3 bg-emerald-50/20 rounded-xl border border-emerald-200/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs"
+                                  >
+                                    <div className="flex items-center gap-2.5 min-w-0">
+                                      <div className="p-1.5 rounded-lg bg-emerald-100 text-emerald-900 shrink-0">
+                                        <Calendar size={14} />
                                       </div>
-                                      <div className="flex items-center gap-2 shrink-0">
-                                        <span className="text-[11px] font-medium text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
-                                          Recorded
-                                        </span>
-                                        <button
-                                          type="button"
-                                          onClick={() => handleViewSessionAttendance(sess)}
-                                          className="px-3 py-1.5 rounded-lg border border-sand-200 bg-white hover:bg-sand-50 text-ink-700 text-xs font-semibold transition-colors cursor-pointer shadow-2xs"
-                                        >
-                                          View
-                                        </button>
+                                      <div className="truncate">
+                                        <div className="font-bold text-ink-900 truncate">{sess.topic}</div>
+                                        <div className="text-[11px] text-ink-500 mt-0.5">
+                                          {sess.date} • {sess.deliveryMode || 'hybrid'} • {presentTotal} Present, {absentTotal} Absent ({sRate}%)
+                                        </div>
                                       </div>
                                     </div>
-                                  );
-                                })}
-                              </div>
+                                    <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 font-bold text-[10px]">
+                                        <Check size={11} />
+                                        Recorded
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleViewSessionAttendance(sess)}
+                                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-sand-300 bg-white hover:bg-sand-100 text-ink-800 text-xs font-bold transition-colors cursor-pointer"
+                                      >
+                                        <Eye size={12} />
+                                        View Attendance
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
                             </div>
                           )}
                         </div>
@@ -6126,25 +6203,25 @@ export default function AdminDashboard() {
 
                       {/* TAB 2: COURSE SESSION HISTORY TABLE */}
                       {attendanceLessonsTab === 'history' && (
-                        <div className="p-4 sm:p-6">
+                        <div className="space-y-3">
                           {thisCourseSessions.length === 0 ? (
-                            <div className="py-10 text-center text-xs text-ink-400">
+                            <div className="py-10 text-center text-xs text-ink-500">
                               No attendance sessions logged yet for this course. Click "Mark Attendance" on any lesson to record your first roll call.
                             </div>
                           ) : (
                             <div className="overflow-x-auto rounded-xl border border-sand-200">
-                              <table className="w-full text-left text-xs min-w-[560px]">
-                                <thead className="bg-sand-50/70 text-ink-600 text-[11px] font-semibold uppercase tracking-wider border-b border-sand-200">
+                              <table className="w-full text-left text-sm min-w-[620px]">
+                                <thead className="bg-sand-100/70 text-ink-700 text-xs font-semibold uppercase tracking-wider border-b border-sand-200">
                                   <tr>
-                                    <th className="py-2.5 px-3.5">Date</th>
-                                    <th className="py-2.5 px-3.5">Lesson / Topic</th>
-                                    <th className="py-2.5 px-3.5">Mode</th>
-                                    <th className="py-2.5 px-3.5">Present / Absent</th>
-                                    <th className="py-2.5 px-3.5">Rate</th>
-                                    <th className="py-2.5 px-3.5 text-right">Actions</th>
+                                    <th className="py-2.5 px-3">Date</th>
+                                    <th className="py-2.5 px-3">Lesson / Topic</th>
+                                    <th className="py-2.5 px-3">Mode</th>
+                                    <th className="py-2.5 px-3">Present / Absent</th>
+                                    <th className="py-2.5 px-3">Rate</th>
+                                    <th className="py-2.5 px-3 text-right">Actions</th>
                                   </tr>
                                 </thead>
-                                <tbody className="divide-y divide-sand-100">
+                                <tbody className="divide-y divide-sand-200 text-xs">
                                   {thisCourseSessions.map((sess) => {
                                     let pCount = 0;
                                     let lCount = 0;
@@ -6160,33 +6237,34 @@ export default function AdminDashboard() {
                                     const rate = totalLogged > 0 ? Math.round(((pCount + lCount * 0.75) / totalLogged) * 100) : 0;
 
                                     return (
-                                      <tr key={sess.id} className="hover:bg-sand-50/50 transition-colors">
-                                        <td className="py-2.5 px-3.5 font-semibold text-ink-900 whitespace-nowrap">
+                                      <tr key={sess.id} className="hover:bg-sand-50/60 transition-colors">
+                                        <td className="py-2.5 px-3 font-semibold text-ink-900 whitespace-nowrap">
                                           {sess.date}
                                         </td>
-                                        <td className="py-2.5 px-3.5 text-ink-900 font-medium max-w-xs truncate">
+                                        <td className="py-2.5 px-3 text-ink-900 font-medium max-w-xs truncate">
                                           {sess.topic}
                                         </td>
-                                        <td className="py-2.5 px-3.5 uppercase text-[10px] font-bold text-ink-500 whitespace-nowrap">
+                                        <td className="py-2.5 px-3 uppercase text-[10px] font-bold text-ink-600 whitespace-nowrap">
                                           {sess.deliveryMode || 'hybrid'}
                                         </td>
-                                        <td className="py-2.5 px-3.5 text-ink-700 whitespace-nowrap">
+                                        <td className="py-2.5 px-3 text-ink-700 whitespace-nowrap">
                                           <span className="font-semibold text-emerald-800">{pCount} Present</span>
+                                          {lCount > 0 && <span className="ml-1 text-amber-700 font-semibold">• {lCount} Late</span>}
                                           {aCount > 0 && <span className="ml-1 text-rose-700 font-semibold">• {aCount} Absent</span>}
                                         </td>
-                                        <td className="py-2.5 px-3.5 font-bold whitespace-nowrap">
+                                        <td className="py-2.5 px-3 font-bold whitespace-nowrap">
                                           <span className={rate >= 85 ? 'text-emerald-800' : 'text-amber-800'}>
                                             {rate}%
                                           </span>
                                         </td>
-                                        <td className="py-2.5 px-3.5 text-right whitespace-nowrap">
+                                        <td className="py-2.5 px-3 text-right whitespace-nowrap">
                                           <div className="flex items-center justify-end gap-1.5">
                                             <button
                                               type="button"
                                               onClick={() => handleViewSessionAttendance(sess)}
-                                              className="px-2.5 py-1 rounded-lg border border-sand-200 bg-white hover:bg-sand-50 text-ink-700 font-semibold text-[11px] transition-colors cursor-pointer"
+                                              className="px-2.5 py-1 rounded-md bg-sand-100 hover:bg-sand-200 text-ink-800 font-bold text-[11px] transition-colors cursor-pointer"
                                             >
-                                              View
+                                              View / Edit
                                             </button>
                                             <button
                                               type="button"
@@ -6209,19 +6287,19 @@ export default function AdminDashboard() {
                       )}
                     </div>
 
-                    {/* Minimal Footer */}
-                    <div className="px-6 py-3 bg-sand-50/30 border-t border-sand-100 flex items-center justify-between shrink-0 text-xs">
-                      <span className="text-ink-400">
+                    {/* Lessons View Footer */}
+                    <div className="px-5 py-3 bg-sand-50 border-t border-sand-200 flex items-center justify-between shrink-0">
+                      <div className="text-xs text-ink-500">
                         {attendanceToast ? (
-                          <span className="font-semibold text-emerald-800">{attendanceToast}</span>
+                          <span className="font-bold text-emerald-800">• {attendanceToast}</span>
                         ) : (
-                          'Select any lesson to record or view attendance'
+                          'Select any lesson to mark attendance or click "View Attendance" to inspect student records.'
                         )}
-                      </span>
+                      </div>
                       <button
                         type="button"
                         onClick={() => setIsAttendanceModalOpen(false)}
-                        className="px-3.5 py-1.5 rounded-xl border border-sand-200 bg-white hover:bg-sand-50 text-ink-700 font-semibold cursor-pointer transition-colors shadow-2xs"
+                        className="px-4 py-1.5 rounded-lg bg-sand-200 hover:bg-sand-300 text-ink-800 text-xs font-semibold cursor-pointer transition-colors"
                       >
                         Close
                       </button>
