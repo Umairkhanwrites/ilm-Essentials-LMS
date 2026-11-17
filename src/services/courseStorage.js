@@ -21,6 +21,19 @@ import {
   initialFeeInstallments,
 } from '../data/mockData.js';
 
+import { createUserWithEmailAndPassword, signOut } from 'firebase/auth';
+import {
+  collection,
+  doc,
+  getDocs,
+  setDoc,
+  updateDoc,
+  deleteDoc,
+  serverTimestamp,
+  onSnapshot,
+} from 'firebase/firestore';
+import { db, adminAuth } from './firebase.js';
+
 const STORAGE_KEY_COURSES = 'ilm_admin_courses';
 const STORAGE_KEY_DETAILS = 'ilm_course_details_map';
 const STORAGE_KEY_STUDENTS = 'ilm_admin_students';
@@ -191,29 +204,140 @@ export function generateTemporaryPassword() {
 }
 
 /**
+ * One-time baseline account provisioning in Firebase Auth and Firestore.
+ * Provisions demo accounts if not already created.
+ */
+let hasSeeded = false;
+export async function seedBaselineAccounts() {
+  if (hasSeeded) return;
+  hasSeeded = true;
+
+  const baselineAccounts = [
+    { email: 'admin@ilmessentials.pk', password: 'adminpassword', role: 'admin', name: 'Administrator' },
+    { email: 'student@ilmessentials.pk', password: 'student123', role: 'student', name: 'Ahmad Raza', program: 'Ilm Foundations', semester: 'Semester 1' },
+    { email: 'ahmed@ilmessentials.pk', password: 'ahmed123', role: 'student', name: 'Ahmed Khan', program: 'Ilm Foundations', semester: 'Semester 1' },
+    { email: 'adil@ilmessentials.pk', password: 'adil123', role: 'student', name: 'Adil Mahmood', program: 'Ilm Foundations', semester: 'Semester 1' },
+    { email: 'aliahmed@ilmessentials.pk', password: 'aliahmed123', role: 'student', name: 'Ali Ahmed', program: 'Ilm Foundations', semester: 'Semester 1' },
+    { email: 'maaz@ilmessentials.pk', password: 'maaz123', role: 'student', name: 'Maaz Khan', program: 'Ilm Foundations', semester: 'Semester 1' },
+  ];
+
+  for (const acc of baselineAccounts) {
+    try {
+      const userCred = await createUserWithEmailAndPassword(adminAuth, acc.email, acc.password);
+      const uid = userCred.user.uid;
+      await signOut(adminAuth);
+
+      if (acc.role === 'admin') {
+        await setDoc(doc(db, 'users', uid), {
+          id: uid,
+          uid,
+          name: acc.name,
+          email: acc.email,
+          role: 'admin',
+          createdAt: serverTimestamp(),
+        }, { merge: true });
+      } else {
+        await setDoc(doc(db, 'students', uid), {
+          id: uid,
+          uid,
+          name: acc.name,
+          email: acc.email,
+          role: 'student',
+          program: acc.program || 'Ilm Foundations',
+          semester: acc.semester || 'Semester 1',
+          format: 'online',
+          feeStatus: 'Paid',
+          progress: 0,
+          attendance: '100%',
+          mustChangePassword: false,
+          enrolledDate: '2026-11-13',
+          createdAt: serverTimestamp(),
+        }, { merge: true });
+      }
+    } catch (err) {
+      if (err.code !== 'auth/email-already-in-use') {
+        console.warn('Seed baseline account info:', acc.email, err.message || err.code);
+      }
+    }
+  }
+}
+
+/**
+ * Initialize Firestore real-time listener for students collection
+ */
+let isFirestoreListening = false;
+export function initStudentsFirestoreSync() {
+  if (typeof window === 'undefined' || isFirestoreListening) return;
+  isFirestoreListening = true;
+
+  try {
+    const studentsCol = collection(db, 'students');
+    onSnapshot(
+      studentsCol,
+      (snapshot) => {
+        const firestoreList = [];
+        snapshot.forEach((docSnap) => {
+          firestoreList.push({ id: docSnap.id, ...docSnap.data() });
+        });
+
+        if (firestoreList.length > 0) {
+          const existingEmails = new Set(firestoreList.map((s) => (s.email || '').toLowerCase().trim()));
+          const combined = [...firestoreList];
+          for (const b of adminStudentsList) {
+            const bEmail = (b.email || '').toLowerCase().trim();
+            if (bEmail && !existingEmails.has(bEmail)) {
+              combined.push(b);
+              existingEmails.add(bEmail);
+            }
+          }
+          try {
+            localStorage.setItem(STORAGE_KEY_STUDENTS, JSON.stringify(combined));
+          } catch (e) {}
+        }
+      },
+      (error) => {
+        console.warn('Firestore students sync notice:', error.message);
+      }
+    );
+  } catch (err) {
+    console.warn('Failed to initialize Firestore listener for students:', err);
+  }
+}
+
+/**
  * Initialize and get all students from storage
  */
 export function getAllStudents() {
   try {
+    initStudentsFirestoreSync();
     const stored = localStorage.getItem(STORAGE_KEY_STUDENTS);
     if (stored) {
       const parsed = JSON.parse(stored);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        // Ensure baseline students from adminStudentsList are always present
-        const existingEmails = new Set(parsed.map((s) => (s.email || '').trim().toLowerCase()));
+        // Purge phantom/dummy test accounts from the old auto-hydration glitch
+        const validStudents = parsed.filter((s) => {
+          if (!s.email) return false;
+          const isBaseline = adminStudentsList.some((b) => (b.email || '').toLowerCase() === s.email.toLowerCase());
+          const isRegistered = s.role === 'student' || s.enrolledDate;
+          return isBaseline || isRegistered;
+        });
+
+        const existingEmails = new Set(validStudents.map((s) => (s.email || '').trim().toLowerCase()));
         let needsUpdate = false;
-        const merged = [...parsed];
+        const merged = [...validStudents];
 
         for (const baseline of adminStudentsList) {
           const bEmail = (baseline.email || '').trim().toLowerCase();
-          if (bEmail && !existingEmails.has(bEmail)) {
+          if (!bEmail) continue;
+          const idx = merged.findIndex((s) => (s.email || '').trim().toLowerCase() === bEmail);
+          if (idx === -1) {
             merged.push(baseline);
             existingEmails.add(bEmail);
             needsUpdate = true;
           }
         }
 
-        if (needsUpdate) {
+        if (needsUpdate || validStudents.length !== parsed.length) {
           try {
             localStorage.setItem(STORAGE_KEY_STUDENTS, JSON.stringify(merged));
           } catch (e) {}
@@ -228,38 +352,71 @@ export function getAllStudents() {
 }
 
 /**
- * Save or add a new student to storage (handles create and edit)
+ * Save or add a new student: creates Firebase Auth user & writes to Firestore
  */
-export function saveStudent(studentData) {
+export async function saveStudent(studentData) {
   const current = getAllStudents();
   const targetEmail = (studentData.email || '').trim().toLowerCase();
   const existing = current.find(
     (s) => (studentData.id && s.id === studentData.id) || (targetEmail && (s.email || '').trim().toLowerCase() === targetEmail)
   );
-  const id = existing?.id || studentData.id || `std_${Date.now()}`;
 
-  const defaultPassword =
-    studentData.password ||
-    existing?.password ||
-    (targetEmail ? `${targetEmail.split('@')[0]}123` : 'student123');
-  const mustChangePassword = studentData.mustChangePassword !== undefined
-    ? studentData.mustChangePassword
-    : (existing?.mustChangePassword ?? false);
+  const rawPassword = studentData.password ? studentData.password.trim() : '';
+  const defaultPass = rawPassword || (targetEmail ? `${targetEmail.split('@')[0]}123` : 'student123');
+  // Ensure password meets Firebase Auth 6-character minimum
+  const password = defaultPass.length < 6 ? `${defaultPass}123` : defaultPass;
+
+  let uid = existing?.id || studentData.id;
+
+  // 1. If this is a new student, create their Firebase Auth account using the secondary instance
+  if (!existing?.id && !studentData.id && targetEmail) {
+    try {
+      const userCred = await createUserWithEmailAndPassword(adminAuth, targetEmail, password);
+      uid = userCred.user.uid;
+      // Immediately sign out secondary auth so the active Admin session is untouched
+      await signOut(adminAuth);
+    } catch (authErr) {
+      if (authErr.code === 'auth/email-already-in-use') {
+        console.info('Student email already exists in Firebase Auth:', targetEmail);
+      } else {
+        console.warn('Firebase Auth student creation notice:', authErr.message || authErr.code);
+      }
+    }
+  }
+
+  uid = uid || `std_${Date.now()}`;
 
   const record = {
     ...existing,
     ...studentData,
-    id,
-    password: defaultPassword,
-    mustChangePassword,
+    id: uid,
+    uid: uid,
+    email: targetEmail,
+    role: 'student',
+    mustChangePassword: studentData.mustChangePassword !== undefined
+      ? Boolean(studentData.mustChangePassword)
+      : (existing?.mustChangePassword ?? true),
     progress: studentData.progress ?? (existing?.progress ?? 0),
     attendance: studentData.attendance || (existing?.attendance ?? '100%'),
-    feeStatus: studentData.feeStatus || (existing?.feeStatus ?? 'Paid'),
+    feeStatus: studentData.feeStatus || (existing?.feeStatus ?? 'Pending'),
     enrolledDate: studentData.enrolledDate || (existing?.enrolledDate ?? new Date().toISOString().split('T')[0]),
   };
 
+  // 2. Persist to Cloud Firestore (never store plaintext password)
+  const { password: _omittedPassword, ...firestoreRecord } = record;
+  try {
+    const studentDocRef = doc(db, 'students', uid);
+    await setDoc(studentDocRef, {
+      ...firestoreRecord,
+      updatedAt: serverTimestamp(),
+    }, { merge: true });
+  } catch (fsErr) {
+    console.warn('Failed to save student to Firestore:', fsErr.message || fsErr);
+  }
+
+  // 3. Update local cache
   const exists = Boolean(existing);
-  const updated = exists ? current.map((s) => (s.id === id ? record : s)) : [record, ...current];
+  const updated = exists ? current.map((s) => (s.id === uid ? record : s)) : [record, ...current];
   try {
     localStorage.setItem(STORAGE_KEY_STUDENTS, JSON.stringify(updated));
   } catch (err) {
@@ -271,7 +428,7 @@ export function saveStudent(studentData) {
 /**
  * Update student password and reset mustChangePassword flag
  */
-export function updateStudentPassword(studentId, newPassword) {
+export async function updateStudentPassword(studentId, newPassword) {
   const current = getAllStudents();
   const updated = current.map((s) => {
     if (s.id === studentId || s.email.toLowerCase() === studentId.toLowerCase()) {
@@ -288,13 +445,23 @@ export function updateStudentPassword(studentId, newPassword) {
   } catch (err) {
     console.error('Failed to update student password in localStorage:', err);
   }
+
+  try {
+    await updateDoc(doc(db, 'students', studentId), {
+      mustChangePassword: false,
+      updatedAt: serverTimestamp(),
+    });
+  } catch (e) {
+    console.warn('Failed to update student in Firestore:', e);
+  }
+
   return updated;
 }
 
 /**
- * Delete a student from storage
+ * Delete a student from storage and Firestore
  */
-export function deleteStudent(id) {
+export async function deleteStudent(id) {
   const current = getAllStudents();
   const updated = current.filter((s) => s.id !== id);
   try {
@@ -302,6 +469,13 @@ export function deleteStudent(id) {
   } catch (err) {
     console.error('Failed to delete student from localStorage:', err);
   }
+
+  try {
+    await deleteDoc(doc(db, 'students', id));
+  } catch (e) {
+    console.warn('Failed to delete student from Firestore:', e);
+  }
+
   return updated;
 }
 

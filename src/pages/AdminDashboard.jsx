@@ -254,7 +254,7 @@ export default function AdminDashboard() {
     handleCloseRosterModal();
   };
 
-  const handleAddStudentToRoster = (e) => {
+  const handleAddStudentToRoster = async (e) => {
     e.preventDefault();
     if (!rosterNewStudent.name.trim() || !rosterNewStudent.email.trim()) return;
 
@@ -262,7 +262,7 @@ export default function AdminDashboard() {
       ? 'ilm Foundations'
       : (rosterModalCourse?.title || 'Ilm Essentials');
 
-    const createdStudent = saveStudent({
+    const createdStudent = await saveStudent({
       name: rosterNewStudent.name.trim(),
       email: rosterNewStudent.email.trim(),
       program: programName,
@@ -378,7 +378,7 @@ export default function AdminDashboard() {
     setShowStudentPassword(true);
   };
 
-  const handleSaveStudentForm = (e) => {
+  const handleSaveStudentForm = async (e) => {
     e.preventDefault();
     if (!studentFormData.name.trim() || !studentFormData.email.trim()) return;
 
@@ -417,7 +417,7 @@ export default function AdminDashboard() {
       attendance: editingStudent ? (studentFormData.attendance || '100%') : '100%',
     };
 
-    const saved = saveStudent(payload);
+    const saved = await saveStudent(payload);
 
     // If intensive courses are selected, sync student into those course rosters
     if (isIntensive && Array.isArray(studentFormData.selectedCourses) && studentFormData.selectedCourses.length > 0) {
