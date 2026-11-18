@@ -609,7 +609,7 @@ export default function LectureAccessSection({ onShowToast }) {
 
                         <button
                           type="button"
-                          onClick={() => handleAccessChange(std, 'locked', null, override?.reason || 'Restricted by administration')}
+                          onClick={() => handleAccessChange(std, 'locked', null, override?.reason || '')}
                           className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer flex items-center gap-1 ${
                             isLocked
                               ? 'bg-rose-800 text-white shadow-2xs font-semibold'

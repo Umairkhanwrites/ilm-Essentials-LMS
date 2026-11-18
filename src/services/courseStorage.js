@@ -1475,6 +1475,71 @@ export function getEmbedVideoUrl(url) {
   return trimmed;
 }
 
+let cachedServerTimeOffset = 0;
+let hasSyncedServerTime = false;
+
+/**
+ * Initializes and retrieves server-synced UTC timestamp to eliminate local clock drift
+ */
+export async function syncServerTime() {
+  try {
+    const start = Date.now();
+    const res = await fetch('/api/server-time');
+    if (res.ok) {
+      const data = await res.json();
+      const roundTrip = Date.now() - start;
+      const actualServerTime = data.serverTimeUtc + Math.floor(roundTrip / 2);
+      cachedServerTimeOffset = actualServerTime - Date.now();
+      hasSyncedServerTime = true;
+      return actualServerTime;
+    }
+  } catch (e) {
+    // Fall back gracefully to local clock if offline
+  }
+  return Date.now();
+}
+
+/**
+ * Returns current time adjusted with server-synced UTC offset
+ */
+export function getSynchronizedNow() {
+  return new Date(Date.now() + cachedServerTimeOffset);
+}
+
+/**
+ * Asynchronously requests a server-signed, time-bound Bunny.net stream token (TTL: 30-45s max)
+ */
+export async function fetchSignedBunnyPlaybackUrl({ videoUrl, videoId, libraryId, ttlSeconds = 45 }) {
+  try {
+    const boundedTtl = Math.min(Math.max(Number(ttlSeconds) || 45, 30), 45);
+    const res = await fetch('/api/video-token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ videoUrl, videoId, libraryId, ttlSeconds: boundedTtl }),
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success && data.signedUrl) {
+        return {
+          signedUrl: data.signedUrl,
+          expiresAt: data.expiresAt,
+          ttl: data.ttl,
+        };
+      }
+    }
+  } catch (err) {
+    console.warn('Backend video token broker unavailable, falling back:', err);
+  }
+
+  // Fallback to standard embed URL
+  return {
+    signedUrl: getEmbedVideoUrl(videoUrl || videoId),
+    expiresAt: Math.floor(Date.now() / 1000) + 45,
+    ttl: 45,
+  };
+}
+
 // Authoritative duration mapping directly derived from video stream metadata
 const AUTHORITATIVE_DURATIONS_BY_URL = {
   'https://player.mediadelivery.net/embed/800731/c3d6d829-bb31-4f3f-99cb-924efa490899': '57 min',
@@ -3061,9 +3126,12 @@ export function getGlobalAccountsSummary() {
 }
 
 /**
- * Check video restriction status for a student
+ * Check video restriction status for a student with pathway-scoped blast radius protection
+ *
+ * @param {string|null} studentId - Student identifier (optional)
+ * @param {string|null} courseCategory - 'foundations' | 'intensives' (optional for pathway scoping)
  */
-export function getStudentVideoRestriction(studentId = null) {
+export function getStudentVideoRestriction(studentId = null, courseCategory = null) {
   let targetId = studentId;
   let targetEmail = null;
 
@@ -3086,8 +3154,50 @@ export function getStudentVideoRestriction(studentId = null) {
     (s) => s.id === targetId || (targetId === 'usr_001' && s.id === 'std_001') || (targetEmail && s.email?.toLowerCase().trim() === targetEmail)
   );
 
+  const isGloballyRestricted = Boolean(student?.isVideoRestricted);
+
+  // Scoped Pathway Billing: If courseCategory is provided, evaluate whether the restriction applies to THIS pathway
+  if (isGloballyRestricted && courseCategory) {
+    const installments = getFeeInstallments();
+    const todayStr = new Date().toISOString().split('T')[0];
+    const isFoundationsCourse = courseCategory === 'foundations';
+
+    const studentInstallments = installments.filter((inst) => {
+      const instStd = (inst.studentId || '').toLowerCase();
+      const instMail = (inst.studentEmail || '').toLowerCase();
+      return (
+        instStd === targetId.toLowerCase() ||
+        (targetId === 'usr_001' && instStd === 'std_001') ||
+        (targetEmail && instMail === targetEmail)
+      );
+    });
+
+    const pathwayInstallments = studentInstallments.filter((inst) => {
+      const prog = (inst.program || '').toLowerCase();
+      if (isFoundationsCourse) {
+        return prog.includes('foundation') || !prog.includes('intensive');
+      } else {
+        return prog.includes('intensive');
+      }
+    });
+
+    const overdueInPathway = pathwayInstallments.filter(
+      (inst) => inst.status !== 'APPROVED' && inst.dueDate <= todayStr
+    );
+
+    // If there are NO overdue installments in this specific pathway, do NOT lock out this course!
+    if (overdueInPathway.length === 0) {
+      return {
+        isVideoRestricted: false,
+        restrictedAt: null,
+        restrictedByAdminName: null,
+        pathwayScopedBypass: true,
+      };
+    }
+  }
+
   return {
-    isVideoRestricted: Boolean(student?.isVideoRestricted),
+    isVideoRestricted: isGloballyRestricted,
     restrictedAt: student?.restrictedAt || null,
     restrictedByAdminName: student?.restrictedByAdminName || null,
   };
@@ -3795,6 +3905,209 @@ export function calculateStudentAttendanceStats(studentId, sessions = null) {
   };
 }
 
+const STORAGE_KEY_ATTENDANCE_REVIEWS = 'ilm_attendance_review_requests';
+
+/**
+ * Calculate course-specific attendance stats and chronological history for a student
+ *
+ * @param {object|string} userOrIdentifier - Current user object { id, uid, email } or student ID/email
+ * @param {string} courseId - Course ID (e.g., 'crs_found_01')
+ */
+export function getStudentCourseAttendance(userOrIdentifier = null, courseId = null) {
+  if (!courseId) {
+    return {
+      rate: '100%',
+      rateNumber: 100,
+      totalSessions: 0,
+      presentCount: 0,
+      lateCount: 0,
+      absentCount: 0,
+      hasRecords: false,
+      history: [],
+      statusStanding: 'No Recorded Classes',
+      minimumRequiredRate: 80,
+    };
+  }
+
+  // Cross-resolve student ID
+  let targetId = '';
+  let targetEmail = '';
+  if (typeof userOrIdentifier === 'object' && userOrIdentifier) {
+    targetId = (userOrIdentifier.id || userOrIdentifier.uid || '').toLowerCase().trim();
+    targetEmail = (userOrIdentifier.email || '').toLowerCase().trim();
+  } else if (typeof userOrIdentifier === 'string' && userOrIdentifier) {
+    const str = userOrIdentifier.toLowerCase().trim();
+    if (str.includes('@')) {
+      targetEmail = str;
+    } else {
+      targetId = str;
+    }
+  }
+
+  // Fallback to active localStorage user session
+  if (!targetId && !targetEmail) {
+    try {
+      const rawUser = localStorage.getItem('ilm_lms_user');
+      if (rawUser) {
+        const u = JSON.parse(rawUser);
+        targetId = (u.id || u.uid || '').toLowerCase().trim();
+        targetEmail = (u.email || '').toLowerCase().trim();
+      }
+    } catch (e) {}
+  }
+
+  // Default demo student fallback
+  if (!targetId && !targetEmail) {
+    targetId = 'std_001';
+  }
+  if (targetId === 'usr_001') {
+    targetId = 'std_001';
+  }
+
+  const allStudents = getAllStudents();
+  let rosterId = targetId;
+  const matched = allStudents.find(
+    (s) =>
+      (s.id && s.id.toLowerCase() === targetId) ||
+      (s.uid && s.uid.toLowerCase() === targetId) ||
+      (targetEmail && s.email && s.email.toLowerCase() === targetEmail) ||
+      (targetId === 'usr_001' && s.id === 'std_001')
+  );
+  if (matched?.id) {
+    rosterId = matched.id.toLowerCase();
+  }
+  if (!rosterId || targetId === 'usr_001' || targetEmail === 'student@ilmessentials.pk' || targetEmail === 'ahmad.raza@example.com') {
+    rosterId = 'std_001';
+  }
+
+  const sessions = getAttendanceSessions(courseId);
+  let totalSessions = 0;
+  let presentCount = 0;
+  let lateCount = 0;
+  let absentCount = 0;
+  const history = [];
+
+  for (const session of sessions) {
+    const records = session.records || {};
+    let status = null;
+
+    if (records[rosterId] !== undefined) {
+      status = records[rosterId];
+    } else if (records[targetId] !== undefined) {
+      status = records[targetId];
+    } else if (targetId === 'usr_001' && records['std_001'] !== undefined) {
+      status = records['std_001'];
+    }
+
+    if (status !== null) {
+      totalSessions++;
+      if (status === 'present') presentCount++;
+      else if (status === 'late') lateCount++;
+      else if (status === 'absent') absentCount++;
+
+      history.push({
+        id: session.id,
+        date: session.date,
+        topic: session.topic || 'Regular Live Lecture',
+        deliveryMode: session.deliveryMode || 'online',
+        instructor: session.instructorName || 'Course Instructor',
+        lessonId: session.lessonId || null,
+        status, // 'present' | 'late' | 'absent' | 'excused'
+      });
+    }
+  }
+
+  // Sort history chronologically newest first
+  history.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+
+  if (totalSessions === 0) {
+    return {
+      rate: '100%',
+      rateNumber: 100,
+      totalSessions: 0,
+      presentCount: 0,
+      lateCount: 0,
+      absentCount: 0,
+      hasRecords: false,
+      history: [],
+      statusStanding: 'No Recorded Classes',
+      minimumRequiredRate: 80,
+    };
+  }
+
+  // Late counts as 0.75 present
+  const score = (presentCount + lateCount * 0.75) / totalSessions;
+  const rateNumber = Math.min(100, Math.max(0, Math.round(score * 100)));
+
+  let statusStanding = 'Good Standing';
+  if (rateNumber < 75) {
+    statusStanding = 'Critical Shortage';
+  } else if (rateNumber < 80) {
+    statusStanding = 'Attendance Warning';
+  }
+
+  return {
+    rate: `${rateNumber}%`,
+    rateNumber,
+    totalSessions,
+    presentCount,
+    lateCount,
+    absentCount,
+    hasRecords: true,
+    history,
+    statusStanding,
+    minimumRequiredRate: 80,
+  };
+}
+
+export function getAttendanceReviewRequests() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_ATTENDANCE_REVIEWS);
+    return raw ? JSON.parse(raw) : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+export function submitAttendanceReviewRequest({
+  sessionId,
+  sessionDate,
+  sessionTopic,
+  courseId,
+  courseTitle,
+  studentId,
+  studentName,
+  currentStatus,
+  reason,
+}) {
+  const current = getAttendanceReviewRequests();
+  const newReq = {
+    id: `att_rev_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+    sessionId,
+    sessionDate,
+    sessionTopic,
+    courseId,
+    courseTitle,
+    studentId,
+    studentName,
+    currentStatus,
+    reason: (reason || '').trim(),
+    status: 'pending',
+    createdAt: new Date().toISOString(),
+  };
+
+  const updated = [newReq, ...current];
+  try {
+    localStorage.setItem(STORAGE_KEY_ATTENDANCE_REVIEWS, JSON.stringify(updated));
+  } catch (e) {}
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('ilm-attendance-review-submitted', { detail: newReq }));
+  }
+
+  return newReq;
+}
+
 /**
  * Calculate live curriculum progress for a student based on real completed lessons
  */
@@ -4086,11 +4399,47 @@ export function parseAttendanceSheet(sheetText, courseStudents = []) {
  * =========================================================================
  */
 
+let isLessonAccessListening = false;
+
+/**
+ * Initialize real-time synchronization with Cloud Firestore collection 'lesson_access'
+ */
+export function initLessonAccessFirestoreSync() {
+  if (typeof window === 'undefined' || isLessonAccessListening) return;
+  isLessonAccessListening = true;
+
+  try {
+    const accessCol = collection(db, 'lesson_access');
+    onSnapshot(
+      accessCol,
+      (snapshot) => {
+        const list = [];
+        snapshot.forEach((docSnap) => {
+          list.push({ id: docSnap.id, ...docSnap.data() });
+        });
+
+        if (list.length > 0) {
+          try {
+            localStorage.setItem(STORAGE_KEY_LESSON_ACCESS, JSON.stringify(list));
+          } catch (e) {}
+        }
+        window.dispatchEvent(new CustomEvent('ilm-lesson-access-updated', { detail: { overrides: list } }));
+      },
+      (err) => {
+        console.warn('Lesson access Firestore sync warning:', err);
+      }
+    );
+  } catch (e) {
+    console.warn('Failed to attach lesson access Firestore listener:', e);
+  }
+}
+
 /**
  * Get all active lesson access overrides from local storage
  */
 export function getAllLessonAccessOverrides() {
   try {
+    initLessonAccessFirestoreSync();
     const raw = localStorage.getItem(STORAGE_KEY_LESSON_ACCESS);
     if (raw) {
       const parsed = JSON.parse(raw);
@@ -4128,17 +4477,73 @@ export function getLessonAccessOverrides(lessonId) {
 /**
  * Get all lesson overrides for a specific student and course
  * Automatically checks 7-day expiration: if expired, treats as default.
+ * Resolves seamlessly across Firebase UID, roster studentId (std_001), and studentEmail.
  */
-export function getStudentCourseAccessOverrides(studentId, courseId = null) {
-  if (!studentId) return {};
+export function getStudentCourseAccessOverrides(userOrIdentifier, courseId = null, optionalEmail = null) {
+  if (!userOrIdentifier) return {};
+  initLessonAccessFirestoreSync();
+
+  let targetId = '';
+  let targetEmail = '';
+
+  if (typeof userOrIdentifier === 'object') {
+    targetId = (userOrIdentifier.id || userOrIdentifier.uid || '').toLowerCase().trim();
+    targetEmail = (userOrIdentifier.email || '').toLowerCase().trim();
+  } else if (typeof userOrIdentifier === 'string') {
+    const str = userOrIdentifier.toLowerCase().trim();
+    if (str.includes('@')) {
+      targetEmail = str;
+    } else {
+      targetId = str;
+    }
+  }
+
+  if (optionalEmail) {
+    targetEmail = optionalEmail.toLowerCase().trim();
+  }
+
+  // Cross-resolve student ID and Email from the active students roster
+  const allStudents = getAllStudents();
+  if (targetId && !targetEmail) {
+    const matched = allStudents.find(
+      (s) =>
+        (s.id && s.id.toLowerCase() === targetId) ||
+        (s.uid && s.uid.toLowerCase() === targetId) ||
+        (s.email && s.email.toLowerCase() === targetId)
+    );
+    if (matched?.email) {
+      targetEmail = matched.email.toLowerCase().trim();
+    }
+  }
+
+  let rosterStudentId = '';
+  if (targetEmail) {
+    const matched = allStudents.find(
+      (s) => s.email && s.email.toLowerCase().trim() === targetEmail
+    );
+    if (matched?.id) {
+      rosterStudentId = matched.id.toLowerCase().trim();
+    }
+  }
+
   const all = getAllLessonAccessOverrides();
   const studentOverrides = all.filter((o) => {
-    if (o.studentId !== studentId && o.studentEmail?.toLowerCase() !== studentId?.toLowerCase()) {
+    const oStudentId = (o.studentId || '').toLowerCase().trim();
+    const oEmail = (o.studentEmail || '').toLowerCase().trim();
+    const oUid = (o.studentUid || '').toLowerCase().trim();
+
+    const matchById = targetId && (oStudentId === targetId || oUid === targetId);
+    const matchByRosterId = rosterStudentId && oStudentId === rosterStudentId;
+    const matchByEmail = targetEmail && oEmail && oEmail === targetEmail;
+
+    if (!matchById && !matchByRosterId && !matchByEmail) {
       return false;
     }
+
     if (courseId && o.courseId && o.courseId !== courseId) {
       return false;
     }
+
     return true;
   });
 
@@ -4202,9 +4607,23 @@ export async function setStudentLessonAccess({
   const all = getAllLessonAccessOverrides();
   const docId = `${studentId}_${lessonId}`;
 
+  const allStudents = getAllStudents();
+  const matchedStudent = allStudents.find(
+    (s) =>
+      (s.id && s.id === studentId) ||
+      (s.email && s.email.toLowerCase() === (studentEmail || '').toLowerCase())
+  );
+  const cleanEmail = (studentEmail || matchedStudent?.email || '').toLowerCase().trim();
+  const studentUid = matchedStudent?.uid || null;
+
   // If resetting to default: remove from list
   if (status === 'default') {
-    const updated = all.filter((o) => o.id !== docId && !(o.studentId === studentId && o.lessonId === lessonId));
+    const updated = all.filter(
+      (o) =>
+        o.id !== docId &&
+        !(o.studentId === studentId && o.lessonId === lessonId) &&
+        !(cleanEmail && o.studentEmail === cleanEmail && o.lessonId === lessonId)
+    );
     saveAllLessonAccessOverrides(updated);
 
     try {
@@ -4233,8 +4652,9 @@ export async function setStudentLessonAccess({
   const record = {
     id: docId,
     studentId,
-    studentName,
-    studentEmail,
+    studentUid,
+    studentName: studentName || matchedStudent?.name || 'Student',
+    studentEmail: cleanEmail,
     courseId,
     courseTitle,
     lessonId,

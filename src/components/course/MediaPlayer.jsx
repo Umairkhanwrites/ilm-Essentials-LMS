@@ -11,7 +11,7 @@
  * @param {object}   currentLesson       - Active lesson object { id, title, type, duration, videoUrl, … }
  * @param {boolean}  isLive              - Whether this is a live session
  */
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import clsx from 'clsx';
 import {
@@ -26,19 +26,31 @@ import {
   CreditCard,
 } from 'lucide-react';
 import { DEFAULT_BUNNY_VIDEO_URL } from '../../data/mockData';
-import { getEmbedVideoUrl, getStudentVideoRestriction } from '../../services/courseStorage';
+import {
+  getEmbedVideoUrl,
+  getStudentVideoRestriction,
+  fetchSignedBunnyPlaybackUrl,
+} from '../../services/courseStorage';
+import { useAuth } from '../../context/AuthContext';
+import VideoWatermark from './VideoWatermark';
 
 export default function MediaPlayer({
   currentLesson,
+  courseCategory = 'foundations',
   isLive = false,
   onGoToUnlockedLesson,
 }) {
+  const { user } = useAuth();
+  const iframeRef = useRef(null);
   const [iframeLoaded, setIframeLoaded] = useState(false);
-  const [restriction, setRestriction] = useState(() => getStudentVideoRestriction());
+  const [restriction, setRestriction] = useState(() => getStudentVideoRestriction(null, courseCategory));
+  const [signedPlaybackUrl, setSignedPlaybackUrl] = useState('');
+  const [tokenLoading, setTokenLoading] = useState(false);
+  const [tokenExpiresAt, setTokenExpiresAt] = useState(null);
 
   useEffect(() => {
     const handleRestrictionUpdate = () => {
-      setRestriction(getStudentVideoRestriction());
+      setRestriction(getStudentVideoRestriction(null, courseCategory));
     };
 
     window.addEventListener('ilm-video-restriction-updated', handleRestrictionUpdate);
@@ -48,11 +60,51 @@ export default function MediaPlayer({
       window.removeEventListener('ilm-video-restriction-updated', handleRestrictionUpdate);
       window.removeEventListener('storage', handleRestrictionUpdate);
     };
-  }, []);
+  }, [courseCategory]);
 
   const lessonType = currentLesson?.type || 'video';
   const rawVideoUrl = currentLesson?.videoUrl || DEFAULT_BUNNY_VIDEO_URL;
   const embedUrl = getEmbedVideoUrl(rawVideoUrl);
+  const isGrantedByAdmin = currentLesson?.overrideInfo?.type === 'granted';
+
+  // Request fresh server-side signed token (bounded 30-45s TTL) whenever video lesson mounts
+  useEffect(() => {
+    let isCancelled = false;
+
+    async function loadSignedVideo() {
+      if (lessonType !== 'video' || currentLesson?.isLocked || (restriction.isVideoRestricted && !isGrantedByAdmin)) {
+        return;
+      }
+
+      setTokenLoading(true);
+      try {
+        const tokenRes = await fetchSignedBunnyPlaybackUrl({
+          videoUrl: rawVideoUrl,
+          ttlSeconds: 45, // strictly 30..45s max
+        });
+
+        if (!isCancelled && tokenRes?.signedUrl) {
+          setSignedPlaybackUrl(tokenRes.signedUrl);
+          setTokenExpiresAt(tokenRes.expiresAt);
+        }
+      } catch (err) {
+        console.warn('Failed to obtain signed video token, falling back:', err);
+        if (!isCancelled) {
+          setSignedPlaybackUrl(embedUrl);
+        }
+      } finally {
+        if (!isCancelled) {
+          setTokenLoading(false);
+        }
+      }
+    }
+
+    loadSignedVideo();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [currentLesson?.id, rawVideoUrl, currentLesson?.isLocked, restriction.isVideoRestricted, isGrantedByAdmin, embedUrl, lessonType]);
 
   // ---- 0.1 SEQUENTIAL / ADMIN LOCK GUARD ----
   if (currentLesson?.isLocked) {
@@ -61,35 +113,26 @@ export default function MediaPlayer({
     return (
       <div className="relative w-full bg-gradient-to-br from-[#071810] via-[#0B2519] to-black rounded-xl sm:rounded-2xl overflow-hidden shadow-elevated select-none text-white border border-sand-300/20">
         <div className="relative w-full" style={{ paddingBottom: '56.25%' }}>
-          <div className="absolute inset-0 p-6 sm:p-10 flex flex-col items-center justify-center text-center space-y-4 z-10">
+          <div className="absolute inset-0 p-6 sm:p-10 flex flex-col items-center justify-center text-center space-y-3 z-10">
             <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-white/10 border border-sand-300/30 text-sand-200 flex items-center justify-center shadow-lg">
               <Lock size={28} className="text-sand-200" />
             </div>
 
-            <div className="max-w-md sm:max-w-lg space-y-2">
-              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-sand-100/10 text-sand-200 border border-sand-200/20 text-[11px] font-bold uppercase tracking-wider">
-                <Lock size={12} />
-                <span>{isAdminLocked ? 'Admin Lecture Restriction' : 'Sequential Curriculum Access'}</span>
-              </div>
+            <div className="max-w-md sm:max-w-lg space-y-1.5">
               <h3 className="text-lg sm:text-xl font-heading font-bold text-white leading-snug">
                 {isAdminLocked ? 'Lecture Restricted by Administration' : 'This Lesson is Locked'}
               </h3>
-              <p className="text-xs sm:text-sm text-sand-300 leading-relaxed">
-                {currentLesson.lockReason || 'You must complete the earlier lessons in this course before accessing this lecture.'}
-              </p>
+              {!isAdminLocked && (
+                <p className="text-xs sm:text-sm text-sand-300 leading-relaxed">
+                  {currentLesson.lockReason || 'You must complete the earlier lessons in this course before accessing this lecture.'}
+                </p>
+              )}
+              {isAdminLocked && currentLesson.lockReason && currentLesson.lockReason !== 'Restricted by administration' && currentLesson.lockReason !== 'This video lecture has been locked by administration.' && (
+                <p className="text-xs sm:text-sm text-sand-300 leading-relaxed">
+                  {currentLesson.lockReason}
+                </p>
+              )}
             </div>
-
-            {onGoToUnlockedLesson && (
-              <div className="pt-2">
-                <button
-                  type="button"
-                  onClick={onGoToUnlockedLesson}
-                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary-600 hover:bg-primary-500 text-white font-bold text-xs sm:text-sm transition-all shadow-md cursor-pointer"
-                >
-                  <span>Resume Current Accessible Lesson →</span>
-                </button>
-              </div>
-            )}
           </div>
         </div>
       </div>
@@ -97,7 +140,8 @@ export default function MediaPlayer({
   }
 
   // ---- 0.2 VIDEO ACCESS RESTRICTION GUARD ----
-  if (restriction.isVideoRestricted && lessonType === 'video') {
+  // Explicit admin grant (Tier 2) preempts financial dues lock (Tier 3)
+  if (restriction.isVideoRestricted && lessonType === 'video' && !isGrantedByAdmin) {
     return (
       <div className="relative w-full bg-gradient-to-br from-ink-950 via-[#140808] to-black rounded-xl sm:rounded-2xl overflow-hidden shadow-elevated select-none text-white border border-red-500/40">
         <div className="relative w-full" style={{ paddingBottom: '56.25%' }}>
@@ -238,17 +282,22 @@ export default function MediaPlayer({
           </div>
         </div>
 
-        {/* Real Embedded Bunny.net Stream Video Iframe */}
-        {embedUrl ? (
-          <iframe
-            src={embedUrl}
-            loading="lazy"
-            title={currentLesson?.title || 'Lesson Video Player'}
-            className="absolute inset-0 w-full h-full border-0 z-10"
-            allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture; fullscreen"
-            allowFullScreen
-            onLoad={() => setIframeLoaded(true)}
-          />
+        {/* Real Embedded Bunny.net Stream Video Iframe (Time-bound SHA-256 Token Signed) */}
+        {signedPlaybackUrl || embedUrl ? (
+          <>
+            <iframe
+              ref={iframeRef}
+              src={signedPlaybackUrl || embedUrl}
+              loading="lazy"
+              title={currentLesson?.title || 'Lesson Video Player'}
+              className="absolute inset-0 w-full h-full border-0 z-10"
+              allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture; fullscreen"
+              allowFullScreen
+              onLoad={() => setIframeLoaded(true)}
+            />
+            {/* Dynamic Forensic Watermark Layer (Anti-Piracy & Anti-Screen Recording) */}
+            <VideoWatermark user={user} iframeRef={iframeRef} />
+          </>
         ) : (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-ink-950 text-white p-6 text-center z-10">
             <Video size={36} className="text-primary-400 mb-2" />
@@ -257,10 +306,12 @@ export default function MediaPlayer({
         )}
 
         {/* Loading Spinner Skeleton before Iframe finishes initialization */}
-        {!iframeLoaded && embedUrl && (
+        {(!iframeLoaded || tokenLoading) && (
           <div className="absolute inset-0 bg-ink-950 flex flex-col items-center justify-center text-white/60 z-0">
             <div className="w-8 h-8 border-2 border-primary-500 border-t-transparent rounded-full animate-spin mb-3" />
-            <span className="text-xs font-medium">Loading high-definition stream...</span>
+            <span className="text-xs font-medium">
+              {tokenLoading ? 'Authenticating secure stream handshake...' : 'Loading high-definition stream...'}
+            </span>
           </div>
         )}
       </div>

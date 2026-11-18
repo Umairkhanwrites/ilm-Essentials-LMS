@@ -116,7 +116,7 @@ function Tabs({
               >
                 {tab.icon && <span className="h-4 w-4 shrink-0">{tab.icon}</span>}
                 {tab.label}
-                {tab.count !== undefined && (
+                {(tab.count !== undefined || tab.badge !== undefined) && (
                   <span
                     className={clsx(
                       'ml-1 rounded-full px-1.5 py-0.5 text-xs font-semibold',
@@ -125,7 +125,7 @@ function Tabs({
                         : 'bg-sand-200 text-ink-600'
                     )}
                   >
-                    {tab.count}
+                    {tab.badge !== undefined ? tab.badge : tab.count}
                   </span>
                 )}
               </button>

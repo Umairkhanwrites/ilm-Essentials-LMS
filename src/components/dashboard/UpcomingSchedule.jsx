@@ -12,36 +12,95 @@ import clsx from 'clsx';
 import {
   getStudentScheduleSlots,
   formatSlotTimeRange,
-  timeToMinutes
+  timeToMinutes,
+  getSynchronizedNow,
+  syncServerTime,
 } from '../../services/courseStorage';
 
-function getSlotDistance(dayOfWeek) {
-  const dayOrder = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-  const todayIndex = new Date().getDay();
-  const idx = dayOrder.indexOf(dayOfWeek);
-  if (idx === -1) return 99;
-  return (idx - todayIndex + 7) % 7;
-}
-
 /**
- * Returns true if the class is currently live (or starting within 15 minutes).
- * @param {string} dayOfWeek  e.g. "Thursday"
- * @param {string} startTime  e.g. "18:00"
- * @param {string} endTime    e.g. "20:30"
+ * Calculates the next occurrence of a recurring slot relative to `now`.
+ * Accounts for:
+ * 1. Classes occurring earlier today that have already ended (pushed to next week).
+ * 2. Classes occurring right now (isLiveNow = true, minutesFromNow = 0).
+ * 3. Classes occurring later today (sorted by actual start time, so 6:30 PM comes before 8:00 PM, and 8:00 PM takes over once 6:30 PM ends).
  */
-function checkIsLiveNow(dayOfWeek, startTime, endTime) {
+function getSlotOccurrence(slot, now = new Date()) {
   const dayOrder = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-  const now = new Date();
   const todayIndex = now.getDay();
-  const slotDayIndex = dayOrder.indexOf(dayOfWeek);
-  if (slotDayIndex !== todayIndex) return false;
+  const slotDayIndex = dayOrder.indexOf(slot.dayOfWeek);
+  if (slotDayIndex === -1) {
+    return {
+      daysDistance: 99,
+      minutesFromNow: Infinity,
+      isToday: false,
+      isTomorrow: false,
+      isLiveNow: false,
+      hasEndedToday: false,
+      slotDate: new Date(now),
+    };
+  }
 
   const currentMinutes = now.getHours() * 60 + now.getMinutes();
-  const startMinutes = timeToMinutes(startTime);
-  const endMinutes = timeToMinutes(endTime);
+  const startMinutes = slot.startTime ? timeToMinutes(slot.startTime) : 18 * 60;
+  const endMinutes = slot.endTime ? timeToMinutes(slot.endTime) : startMinutes + 60;
 
-  // Show button from 15 minutes before class starts until class ends
-  return currentMinutes >= startMinutes - 15 && currentMinutes < endMinutes;
+  let daysDiff = (slotDayIndex - todayIndex + 7) % 7;
+  let hasEndedToday = false;
+  let isLiveNow = false;
+
+  if (daysDiff === 0) {
+    if (currentMinutes >= endMinutes) {
+      // Class ended earlier today; its next occurrence is in 7 days
+      hasEndedToday = true;
+      daysDiff = 7;
+    } else {
+      // Class is currently live (15 min window before start through duration) or coming up later today
+      isLiveNow = currentMinutes >= startMinutes - 15 && currentMinutes < endMinutes;
+    }
+  }
+
+  let minutesFromNow;
+  if (daysDiff === 0) {
+    if (currentMinutes >= startMinutes && currentMinutes < endMinutes) {
+      minutesFromNow = 0; // In-progress class takes absolute priority
+    } else {
+      minutesFromNow = Math.max(0, startMinutes - currentMinutes);
+    }
+  } else {
+    minutesFromNow = daysDiff * 24 * 60 + (startMinutes - currentMinutes);
+  }
+
+  const slotDate = new Date(now);
+  slotDate.setDate(now.getDate() + daysDiff);
+
+  return {
+    daysDistance: daysDiff,
+    minutesFromNow,
+    isToday: daysDiff === 0,
+    isTomorrow: daysDiff === 1,
+    isLiveNow,
+    hasEndedToday,
+    slotDate,
+  };
+}
+
+function getCurrentTime() {
+  try {
+    const urlParams = new URLSearchParams(window.location.search);
+    const paramTime = urlParams.get('simTime') || urlParams.get('mockTime');
+    if (paramTime) {
+      const parsed = new Date(paramTime);
+      if (!isNaN(parsed.getTime())) return parsed;
+    }
+    const stored = localStorage.getItem('ilm_simulated_time');
+    if (stored) {
+      const parsed = new Date(stored);
+      if (!isNaN(parsed.getTime())) return parsed;
+    }
+  } catch (e) {
+    // fallback
+  }
+  return getSynchronizedNow();
 }
 
 export default function UpcomingSchedule() {
@@ -49,40 +108,43 @@ export default function UpcomingSchedule() {
   const [isExpanded, setIsExpanded] = useState(false);
   const [, setTick] = useState(0); // used to trigger re-render every minute for live-status checks
 
+  // Synchronize with server authoritative clock to eliminate local time drift
+  useEffect(() => {
+    syncServerTime().then(() => {
+      setTick((t) => t + 1);
+    });
+  }, []);
+
   function buildSessions() {
     try {
       const scheduleSlots = getStudentScheduleSlots();
       const activeSlots = scheduleSlots.filter((s) => s.status !== 'cancelled');
+      const now = getCurrentTime();
 
-      // Sort with closest day relative to today first
-      const sortedSlots = [...activeSlots].sort((a, b) => {
-        const distA = getSlotDistance(a.dayOfWeek);
-        const distB = getSlotDistance(b.dayOfWeek);
-        return distA - distB;
-      });
+      // Pair each slot with its computed next occurrence and sort chronologically from right now forward
+      const sortedSlotsWithOccurrence = activeSlots
+        .map((slot) => ({
+          slot,
+          occurrence: getSlotOccurrence(slot, now),
+        }))
+        .sort((a, b) => a.occurrence.minutesFromNow - b.occurrence.minutesFromNow);
 
-      const now = new Date();
-      const mappedSessions = sortedSlots.slice(0, 4).map((slot) => {
-        const distance = getSlotDistance(slot.dayOfWeek);
-        const isToday = distance === 0;
-        const isTomorrow = distance === 1;
+      const shortDayMap = {
+        Sunday: 'Sun',
+        Monday: 'Mon',
+        Tuesday: 'Tue',
+        Wednesday: 'Wed',
+        Thursday: 'Thu',
+        Friday: 'Fri',
+        Saturday: 'Sat',
+      };
 
-        // Calculate next calendar date for this weekday
-        const slotDate = new Date();
-        slotDate.setDate(now.getDate() + distance);
+      const mappedSessions = sortedSlotsWithOccurrence.slice(0, 4).map(({ slot, occurrence }) => {
+        const { isToday, isTomorrow, isLiveNow, slotDate } = occurrence;
+
         const monthShort = slotDate.toLocaleDateString('en-US', { month: 'short' });
         const dayNum = slotDate.getDate();
         const dateFormatted = `${dayNum} ${monthShort}`;
-
-        const shortDayMap = {
-          Sunday: 'Sun',
-          Monday: 'Mon',
-          Tuesday: 'Tue',
-          Wednesday: 'Wed',
-          Thursday: 'Thu',
-          Friday: 'Fri',
-          Saturday: 'Sat',
-        };
         const shortDay = shortDayMap[slot.dayOfWeek] || slot.dayOfWeek;
 
         let dayLabel;
@@ -99,7 +161,6 @@ export default function UpcomingSchedule() {
           : (slot.time || '6:00 PM – 8:30 PM');
 
         const isOnline = slot.modality ? slot.modality.includes('online') : true;
-        const isLiveNow = checkIsLiveNow(slot.dayOfWeek, slot.startTime, slot.endTime);
 
         return {
           id: slot.id,
@@ -113,6 +174,8 @@ export default function UpcomingSchedule() {
           meetingLink: slot.meetLink || 'https://meet.google.com/cbh-ywhg-upu',
           venue: slot.campusRoom || 'DHA Lahore Campus',
           isToday,
+          startTime: slot.startTime,
+          endTime: slot.endTime,
         };
       });
 
@@ -132,6 +195,14 @@ export default function UpcomingSchedule() {
     };
     window.addEventListener('ilm_schedule_updated', handleUpdate);
     window.addEventListener('storage', handleUpdate);
+    window.addEventListener('focus', buildSessions);
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        buildSessions();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
 
     // Re-evaluate live status every minute so the button appears/disappears automatically
     const interval = setInterval(() => {
@@ -143,14 +214,16 @@ export default function UpcomingSchedule() {
       clearInterval(interval);
       window.removeEventListener('ilm_schedule_updated', handleUpdate);
       window.removeEventListener('storage', handleUpdate);
+      window.removeEventListener('focus', buildSessions);
+      document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, []);
 
   if (sessions.length === 0) return null;
 
-  const todaySessions = sessions.filter((s) => s.isToday);
-  const primarySession = todaySessions[0] || sessions[0];
-  const hasLiveToday = todaySessions.length > 0;
+  // The primary session is the immediate next (or currently live) session in chronological sequence
+  const primarySession = sessions[0];
+  const hasLiveToday = primarySession?.isToday ?? false;
   // The primary session's join button is only shown when it is currently live (or ≤15 min away)
   const primaryIsLiveNow = primarySession?.isLiveNow ?? false;
 
@@ -181,7 +254,7 @@ export default function UpcomingSchedule() {
             <div className="flex items-center flex-wrap gap-2 text-xs">
               <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-100/90 text-emerald-900 border border-emerald-300/60 font-bold uppercase tracking-wider text-[10px] shrink-0">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
-                Live Today
+                {primaryIsLiveNow ? 'Live Now' : 'Live Today'}
               </span>
               <span className="text-sand-400">•</span>
               <span className="inline-flex items-center gap-1.5 text-xs">

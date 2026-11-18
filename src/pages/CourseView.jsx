@@ -31,6 +31,7 @@ import {
   ExternalLink,
   Lock,
   Clock,
+  CalendarCheck,
 } from 'lucide-react';
 
 import Layout from '../components/layout/Layout';
@@ -38,6 +39,7 @@ import CourseHeader from '../components/course/CourseHeader';
 import MediaPlayer from '../components/course/MediaPlayer';
 import CurriculumSidebar from '../components/course/CurriculumSidebar';
 import ResourceTab from '../components/course/ResourceTab';
+import AttendanceTab from '../components/course/AttendanceTab';
 import CommunityTab from '../components/course/CommunityTab';
 import Tabs from '../components/ui/Tabs';
 import Skeleton from '../components/ui/Skeleton';
@@ -51,12 +53,12 @@ import {
   updateCourseProgress,
   getStudentVideoRestriction,
   getStudentCourseAccessOverrides,
+  getStudentCourseAttendance,
 } from '../services/courseStorage';
 import { useAuth } from '../context/AuthContext';
 
 export default function CourseView() {
   const { user } = useAuth();
-  const [restriction, setRestriction] = useState(() => getStudentVideoRestriction());
   const [toastMessage, setToastMessage] = useState(null);
 
   const showToast = useCallback((toast) => {
@@ -68,17 +70,6 @@ export default function CourseView() {
     setTimeout(() => setToastMessage(null), 3200);
   }, []);
 
-  useEffect(() => {
-    const handleRestrictionUpdate = () => {
-      setRestriction(getStudentVideoRestriction());
-    };
-    window.addEventListener('ilm-video-restriction-updated', handleRestrictionUpdate);
-    window.addEventListener('storage', handleRestrictionUpdate);
-    return () => {
-      window.removeEventListener('ilm-video-restriction-updated', handleRestrictionUpdate);
-      window.removeEventListener('storage', handleRestrictionUpdate);
-    };
-  }, []);
   const { id } = useParams();
   const navigate = useNavigate();
 
@@ -91,10 +82,24 @@ export default function CourseView() {
   }, [id]);
 
   const [course, setCourse] = useState(initialCourse);
+  const [restriction, setRestriction] = useState(() => getStudentVideoRestriction(null, initialCourse?.category));
 
   useEffect(() => {
     setCourse(initialCourse);
+    setRestriction(getStudentVideoRestriction(null, initialCourse?.category));
   }, [initialCourse]);
+
+  useEffect(() => {
+    const handleRestrictionUpdate = () => {
+      setRestriction(getStudentVideoRestriction(null, course?.category));
+    };
+    window.addEventListener('ilm-video-restriction-updated', handleRestrictionUpdate);
+    window.addEventListener('storage', handleRestrictionUpdate);
+    return () => {
+      window.removeEventListener('ilm-video-restriction-updated', handleRestrictionUpdate);
+      window.removeEventListener('storage', handleRestrictionUpdate);
+    };
+  }, [course?.category]);
 
   const formatMeta = courseFormats[course.format] || courseFormats['live-online'];
 
@@ -105,19 +110,19 @@ export default function CourseView() {
 
   // Load custom admin lecture access overrides for active user and course
   const [accessOverrides, setAccessOverrides] = useState(() => {
-    return user?.id ? getStudentCourseAccessOverrides(user.id, course.id) : {};
+    return user ? getStudentCourseAccessOverrides(user, course.id) : {};
   });
 
   useEffect(() => {
-    if (user?.id) {
-      setAccessOverrides(getStudentCourseAccessOverrides(user.id, course.id));
+    if (user) {
+      setAccessOverrides(getStudentCourseAccessOverrides(user, course.id));
     }
   }, [user, course.id]);
 
   useEffect(() => {
     const handleUpdate = () => {
-      if (user?.id) {
-        setAccessOverrides(getStudentCourseAccessOverrides(user.id, course.id));
+      if (user) {
+        setAccessOverrides(getStudentCourseAccessOverrides(user, course.id));
       }
     };
     window.addEventListener('ilm-lesson-access-updated', handleUpdate);
@@ -137,8 +142,8 @@ export default function CourseView() {
 
       // 1. Check if admin force-locked this lesson for the student
       if (override?.status === 'locked') {
-        reasons[les.id] = override.reason || 'This video lecture has been locked by administration.';
-        details[les.id] = { type: 'locked', reason: override.reason };
+        reasons[les.id] = override.reason || '';
+        details[les.id] = { type: 'locked', reason: override.reason || '' };
         canUnlock = Boolean(les.completed);
         continue;
       }
@@ -196,39 +201,32 @@ export default function CourseView() {
   const [searchParams] = useSearchParams();
   const queryLessonId = searchParams.get('lessonId');
 
-  // If a specific lesson was requested via query param, verify lock status before activating
+  // If a specific lesson was requested via query param, activate it
   useEffect(() => {
     if (queryLessonId && allLessons.length > 0) {
       const match = allLessons.find((l) => l.id === queryLessonId);
       if (match) {
-        if (unlockedLessonIds.has(match.id) || user?.role === 'admin') {
-          setCurrentLesson(match);
-        } else {
-          showToast({
-            type: 'locked',
-            title: 'Lesson Locked',
-            text: 'Complete earlier lessons to unlock this lecture.',
-          });
-          const fallback = allLessons.find((l) => unlockedLessonIds.has(l.id) && !l.completed)
-            || allLessons.find((l) => unlockedLessonIds.has(l.id))
-            || allLessons[0];
-          if (fallback) setCurrentLesson(fallback);
-        }
+        setCurrentLesson(match);
       }
     }
-  }, [queryLessonId, allLessons, unlockedLessonIds, user, showToast]);
+  }, [queryLessonId, allLessons, unlockedLessonIds, accessOverrides, user, showToast]);
 
-  // If current lesson becomes locked (e.g. earlier lesson uncompleted), fall back to highest unlocked
+  // If current lesson becomes locked by sequential progression, fall back to highest unlocked.
+  // BUT if it is an explicit admin lock, DO NOT redirect away—let MediaPlayer show the restriction overlay!
   useEffect(() => {
     if (currentLesson && !unlockedLessonIds.has(currentLesson.id) && user?.role !== 'admin') {
+      const isExplicitAdminLock = accessOverrides[currentLesson.id]?.status === 'locked';
+      if (isExplicitAdminLock) {
+        return; // Stay on the locked lesson so student sees the lockout screen!
+      }
       const fallback = allLessons.find((l) => unlockedLessonIds.has(l.id) && !l.completed)
         || allLessons.find((l) => unlockedLessonIds.has(l.id))
         || allLessons[0];
-      if (fallback) {
+      if (fallback && fallback.id !== currentLesson.id) {
         setCurrentLesson(fallback);
       }
     }
-  }, [unlockedLessonIds, currentLesson, allLessons, user]);
+  }, [unlockedLessonIds, currentLesson, allLessons, user, accessOverrides]);
 
   // Keep currentLesson synchronized with course changes
   useEffect(() => {
@@ -246,7 +244,7 @@ export default function CourseView() {
     return () => clearTimeout(timer);
   }, [id]);
 
-  // Handle lesson selection from syllabus with strict lock check
+  // Handle lesson selection from syllabus: allow selecting locked lessons so player displays restriction overlay
   const handleLessonSelect = useCallback(
     (lessonOrId) => {
       const lessonId = typeof lessonOrId === 'object' && lessonOrId ? lessonOrId.id : lessonOrId;
@@ -254,18 +252,11 @@ export default function CourseView() {
       if (!selected) return;
 
       const isUnlocked = unlockedLessonIds.has(selected.id);
-      if (!isUnlocked && user?.role !== 'admin') {
-        showToast({
-          type: 'locked',
-          title: 'Lesson Locked',
-          text: 'Complete earlier lessons to unlock this lecture.',
-        });
-        return;
-      }
+      const isExplicitAdminLock = accessOverrides[selected.id]?.status === 'locked';
 
       setCurrentLesson(selected);
     },
-    [allLessons, unlockedLessonIds, user, showToast]
+    [allLessons]
   );
 
   // Interactive toggle for lesson completion
@@ -354,11 +345,12 @@ export default function CourseView() {
   const activeLessonForPlayer = useMemo(() => {
     if (!currentLesson) return null;
     const isUnlocked = unlockedLessonIds.has(currentLesson.id);
+    const isExplicitAdminLock = accessOverrides[currentLesson.id]?.status === 'locked';
     return {
       ...currentLesson,
-      isLocked: !isUnlocked && user?.role !== 'admin',
-      lockReason: lockedLessonReasons[currentLesson.id],
-      isOverrideLocked: Boolean(accessOverrides[currentLesson.id]?.status === 'locked'),
+      isLocked: (!isUnlocked || isExplicitAdminLock) && user?.role !== 'admin',
+      lockReason: lockedLessonReasons[currentLesson.id] || (isExplicitAdminLock ? (accessOverrides[currentLesson.id]?.reason || 'Lecture restricted by administration.') : null),
+      isOverrideLocked: isExplicitAdminLock,
       overrideInfo: overrideDetails[currentLesson.id],
     };
   }, [currentLesson, unlockedLessonIds, lockedLessonReasons, accessOverrides, overrideDetails, user]);
@@ -371,6 +363,24 @@ export default function CourseView() {
     }));
   }, []);
 
+  // Student course attendance stats
+  const [courseAttendance, setCourseAttendance] = useState(() =>
+    getStudentCourseAttendance(user, course.id)
+  );
+
+  useEffect(() => {
+    setCourseAttendance(getStudentCourseAttendance(user, course.id));
+    const handleAttUpdate = () => {
+      setCourseAttendance(getStudentCourseAttendance(user, course.id));
+    };
+    window.addEventListener('ilm-attendance-updated', handleAttUpdate);
+    window.addEventListener('storage', handleAttUpdate);
+    return () => {
+      window.removeEventListener('ilm-attendance-updated', handleAttUpdate);
+      window.removeEventListener('storage', handleAttUpdate);
+    };
+  }, [user, course.id]);
+
   // Tabs setup
   const tabItems = useMemo(
     () => [
@@ -379,12 +389,17 @@ export default function CourseView() {
         icon: <Info className="w-4 h-4" />,
       },
       {
+        label: 'Attendance',
+        icon: <CalendarCheck className="w-4 h-4" />,
+        badge: courseAttendance?.hasRecords ? courseAttendance.rate : undefined,
+      },
+      {
         label: 'Resources',
         icon: <FileText className="w-4 h-4" />,
         count: course.resources?.length || 0,
       },
     ],
-    [course]
+    [course, courseAttendance]
   );
 
   if (isLoading) {
@@ -451,25 +466,47 @@ export default function CourseView() {
         {/* Main Content Area */}
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 transition-all duration-300 space-y-4">
           {restriction.isVideoRestricted && (
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl bg-gradient-to-r from-red-950 via-red-900 to-red-950 text-white border border-red-500/40 shadow-sm animate-fadeIn">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-red-800/80 border border-red-500/50 flex items-center justify-center shrink-0 text-red-200">
-                  <Lock size={18} />
+            overrideDetails?.[currentLesson?.id]?.type === 'granted' ? (
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-2xl bg-gradient-to-r from-emerald-950 via-emerald-900 to-[#072418] text-white border border-emerald-500/40 shadow-sm animate-fadeIn text-xs">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-xl bg-emerald-800/80 border border-emerald-500/50 flex items-center justify-center shrink-0 text-emerald-200">
+                    <CheckCircle size={16} />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold font-heading">Special Access Active: Tuition Overdue Lock Bypassed</h4>
+                    <p className="text-[11px] text-emerald-200">
+                      The administration has granted you direct access to this lecture. General account lock remains active for unpaid courses.
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <h4 className="text-sm font-bold font-heading">Course Video Playback Blocked</h4>
-                  <p className="text-xs text-red-200">
-                    Your video lecture access is currently restricted due to overdue fee installments. Pay your overdue dues to automatically restore access.
-                  </p>
-                </div>
+                <Link
+                  to="/accounts"
+                  className="inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-ink-950 text-[11px] font-bold shrink-0 transition-colors cursor-pointer shadow-xs"
+                >
+                  <span>Pay Dues →</span>
+                </Link>
               </div>
-              <Link
-                to="/accounts"
-                className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-ink-950 text-xs font-bold shrink-0 transition-colors cursor-pointer shadow-xs"
-              >
-                <span>View Accounts &amp; Pay Dues →</span>
-              </Link>
-            </div>
+            ) : (
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl bg-gradient-to-r from-red-950 via-red-900 to-red-950 text-white border border-red-500/40 shadow-sm animate-fadeIn">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-red-800/80 border border-red-500/50 flex items-center justify-center shrink-0 text-red-200">
+                    <Lock size={18} />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold font-heading">Course Video Playback Blocked</h4>
+                    <p className="text-xs text-red-200">
+                      Your video lecture access is currently restricted due to overdue fee installments. Pay your overdue dues to automatically restore access.
+                    </p>
+                  </div>
+                </div>
+                <Link
+                  to="/accounts"
+                  className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-ink-950 text-xs font-bold shrink-0 transition-colors cursor-pointer shadow-xs"
+                >
+                  <span>View Accounts &amp; Pay Dues →</span>
+                </Link>
+              </div>
+            )
           )}
 
           <div className="flex flex-col lg:flex-row gap-6 items-start">
@@ -488,11 +525,7 @@ export default function CourseView() {
                 setIsMobileDrawerOpen(false);
               }}
               onLockedLessonClick={(lesson, lockReason) => {
-                showToast({
-                  type: 'locked',
-                  title: 'Lesson Locked',
-                  text: lockReason || 'Complete earlier lessons to unlock this lecture.',
-                });
+                handleLessonSelect(lesson);
               }}
               onToggleLessonCompletion={handleToggleLessonCompletion}
               isCollapsed={isSidebarCollapsed}
@@ -524,6 +557,7 @@ export default function CourseView() {
               <div className="bg-black rounded-xl sm:rounded-2xl overflow-hidden shadow-elevated">
                 <MediaPlayer
                   currentLesson={activeLessonForPlayer}
+                  courseCategory={course.category}
                   isLive={false}
                   onGoToUnlockedLesson={() => setCurrentLesson(defaultLesson)}
                 />
@@ -687,7 +721,14 @@ export default function CourseView() {
                     </div>
                   </div>
 
-                  {/* Tab 2: Resources */}
+                  {/* Tab 2: Attendance Status & Roll-Call Logs */}
+                  <AttendanceTab
+                    courseId={course.id}
+                    courseTitle={course.title}
+                    student={user}
+                  />
+
+                  {/* Tab 3: Resources */}
                   <div className="pt-2">
                     <ResourceTab resources={course.resources} />
                   </div>

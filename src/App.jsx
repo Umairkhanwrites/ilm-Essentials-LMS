@@ -13,6 +13,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 
 import { AuthProvider, useAuth } from './context/AuthContext';
 import ProtectedRoute from './components/auth/ProtectedRoute';
+import DevToolsGuard from './components/security/DevToolsGuard';
 
 import Dashboard from './pages/Dashboard';
 import CourseView from './pages/CourseView';
@@ -42,6 +43,7 @@ function RootRoute() {
 export default function App() {
   return (
     <AuthProvider>
+      <DevToolsGuard />
       <BrowserRouter>
         <Routes>
           {/* Default entry point: direct to /login if unauthenticated */}
