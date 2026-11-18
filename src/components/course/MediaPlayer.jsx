@@ -120,14 +120,14 @@ export default function MediaPlayer({
 
             <div className="max-w-md sm:max-w-lg space-y-1.5">
               <h3 className="text-lg sm:text-xl font-heading font-bold text-white leading-snug">
-                {isAdminLocked ? 'Lecture Restricted by Administration' : 'This Lesson is Locked'}
+                {isAdminLocked ? 'Lesson Restricted' : 'This Lesson is Locked'}
               </h3>
               {!isAdminLocked && (
                 <p className="text-xs sm:text-sm text-sand-300 leading-relaxed">
-                  {currentLesson.lockReason || 'You must complete the earlier lessons in this course before accessing this lecture.'}
+                  {currentLesson.lockReason || 'You must complete the earlier lessons in this course before accessing this lesson.'}
                 </p>
               )}
-              {isAdminLocked && currentLesson.lockReason && currentLesson.lockReason !== 'Restricted by administration' && currentLesson.lockReason !== 'This video lecture has been locked by administration.' && (
+              {isAdminLocked && currentLesson.lockReason && currentLesson.lockReason !== 'Restricted by administration' && currentLesson.lockReason !== 'Lesson restricted' && currentLesson.lockReason !== 'Lesson restricted.' && currentLesson.lockReason !== 'Lecture restricted by administration.' && currentLesson.lockReason !== 'This video lecture has been locked by administration.' && (
                 <p className="text-xs sm:text-sm text-sand-300 leading-relaxed">
                   {currentLesson.lockReason}
                 </p>
@@ -293,6 +293,7 @@ export default function MediaPlayer({
               className="absolute inset-0 w-full h-full border-0 z-10"
               allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture; fullscreen"
               allowFullScreen
+              referrerPolicy="strict-origin-when-cross-origin"
               onLoad={() => setIframeLoaded(true)}
             />
             {/* Dynamic Forensic Watermark Layer (Anti-Piracy & Anti-Screen Recording) */}

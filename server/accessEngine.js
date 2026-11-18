@@ -120,7 +120,7 @@ export function evaluateLessonPlaybackAccess({
       return {
         allowed: false,
         tier: 2,
-        reason: accessOverride.reason || 'Lecture restricted by administration.',
+        reason: accessOverride.reason || 'Lesson restricted.',
         isOverrideLocked: true,
       };
     }

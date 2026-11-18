@@ -268,7 +268,7 @@ export default function CourseView() {
       showToast({
         type: 'locked',
         title: 'Lesson Locked',
-        text: 'Complete earlier lessons to unlock this lecture.',
+        text: 'Complete earlier lessons to unlock this lesson.',
       });
       return;
     }
@@ -349,7 +349,7 @@ export default function CourseView() {
     return {
       ...currentLesson,
       isLocked: (!isUnlocked || isExplicitAdminLock) && user?.role !== 'admin',
-      lockReason: lockedLessonReasons[currentLesson.id] || (isExplicitAdminLock ? (accessOverrides[currentLesson.id]?.reason || 'Lecture restricted by administration.') : null),
+      lockReason: lockedLessonReasons[currentLesson.id] || (isExplicitAdminLock ? (accessOverrides[currentLesson.id]?.reason || 'Lesson restricted.') : null),
       isOverrideLocked: isExplicitAdminLock,
       overrideInfo: overrideDetails[currentLesson.id],
     };
