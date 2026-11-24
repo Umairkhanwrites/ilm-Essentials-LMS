@@ -1700,33 +1700,53 @@ export default function AdminDashboard() {
   // Academic Year Segregation State & Helper
   const [activePathwayYear, setActivePathwayYear] = useState(() => new Date().getFullYear());
 
+  const [customYears, setCustomYears] = useState(() => {
+    try {
+      const stored = localStorage.getItem('ilm_academic_years');
+      return stored ? JSON.parse(stored) : [2026, 2027];
+    } catch {
+      return [2026, 2027];
+    }
+  });
+
   const pathwayCalendarYears = useMemo(() => {
+    const yearsSet = new Set(customYears);
     const currentYear = new Date().getFullYear();
-    const yearsSet = new Set([2026, 2027]);
+    yearsSet.add(2026);
+    yearsSet.add(2027);
     if (currentYear > 2027) yearsSet.add(currentYear);
-    (sbBatches || []).forEach((b) => {
-      const d = b.start_date || b.startDate;
-      if (d) {
-        const y = new Date(d).getFullYear();
-        if (!isNaN(y) && y >= 2020 && y <= 2035) yearsSet.add(y);
-      }
-      const titleMatch = (b.name || b.title || '').match(/\b(202\d)\b/);
-      if (titleMatch) yearsSet.add(Number(titleMatch[1]));
+    (courses || []).forEach((c) => {
+      const y = c.academic_year || c.year || (c.startDate ? new Date(c.startDate).getFullYear() : null);
+      if (y && y >= 2020 && y <= 2035) yearsSet.add(Number(y));
     });
     return Array.from(yearsSet).sort((a, b) => a - b);
-  }, [sbBatches]);
+  }, [customYears, courses]);
 
-  const matchesBatchYear = (batch, targetYear) => {
-    if (!batch) return false;
-    const d = batch.start_date || batch.startDate;
-    if (d) {
-      const y = new Date(d).getFullYear();
-      if (!isNaN(y) && y === Number(targetYear)) return true;
+  const handleAddNewAcademicYear = () => {
+    const nextYear = Math.max(...pathwayCalendarYears, 2027) + 1;
+    const yearStr = prompt('Enter new Academic Year:', String(nextYear));
+    if (yearStr) {
+      const parsed = parseInt(yearStr, 10);
+      if (!isNaN(parsed) && parsed >= 2020 && parsed <= 2040) {
+        const updated = Array.from(new Set([...pathwayCalendarYears, parsed])).sort((a, b) => a - b);
+        setCustomYears(updated);
+        try {
+          localStorage.setItem('ilm_academic_years', JSON.stringify(updated));
+        } catch {}
+        setActivePathwayYear(parsed);
+      }
     }
-    const str = `${batch.name || ''} ${batch.title || ''} ${batch.slug || ''} ${batch.id || ''}`;
-    if (str.includes(String(targetYear))) return true;
-    if (Number(targetYear) === 2026 && !str.match(/\b202[0-9]\b/) && !d) return true;
-    return false;
+  };
+
+  const matchesCourseYear = (crs, targetYear) => {
+    const y = crs.academic_year || crs.year;
+    if (y) return Number(y) === Number(targetYear);
+    if (crs.startDate) {
+      const dateYear = new Date(crs.startDate).getFullYear();
+      if (!isNaN(dateYear)) return dateYear === Number(targetYear);
+    }
+    // Default base seed courses to 2026 so they are present in the primary session
+    return Number(targetYear) === 2026;
   };
 
   // Intake Management State & Handlers
@@ -2982,6 +3002,45 @@ export default function AdminDashboard() {
                 </div>
               </div>
 
+              {/* Academic Year Switcher Menu */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1 pb-3 border-b border-sand-200/80">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-bold text-ink-500 uppercase tracking-wider mr-1 flex items-center gap-1.5">
+                    <Calendar size={13} className="text-primary-800" />
+                    Academic Year:
+                  </span>
+                  {pathwayCalendarYears.map((yr) => {
+                    const isSelected = activePathwayYear === yr;
+                    return (
+                      <button
+                        key={yr}
+                        type="button"
+                        onClick={() => setActivePathwayYear(yr)}
+                        className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+                          isSelected
+                            ? 'bg-primary-950 text-white shadow-xs'
+                            : 'bg-sand-100/90 text-ink-700 hover:bg-sand-200/80 hover:text-ink-900'
+                        }`}
+                      >
+                        <span>{yr} Academic Year</span>
+                      </button>
+                    );
+                  })}
+                  <button
+                    type="button"
+                    onClick={handleAddNewAcademicYear}
+                    className="px-2.5 py-1.5 rounded-xl text-xs font-bold border border-dashed border-sand-300 hover:border-primary-600 text-ink-600 hover:text-primary-950 hover:bg-sand-50 transition-all flex items-center gap-1 cursor-pointer"
+                    title="Add new academic year"
+                  >
+                    <Plus size={12} />
+                    <span>Add Year</span>
+                  </button>
+                </div>
+                <div className="text-xs text-ink-500 font-medium">
+                  Curriculum & Pathways for <strong className="text-ink-900">{activePathwayYear}</strong>
+                </div>
+              </div>
+
               {/* Grid of Pathway Cards */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                 {[...filteredPathways]
@@ -2993,7 +3052,7 @@ export default function AdminDashboard() {
                     return 0;
                   })
                   .map((p) => {
-                    const pathwayCourses = courses.filter((c) => c.category === p.slug || c.category === p.id || c.pathway_id === p.slug || c.pathway_id === p.id);
+                    const pathwayCourses = courses.filter((c) => (c.category === p.slug || c.category === p.id || c.pathway_id === p.slug || c.pathway_id === p.id) && matchesCourseYear(c, activePathwayYear));
                     const isMultiSemester = p.programStructure === 'multi_semester' || p.type === 'cohort' || Number(p.semesters) > 1;
 
                     const getCourseSemester = (crs) => {
@@ -3069,7 +3128,7 @@ export default function AdminDashboard() {
                                       {semName} <span className="font-normal text-ink-500">({semCourses.length} {semCourses.length === 1 ? 'course' : 'courses'})</span>
                                     </div>
                                     <Link
-                                      to={`/admin/courses/new?category=${p.id || p.slug}&semester=${semNum}`}
+                                      to={`/admin/courses/new?category=${p.id || p.slug}&semester=${semNum}&year=${activePathwayYear}`}
                                       className="text-[11px] font-bold text-primary-900 hover:text-primary-950 inline-flex items-center gap-1 transition-colors cursor-pointer"
                                     >
                                       <Plus size={11} />
@@ -3093,7 +3152,7 @@ export default function AdminDashboard() {
                                       ))}
                                     </ol>
                                   ) : (
-                                    <div className="text-xs text-ink-400 italic py-1">No courses in {semName} yet</div>
+                                    <div className="text-xs text-ink-400 italic py-1">No courses in {semName} for {activePathwayYear} yet</div>
                                   )}
                                 </div>
                               ))}
@@ -3127,7 +3186,7 @@ export default function AdminDashboard() {
                                   ))}
                                 </ol>
                               ) : (
-                                <div className="text-xs text-ink-400 italic py-1">No courses in this track yet</div>
+                                <div className="text-xs text-ink-400 italic py-1">No courses in this track for {activePathwayYear} yet</div>
                               )}
                             </div>
                           )}
@@ -3136,7 +3195,7 @@ export default function AdminDashboard() {
                         {/* Card Footer Actions: Add Course to curriculum + Configure Pathway settings */}
                         <div className="pt-3 mt-3 border-t border-sand-100 flex items-center justify-between">
                           <Link
-                            to={`/admin/courses/new?category=${p.id || p.slug}`}
+                            to={`/admin/courses/new?category=${p.id || p.slug}&year=${activePathwayYear}`}
                             className="text-xs font-bold text-primary-900 hover:text-primary-950 inline-flex items-center gap-1.5 transition-colors cursor-pointer"
                           >
                             <Plus size={14} />

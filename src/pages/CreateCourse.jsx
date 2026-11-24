@@ -217,6 +217,7 @@ export default function CreateCourse() {
   const [searchParams] = useSearchParams();
   const queryCategory = searchParams.get('category');
   const querySemester = searchParams.get('semester');
+  const queryYear = searchParams.get('year') || searchParams.get('academic_year');
   const { user } = useAuth();
 
   const isEditMode = Boolean(id);
@@ -327,6 +328,7 @@ export default function CreateCourse() {
     subtitle: '',
     category: queryCategory || 'foundations',
     semester: querySemester ? `Semester ${String(querySemester).replace(/\D/g, '')}` : 'Semester 1',
+    academic_year: queryYear ? Number(queryYear) : 2026,
     format: 'live-online',
     classCategory: 'online', // 'online' | 'onsite' | 'hybrid'
     level: 'Beginner',
@@ -1156,6 +1158,8 @@ export default function CreateCourse() {
       description: formData.description,
       color: formData.color,
       instructor: activeInstructor,
+      academic_year: Number(formData.academic_year) || 2026,
+      year: Number(formData.academic_year) || 2026,
       // Institutional rule: Foundations courses are bundled into the master certificate
       fee: isFoundations
         ? 'Ilm Foundations'
@@ -1480,6 +1484,27 @@ export default function CreateCourse() {
                         </div>
                       );
                     })()}
+
+                    {/* Academic Session / Year Selection */}
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-ink-700 mb-1.5">
+                        Academic Year *
+                      </label>
+                      <select
+                        value={formData.academic_year || 2026}
+                        onChange={(e) => updateFormField('academic_year', Number(e.target.value))}
+                        className="w-full px-3.5 py-3 border border-sand-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-600 bg-white font-medium text-ink-900"
+                      >
+                        {[2025, 2026, 2027, 2028, 2029, 2030].map((yr) => (
+                          <option key={yr} value={yr}>
+                            {yr} Academic Year
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-[11px] text-ink-500 mt-1">
+                        Associates this course offering with the selected Academic Year on the pathway dashboard.
+                      </p>
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
