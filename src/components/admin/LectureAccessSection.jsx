@@ -32,6 +32,8 @@ import {
   setStudentLessonAccess,
   setBulkLessonAccess,
   getActiveAccessOverridesCount,
+  matchesCourseYear,
+  getStoredAcademicYears,
 } from '../../services/courseStorage';
 import {
   useSupabaseAccessOverrides,
@@ -128,38 +130,68 @@ function MinimalDropdown({
   );
 }
 
-export default function LectureAccessSection({ onShowToast }) {
+export default function LectureAccessSection({ onShowToast, initialAcademicYear = 2026, availableYears = [] }) {
   const allCourses = useMemo(() => getAllCourses(), []);
   const allStudents = useMemo(() => getAllStudents(), []);
   const allPathways = useMemo(() => getAllPathways(), []);
 
+  // Academic Year Filter
+  const [selectedAcademicYear, setSelectedAcademicYear] = useState(() => initialAcademicYear || 2026);
+
+  const academicYearsList = useMemo(() => {
+    if (Array.isArray(availableYears) && availableYears.length > 0) return availableYears;
+    const stored = getStoredAcademicYears();
+    const set = new Set(stored);
+    set.add(2026);
+    set.add(2027);
+    (allCourses || []).forEach((c) => {
+      const y = c.academic_year || c.year || (c.startDate ? new Date(c.startDate).getFullYear() : null);
+      if (y && y >= 2020 && y <= 2035) set.add(Number(y));
+    });
+    return Array.from(set).sort((a, b) => a - b);
+  }, [availableYears, allCourses]);
+
+  const academicYearOptions = useMemo(() => [
+    { value: 'all', label: 'All Academic Years' },
+    ...academicYearsList.map((yr) => ({
+      value: yr,
+      label: `${yr} Academic Year`,
+    })),
+  ], [academicYearsList]);
+
   // Academic Pathway / Program Filter
   const [selectedPathwayId, setSelectedPathwayId] = useState('all');
 
-  // Filter courses by selected pathway
+  // Filter courses by selected academic year and pathway
   const filteredCourses = useMemo(() => {
-    if (!selectedPathwayId || selectedPathwayId === 'all') return allCourses;
-    const activePathway = allPathways.find((p) => p.id === selectedPathwayId || p.slug === selectedPathwayId);
-    return allCourses.filter((course) => {
-      const cat = (course.category || '').toLowerCase();
-      const prog = (course.program || '').toLowerCase();
-      const sub = (course.subtitle || '').toLowerCase();
-      const pathId = (course.pathwayId || '').toLowerCase();
-      const targetId = selectedPathwayId.toLowerCase();
-      const targetSlug = (activePathway?.slug || selectedPathwayId).toLowerCase();
-      const targetName = (activePathway?.name || '').toLowerCase();
+    let list = allCourses;
+    if (selectedAcademicYear && selectedAcademicYear !== 'all') {
+      list = list.filter((course) => matchesCourseYear(course, selectedAcademicYear));
+    }
+    if (selectedPathwayId && selectedPathwayId !== 'all') {
+      const activePathway = allPathways.find((p) => p.id === selectedPathwayId || p.slug === selectedPathwayId);
+      list = list.filter((course) => {
+        const cat = (course.category || '').toLowerCase();
+        const prog = (course.program || '').toLowerCase();
+        const sub = (course.subtitle || '').toLowerCase();
+        const pathId = (course.pathwayId || '').toLowerCase();
+        const targetId = selectedPathwayId.toLowerCase();
+        const targetSlug = (activePathway?.slug || selectedPathwayId).toLowerCase();
+        const targetName = (activePathway?.name || '').toLowerCase();
 
-      return (
-        cat === targetId ||
-        cat === targetSlug ||
-        pathId === targetId ||
-        pathId === targetSlug ||
-        (targetName && prog.includes(targetName)) ||
-        (targetSlug && sub.includes(targetSlug)) ||
-        (targetName && sub.includes(targetName))
-      );
-    });
-  }, [allCourses, selectedPathwayId, allPathways]);
+        return (
+          cat === targetId ||
+          cat === targetSlug ||
+          pathId === targetId ||
+          pathId === targetSlug ||
+          (targetName && prog.includes(targetName)) ||
+          (targetSlug && sub.includes(targetSlug)) ||
+          (targetName && sub.includes(targetName))
+        );
+      });
+    }
+    return list;
+  }, [allCourses, selectedAcademicYear, selectedPathwayId, allPathways]);
 
   // Selected Course & Lesson
   const [selectedCourseId, setSelectedCourseId] = useState(allCourses[0]?.id || '');
@@ -470,6 +502,16 @@ export default function LectureAccessSection({ onShowToast }) {
 
           {/* Unified Selectors & Cohort Action Menu */}
           <div className="flex flex-wrap items-center gap-2.5">
+            {/* Academic Year Dropdown */}
+            <MinimalDropdown
+              value={selectedAcademicYear}
+              onChange={setSelectedAcademicYear}
+              options={academicYearOptions}
+              placeholder="Academic Year"
+              menuWidth="w-48"
+              title="Filter by Academic Year"
+            />
+
             {/* Academic Pathway / Program Dropdown */}
             <MinimalDropdown
               value={selectedPathwayId}
@@ -485,7 +527,7 @@ export default function LectureAccessSection({ onShowToast }) {
               value={selectedCourseId}
               onChange={setSelectedCourseId}
               options={courseOptions}
-              placeholder="No courses"
+              placeholder={selectedAcademicYear !== 'all' ? `No courses for ${selectedAcademicYear}` : 'No courses'}
               disabled={courseOptions.length === 0}
               className="max-w-[210px] sm:max-w-[240px]"
               menuWidth="w-64"

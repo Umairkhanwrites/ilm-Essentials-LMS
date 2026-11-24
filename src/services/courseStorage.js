@@ -4929,3 +4929,30 @@ export async function setBulkLessonAccess({
 
   return { success: true, updatedCount };
 }
+
+/**
+ * Helper to check whether a course matches a given academic year
+ */
+export function matchesCourseYear(crs, targetYear) {
+  if (!targetYear || targetYear === 'all') return true;
+  const y = crs?.academic_year || crs?.year;
+  if (y) return Number(y) === Number(targetYear);
+  if (crs?.startDate) {
+    const dateYear = new Date(crs.startDate).getFullYear();
+    if (!isNaN(dateYear)) return dateYear === Number(targetYear);
+  }
+  // Default base seed courses to 2026 so they are present in the primary session
+  return Number(targetYear) === 2026;
+}
+
+/**
+ * Retrieve saved academic years or defaults
+ */
+export function getStoredAcademicYears() {
+  try {
+    const stored = localStorage.getItem('ilm_academic_years');
+    return stored ? JSON.parse(stored) : [2026, 2027];
+  } catch {
+    return [2026, 2027];
+  }
+}

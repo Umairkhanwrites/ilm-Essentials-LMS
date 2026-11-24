@@ -225,6 +225,8 @@ export default function AdminDashboard() {
 
   // Courses filter & persistent state
   const [courseCategoryFilter, setCourseCategoryFilter] = useState('all');
+  const [courseYearFilter, setCourseYearFilter] = useState(() => 2026);
+  const [attendanceYearFilter, setAttendanceYearFilter] = useState(() => 2026);
   const [courses, setCourses] = useState(() => getAllCourses());
 
   // Supabase reactive data hooks for Courses, Students, Schedule, Batches and Invoices
@@ -1739,9 +1741,10 @@ export default function AdminDashboard() {
   };
 
   const matchesCourseYear = (crs, targetYear) => {
-    const y = crs.academic_year || crs.year;
+    if (!targetYear || targetYear === 'all') return true;
+    const y = crs?.academic_year || crs?.year;
     if (y) return Number(y) === Number(targetYear);
-    if (crs.startDate) {
+    if (crs?.startDate) {
       const dateYear = new Date(crs.startDate).getFullYear();
       if (!isNaN(dateYear)) return dateYear === Number(targetYear);
     }
@@ -1974,10 +1977,11 @@ export default function AdminDashboard() {
   // Filter courses
   const filteredCourses = useMemo(() => {
     return courses.filter((c) => {
-      if (courseCategoryFilter === 'all') return true;
-      return c.category === courseCategoryFilter;
+      const matchCat = courseCategoryFilter === 'all' || c.category === courseCategoryFilter;
+      const matchYear = courseYearFilter === 'all' || matchesCourseYear(c, courseYearFilter);
+      return matchCat && matchYear;
     });
-  }, [courses, courseCategoryFilter]);
+  }, [courses, courseCategoryFilter, courseYearFilter]);
 
   // Handle fee status toggle
   const toggleFeeStatus = (studentId) => {
@@ -2801,7 +2805,7 @@ export default function AdminDashboard() {
                     </div>
 
                     <Link
-                      to="/admin/courses/new"
+                      to={`/admin/courses/new${courseYearFilter !== 'all' ? `?year=${courseYearFilter}` : ''}`}
                       className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-primary-900 hover:bg-primary-800 text-white text-xs font-semibold shadow-xs transition-colors shrink-0 cursor-pointer"
                     >
                       <Plus size={14} />
@@ -2809,43 +2813,105 @@ export default function AdminDashboard() {
                     </Link>
                   </div>
 
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    onClick={() => setCourseCategoryFilter('all')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold capitalize transition-colors ${
-                      courseCategoryFilter === 'all'
-                        ? 'bg-primary-900 text-white'
-                        : 'bg-sand-100 text-ink-600 hover:bg-sand-200'
-                    }`}
-                  >
-                    All Pathways ({courses.length})
-                  </button>
-                  {pathways.map((p) => {
-                    const count = courses.filter((c) => c.category === p.slug || c.category === p.id || c.pathway_id === p.slug || c.pathway_id === p.id).length;
-                    return (
+                  {/* Academic Year Switcher Menu */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1 pb-3 border-b border-sand-200/80">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-bold text-ink-500 uppercase tracking-wider mr-1 flex items-center gap-1.5">
+                        <Calendar size={13} className="text-primary-800" />
+                        Academic Year:
+                      </span>
                       <button
-                        key={p.id || p.slug}
-                        onClick={() => setCourseCategoryFilter(p.slug || p.id)}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                          courseCategoryFilter === (p.slug || p.id)
+                        type="button"
+                        onClick={() => setCourseYearFilter('all')}
+                        className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+                          courseYearFilter === 'all'
+                            ? 'bg-primary-950 text-white shadow-xs'
+                            : 'bg-sand-100/90 text-ink-700 hover:bg-sand-200/80 hover:text-ink-900'
+                        }`}
+                      >
+                        <span>All Years</span>
+                      </button>
+                      {pathwayCalendarYears.map((yr) => {
+                        const isSelected = String(courseYearFilter) === String(yr);
+                        return (
+                          <button
+                            key={yr}
+                            type="button"
+                            onClick={() => setCourseYearFilter(yr)}
+                            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+                              isSelected
+                                ? 'bg-primary-950 text-white shadow-xs'
+                                : 'bg-sand-100/90 text-ink-700 hover:bg-sand-200/80 hover:text-ink-900'
+                            }`}
+                          >
+                            <span>{yr} Academic Year</span>
+                          </button>
+                        );
+                      })}
+                      <button
+                        type="button"
+                        onClick={handleAddNewAcademicYear}
+                        className="px-2.5 py-1.5 rounded-xl text-xs font-bold border border-dashed border-sand-300 hover:border-primary-600 text-ink-600 hover:text-primary-950 hover:bg-sand-50 transition-all flex items-center gap-1 cursor-pointer"
+                        title="Add new academic year"
+                      >
+                        <Plus size={12} />
+                        <span>Add Year</span>
+                      </button>
+                    </div>
+                    <div className="text-xs text-ink-500 font-medium">
+                      Curriculum for{' '}
+                      <strong className="text-ink-900">
+                        {courseYearFilter === 'all' ? 'All Academic Years' : `${courseYearFilter} Academic Year`}
+                      </strong>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        onClick={() => setCourseCategoryFilter('all')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold capitalize transition-colors ${
+                          courseCategoryFilter === 'all'
                             ? 'bg-primary-900 text-white'
                             : 'bg-sand-100 text-ink-600 hover:bg-sand-200'
                         }`}
                       >
-                        {p.name} ({count})
+                        All Pathways ({courses.filter((c) => courseYearFilter === 'all' || matchesCourseYear(c, courseYearFilter)).length})
                       </button>
-                    );
-                  })}
-                </div>
+                      {pathways.map((p) => {
+                        const count = courses.filter(
+                          (c) =>
+                            (c.category === p.slug || c.category === p.id || c.pathway_id === p.slug || c.pathway_id === p.id) &&
+                            (courseYearFilter === 'all' || matchesCourseYear(c, courseYearFilter))
+                        ).length;
+                        return (
+                          <button
+                            key={p.id || p.slug}
+                            onClick={() => setCourseCategoryFilter(p.slug || p.id)}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                              courseCategoryFilter === (p.slug || p.id)
+                                ? 'bg-primary-900 text-white'
+                                : 'bg-sand-100 text-ink-600 hover:bg-sand-200'
+                            }`}
+                          >
+                            {p.name} ({count})
+                          </button>
+                        );
+                      })}
+                    </div>
 
-                <div className="text-xs text-ink-500">
-                  Showing <strong className="text-ink-800">{filteredCourses.length}</strong> active programs
-                </div>
-              </div>
+                    <div className="text-xs text-ink-500">
+                      Showing <strong className="text-ink-800">{filteredCourses.length}</strong> active programs {courseYearFilter !== 'all' ? `for ${courseYearFilter}` : ''}
+                    </div>
+                  </div>
 
-              {/* Course Table */}
-              <div className="overflow-x-auto rounded-xl border border-sand-200">
+                  {/* Course Table */}
+                  {filteredCourses.length === 0 ? (
+                    <div className="py-12 text-center text-xs text-ink-500 border border-dashed border-sand-300 rounded-xl">
+                      No courses found for {courseYearFilter === 'all' ? 'this pathway' : `${courseYearFilter} Academic Year`}.
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto rounded-xl border border-sand-200">
                 <table className="w-full text-left text-sm min-w-[960px]">
                   <thead className="bg-sand-100/70 text-ink-700 text-xs font-semibold uppercase tracking-wider border-b border-sand-200">
                     <tr>
@@ -2995,18 +3061,21 @@ export default function AdminDashboard() {
                   </tbody>
                 </table>
               </div>
-            </div>
-          )}
+            )}
+          </div>
+        )}
 
-          {/* Tab: Lecture Access Control */}
-          {activeTab === 'access' && (
-            <LectureAccessSection
-              onShowToast={(msg) => {
-                setAccessToast({ title: 'Access Updated', message: msg });
-                setTimeout(() => setAccessToast(null), 4000);
-              }}
-            />
-          )}
+        {/* Tab: Lecture Access Control */}
+        {activeTab === 'access' && (
+          <LectureAccessSection
+            initialAcademicYear={courseYearFilter || 2026}
+            availableYears={pathwayCalendarYears}
+            onShowToast={(msg) => {
+              setAccessToast({ title: 'Access Updated', message: msg });
+              setTimeout(() => setAccessToast(null), 4000);
+            }}
+          />
+        )}
 
           {/* Tab 2: Academic Pathways */}
           {activeTab === 'pathways' && (
@@ -3500,7 +3569,11 @@ export default function AdminDashboard() {
 
           {/* Dedicated Attendance Management Section (Minimal) */}
           {activeTab === 'attendance' && (() => {
-            const filteredAttendanceCourses = courses.filter((c) => {
+            const attendanceYearCourses = courses.filter(
+              (c) => attendanceYearFilter === 'all' || matchesCourseYear(c, attendanceYearFilter)
+            );
+
+            const filteredAttendanceCourses = attendanceYearCourses.filter((c) => {
               return (
                 (c.title || '').toLowerCase().includes(attendanceSectionSearch.toLowerCase()) ||
                 (c.instructor || '').toLowerCase().includes(attendanceSectionSearch.toLowerCase())
@@ -3508,11 +3581,16 @@ export default function AdminDashboard() {
             });
 
             const filteredAttendanceSessionsList = attendanceSessions.filter((sess) => {
-              return (
+              const matchSearch =
                 (sess.topic || '').toLowerCase().includes(attendanceSectionSearch.toLowerCase()) ||
                 (sess.courseTitle || '').toLowerCase().includes(attendanceSectionSearch.toLowerCase()) ||
-                (sess.date || '').includes(attendanceSectionSearch)
-              );
+                (sess.date || '').includes(attendanceSectionSearch);
+              if (!matchSearch) return false;
+              if (attendanceYearFilter === 'all') return true;
+              if (sess.date && sess.date.startsWith(String(attendanceYearFilter))) return true;
+              const course = courses.find((c) => c.id === sess.courseId);
+              if (course) return matchesCourseYear(course, attendanceYearFilter);
+              return false;
             });
 
             return (
@@ -3538,6 +3616,59 @@ export default function AdminDashboard() {
                   </button>
                 </div>
 
+                {/* Academic Year Switcher Menu */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1 pb-3 border-b border-sand-200/80">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-bold text-ink-500 uppercase tracking-wider mr-1 flex items-center gap-1.5">
+                      <Calendar size={13} className="text-primary-800" />
+                      Academic Year:
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setAttendanceYearFilter('all')}
+                      className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+                        attendanceYearFilter === 'all'
+                          ? 'bg-primary-950 text-white shadow-xs'
+                          : 'bg-sand-100/90 text-ink-700 hover:bg-sand-200/80 hover:text-ink-900'
+                      }`}
+                    >
+                      <span>All Years</span>
+                    </button>
+                    {pathwayCalendarYears.map((yr) => {
+                      const isSelected = String(attendanceYearFilter) === String(yr);
+                      return (
+                        <button
+                          key={yr}
+                          type="button"
+                          onClick={() => setAttendanceYearFilter(yr)}
+                          className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+                            isSelected
+                              ? 'bg-primary-950 text-white shadow-xs'
+                              : 'bg-sand-100/90 text-ink-700 hover:bg-sand-200/80 hover:text-ink-900'
+                          }`}
+                        >
+                          <span>{yr} Academic Year</span>
+                        </button>
+                      );
+                    })}
+                    <button
+                      type="button"
+                      onClick={handleAddNewAcademicYear}
+                      className="px-2.5 py-1.5 rounded-xl text-xs font-bold border border-dashed border-sand-300 hover:border-primary-600 text-ink-600 hover:text-primary-950 hover:bg-sand-50 transition-all flex items-center gap-1 cursor-pointer"
+                      title="Add new academic year"
+                    >
+                      <Plus size={12} />
+                      <span>Add Year</span>
+                    </button>
+                  </div>
+                  <div className="text-xs text-ink-500 font-medium shrink-0 whitespace-nowrap">
+                    Attendance for{' '}
+                    <strong className="text-ink-900">
+                      {attendanceYearFilter === 'all' ? 'All Academic Years' : `${attendanceYearFilter} Academic Year`}
+                    </strong>
+                  </div>
+                </div>
+
                 {/* Minimal Tab Switcher & Filter Bar */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   {/* Clean Tab Pills */}
@@ -3554,7 +3685,7 @@ export default function AdminDashboard() {
                           : 'text-ink-600 hover:text-ink-900'
                       }`}
                     >
-                      By Course ({courses.length})
+                      By Course ({attendanceYearCourses.length})
                     </button>
                     <button
                       type="button"
@@ -3568,7 +3699,7 @@ export default function AdminDashboard() {
                           : 'text-ink-600 hover:text-ink-900'
                       }`}
                     >
-                      Sessions Log ({attendanceSessions.length})
+                      Sessions Log ({filteredAttendanceSessionsList.length})
                     </button>
                   </div>
 
@@ -3680,7 +3811,7 @@ export default function AdminDashboard() {
                         {filteredAttendanceCourses.length === 0 && (
                           <tr>
                             <td colSpan={7} className="py-8 text-center text-xs text-ink-500">
-                              No courses found matching your search.
+                              No courses found for {attendanceYearFilter === 'all' ? 'attendance tracking' : `${attendanceYearFilter} Academic Year`}.
                             </td>
                           </tr>
                         )}
@@ -3766,7 +3897,7 @@ export default function AdminDashboard() {
                         {filteredAttendanceSessionsList.length === 0 && (
                           <tr>
                             <td colSpan={7} className="py-8 text-center text-xs text-ink-500">
-                              No attendance sessions found.
+                              No attendance sessions found for {attendanceYearFilter === 'all' ? 'any course' : `${attendanceYearFilter} Academic Year`}.
                             </td>
                           </tr>
                         )}
