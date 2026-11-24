@@ -2854,7 +2854,7 @@ export default function AdminDashboard() {
                                 : 'bg-sand-100/90 text-ink-700 hover:bg-sand-200/80 hover:text-ink-900'
                             }`}
                           >
-                            <span>{yr} Academic Year</span>
+                            <span>{yr}</span>
                           </button>
                         );
                       })}
@@ -2871,7 +2871,7 @@ export default function AdminDashboard() {
                     <div className="text-xs text-ink-500 font-medium">
                       Curriculum for{' '}
                       <strong className="text-ink-900">
-                        {courseYearFilter === 'all' ? 'All Academic Years' : `${courseYearFilter} Academic Year`}
+                        {courseYearFilter === 'all' ? 'All Years' : `${courseYearFilter}`}
                       </strong>
                     </div>
                   </div>
@@ -2918,7 +2918,7 @@ export default function AdminDashboard() {
                   {/* Course Table */}
                   {filteredCourses.length === 0 ? (
                     <div className="py-12 text-center text-xs text-ink-500 border border-dashed border-sand-300 rounded-xl">
-                      No courses found for {courseYearFilter === 'all' ? 'this pathway' : `${courseYearFilter} Academic Year`}.
+                      No courses found for {courseYearFilter === 'all' ? 'this pathway' : `${courseYearFilter}`}.
                     </div>
                   ) : (
                     <div className="overflow-x-auto rounded-xl border border-sand-200">
@@ -3131,7 +3131,7 @@ export default function AdminDashboard() {
                             : 'bg-sand-100/90 text-ink-700 hover:bg-sand-200/80 hover:text-ink-900'
                         }`}
                       >
-                        <span>{yr} Academic Year</span>
+                        <span>{yr}</span>
                       </button>
                     );
                   })}
@@ -3642,7 +3642,7 @@ export default function AdminDashboard() {
                               : 'bg-sand-100/90 text-ink-700 hover:bg-sand-200/80 hover:text-ink-900'
                           }`}
                         >
-                          <span>{yr} Academic Year</span>
+                          <span>{yr}</span>
                         </button>
                       );
                     })}
@@ -3659,7 +3659,7 @@ export default function AdminDashboard() {
                   <div className="text-xs text-ink-500 font-medium shrink-0 whitespace-nowrap">
                     Attendance for{' '}
                     <strong className="text-ink-900">
-                      {attendanceYearFilter === 'all' ? 'All Academic Years' : `${attendanceYearFilter} Academic Year`}
+                      {attendanceYearFilter === 'all' ? 'All Years' : `${attendanceYearFilter}`}
                     </strong>
                   </div>
                 </div>
@@ -3806,7 +3806,7 @@ export default function AdminDashboard() {
                         {filteredAttendanceCourses.length === 0 && (
                           <tr>
                             <td colSpan={7} className="py-8 text-center text-xs text-ink-500">
-                              No courses found for {attendanceYearFilter === 'all' ? 'attendance tracking' : `${attendanceYearFilter} Academic Year`}.
+                              No courses found for {attendanceYearFilter === 'all' ? 'attendance tracking' : `${attendanceYearFilter}`}.
                             </td>
                           </tr>
                         )}
@@ -3892,7 +3892,7 @@ export default function AdminDashboard() {
                         {filteredAttendanceSessionsList.length === 0 && (
                           <tr>
                             <td colSpan={7} className="py-8 text-center text-xs text-ink-500">
-                              No attendance sessions found for {attendanceYearFilter === 'all' ? 'any course' : `${attendanceYearFilter} Academic Year`}.
+                              No attendance sessions found for {attendanceYearFilter === 'all' ? 'any course' : `${attendanceYearFilter}`}.
                             </td>
                           </tr>
                         )}

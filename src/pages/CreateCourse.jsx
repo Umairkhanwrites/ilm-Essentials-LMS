@@ -1522,7 +1522,7 @@ export default function CreateCourse() {
                       >
                         {[2025, 2026, 2027, 2028, 2029, 2030].map((yr) => (
                           <option key={yr} value={yr}>
-                            {yr} Academic Year
+                            {yr}
                           </option>
                         ))}
                       </select>

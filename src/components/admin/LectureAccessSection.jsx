@@ -152,10 +152,10 @@ export default function LectureAccessSection({ onShowToast, initialAcademicYear 
   }, [availableYears, allCourses]);
 
   const academicYearOptions = useMemo(() => [
-    { value: 'all', label: 'All Academic Years' },
+    { value: 'all', label: 'All Years' },
     ...academicYearsList.map((yr) => ({
       value: yr,
-      label: `${yr} Academic Year`,
+      label: String(yr),
     })),
   ], [academicYearsList]);
 
