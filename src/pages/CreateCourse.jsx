@@ -3455,23 +3455,10 @@ export default function CreateCourse() {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-ink-700 mb-1">
-                      Subtitle / Tagline
-                    </label>
-                    <input
-                      type="text"
-                      value={pathwayForm.subtitle}
-                      onChange={(e) => setPathwayForm({ ...pathwayForm, subtitle: e.target.value })}
-                      placeholder="e.g. 1-Year Diploma in Sacred Grammar & Rhetoric"
-                      className="w-full px-3.5 py-2.5 text-xs sm:text-sm border border-sand-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-600"
-                    />
-                  </div>
-
-                  <div>
                     <label className="block text-xs font-bold uppercase tracking-wider text-ink-700 mb-1.5">
                       Program Structure *
                     </label>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                       <button
                         type="button"
                         onClick={() =>
@@ -3479,22 +3466,20 @@ export default function CreateCourse() {
                             ...pathwayForm,
                             programStructure: 'multi_semester',
                             type: 'cohort',
-                            tuitionModel: 'varies_by_course',
                             semesters: pathwayForm.semesters || 2,
-                            duration: '2 Semesters (Duration varies by course)',
                           })
                         }
-                        className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all ${
-                          pathwayForm.programStructure === 'multi_semester'
+                        className={`p-3 rounded-xl border text-left cursor-pointer transition-all ${
+                          pathwayForm.programStructure === 'multi_semester' || pathwayForm.type === 'cohort'
                             ? 'border-primary-900 bg-primary-50/70 ring-2 ring-primary-500/20'
                             : 'border-sand-200 bg-white hover:bg-sand-50/60'
                         }`}
                       >
-                        <div className="font-bold text-xs text-ink-900 flex items-center gap-1">
-                          🎓 Multi-Semester
+                        <div className="font-bold text-xs text-ink-900 flex items-center gap-1.5">
+                          🎓 Multi-Semester Track
                         </div>
-                        <p className="text-[10px] text-ink-500 mt-0.5 leading-snug">
-                          Cohort program with semesters (e.g. Ilm Foundations)
+                        <p className="text-[11px] text-ink-500 mt-1 leading-snug">
+                          Organized into sequential semesters (e.g. Ilm Foundations)
                         </p>
                       </button>
 
@@ -3505,139 +3490,63 @@ export default function CreateCourse() {
                             ...pathwayForm,
                             programStructure: 'course_group',
                             type: 'modular',
-                            tuitionModel: 'varies_by_course',
                             semesters: 0,
-                            duration: 'Duration varies by course',
                           })
                         }
-                        className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all ${
-                          pathwayForm.programStructure === 'course_group'
-                            ? 'border-amber-600 bg-amber-50/70 ring-2 ring-amber-500/20'
+                        className={`p-3 rounded-xl border text-left cursor-pointer transition-all ${
+                          pathwayForm.programStructure !== 'multi_semester' && pathwayForm.type !== 'cohort'
+                            ? 'border-primary-900 bg-primary-50/70 ring-2 ring-primary-500/20'
                             : 'border-sand-200 bg-white hover:bg-sand-50/60'
                         }`}
                       >
-                        <div className="font-bold text-xs text-ink-900 flex items-center gap-1">
-                          ⚡ Course Group
+                        <div className="font-bold text-xs text-ink-900 flex items-center gap-1.5">
+                          ⚡ Modular / Non-Semester Track
                         </div>
-                        <p className="text-[10px] text-ink-500 mt-0.5 leading-snug">
-                          Non-semester masterclass collection (e.g. Ilm Intensives)
-                        </p>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setPathwayForm({
-                            ...pathwayForm,
-                            programStructure: 'single_course',
-                            type: 'modular',
-                            tuitionModel: 'varies_by_course',
-                            semesters: 0,
-                            duration: 'Duration varies by course',
-                          })
-                        }
-                        className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all ${
-                          pathwayForm.programStructure === 'single_course'
-                            ? 'border-gold-600 bg-gold-50/70 ring-2 ring-gold-500/20'
-                            : 'border-sand-200 bg-white hover:bg-sand-50/60'
-                        }`}
-                      >
-                        <div className="font-bold text-xs text-ink-900 flex items-center gap-1">
-                          📖 Single Course
-                        </div>
-                        <p className="text-[10px] text-ink-500 mt-0.5 leading-snug">
-                          Independent one-off course or workshop
+                        <p className="text-[11px] text-ink-500 mt-1 leading-snug">
+                          Collection of standalone courses (e.g. Ilm Intensives, Electives)
                         </p>
                       </button>
                     </div>
                   </div>
 
-                  {pathwayForm.programStructure === 'multi_semester' && (
-                    <div className="p-3 bg-emerald-50/60 border border-emerald-200/60 rounded-xl space-y-2">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {(pathwayForm.programStructure === 'multi_semester' || pathwayForm.type === 'cohort') && (
+                    <div className="p-3.5 bg-sand-50 border border-sand-200 rounded-xl space-y-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-center">
                         <div>
-                          <label className="block text-xs font-bold uppercase tracking-wider text-emerald-950 mb-1">
+                          <label className="block text-xs font-bold uppercase tracking-wider text-ink-700 mb-1">
                             Number of Semesters
                           </label>
                           <input
                             type="number"
                             min="1"
                             max="8"
-                            value={pathwayForm.semesters}
+                            value={pathwayForm.semesters || 2}
                             onChange={(e) =>
-                              setPathwayForm({ ...pathwayForm, semesters: Number(e.target.value) || 2 })
+                              setPathwayForm({
+                                ...pathwayForm,
+                                semesters: Math.max(1, Math.min(8, Number(e.target.value) || 2)),
+                              })
                             }
-                            className="w-full px-3 py-1.5 text-xs border border-emerald-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                            className="w-full px-3 py-1.5 text-xs border border-sand-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20 font-bold text-ink-900"
                           />
                         </div>
                         <div>
-                          <label className="block text-xs font-bold uppercase tracking-wider text-emerald-950 mb-1">
-                            Generated Structure
+                          <label className="block text-xs font-bold uppercase tracking-wider text-ink-500 mb-1">
+                            Generated Semesters
                           </label>
-                          <div className="text-xs font-bold text-emerald-900 py-1.5">
-                            {Array.from({ length: pathwayForm.semesters || 2 }, (_, i) => `Semester ${i + 1}`).join(' • ')}
+                          <div className="text-xs font-bold text-primary-900 py-1">
+                            {Array.from(
+                              { length: pathwayForm.semesters || 2 },
+                              (_, i) => `Semester ${i + 1}`
+                            ).join(' • ')}
                           </div>
                         </div>
                       </div>
+                      <p className="text-[11px] text-ink-500">
+                        You can dynamically add or remove semesters directly on the pathway card anytime.
+                      </p>
                     </div>
                   )}
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-bold uppercase tracking-wider text-ink-700 mb-1">
-                        Tuition Pricing Structure
-                      </label>
-                      <select
-                        value={pathwayForm.tuitionModel}
-                        onChange={(e) => setPathwayForm({ ...pathwayForm, tuitionModel: e.target.value })}
-                        className="w-full px-3 py-2 text-xs border border-sand-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 bg-white"
-                      >
-                        <option value="varies_by_course">Course-Specific Pricing (Varies Course to Course)</option>
-                        <option value="per_course">Standard Baseline Per Course</option>
-                        <option value="bundled">Bundled Overall Track</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold uppercase tracking-wider text-ink-700 mb-1">
-                        Guideline Base Fee (PKR)
-                      </label>
-                      <input
-                        type="number"
-                        value={pathwayForm.defaultTuitionFee}
-                        onChange={(e) => setPathwayForm({ ...pathwayForm, defaultTuitionFee: Number(e.target.value) || 0 })}
-                        placeholder="30000"
-                        className="w-full px-3.5 py-2 text-xs border border-sand-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-ink-700 mb-1">
-                      Duration Notes
-                    </label>
-                    <input
-                      type="text"
-                      value={pathwayForm.duration}
-                      onChange={(e) => setPathwayForm({ ...pathwayForm, duration: e.target.value })}
-                      placeholder="e.g. Duration varies by course (4-12 Weeks)"
-                      className="w-full px-3.5 py-2 text-xs border border-sand-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20"
-                    />
-                    <p className="text-[11px] text-ink-400 mt-1">Each individual course defines its own duration and dates.</p>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-ink-700 mb-1">
-                      Pathway Description & Scope
-                    </label>
-                    <textarea
-                      rows={2}
-                      value={pathwayForm.description}
-                      onChange={(e) => setPathwayForm({ ...pathwayForm, description: e.target.value })}
-                      placeholder="Outline the core objective, academic rigor, and targeted student body..."
-                      className="w-full px-3.5 py-2 text-xs border border-sand-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 resize-none"
-                    />
-                  </div>
 
                   <div className="pt-3 flex items-center justify-end gap-2 border-t border-sand-200">
                     <button
@@ -3649,7 +3558,7 @@ export default function CreateCourse() {
                     </button>
                     <button
                       type="submit"
-                      className="px-5 py-2 rounded-xl bg-primary-900 hover:bg-primary-800 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
+                      className="px-5 py-2 rounded-xl bg-primary-900 hover:bg-primary-800 text-white text-xs font-bold shadow-xs hover:shadow transition-colors cursor-pointer"
                     >
                       Create &amp; Select Pathway
                     </button>

@@ -6981,67 +6981,82 @@ export default function AdminDashboard() {
                 {attendanceModalMode === 'lessons' && (
                   <>
                     {/* Header */}
-                    <div className="px-5 py-3.5 bg-sand-50 border-b border-sand-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
+                    <div className="px-5 py-4 bg-sand-50/90 border-b border-sand-200/90 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
                       <div className="flex items-center gap-3">
-                        <div className="p-2 rounded-xl bg-primary-900 text-white shadow-xs">
-                          <BookOpen size={17} />
+                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-900 to-primary-950 text-gold-300 border border-primary-800/80 flex items-center justify-center shadow-xs shrink-0">
+                          <BookOpen size={18} />
                         </div>
                         <div>
                           <div className="flex items-center gap-2">
                             <h3 className="text-sm sm:text-base font-bold text-ink-900">
                               {currentCourse?.title || 'Course Attendance'}
                             </h3>
-                            <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-md bg-sand-200 text-ink-700">
+                            <span className="text-[10px] uppercase font-bold tracking-wider px-2.5 py-0.5 rounded-full bg-gold-50 text-gold-900 border border-gold-200/90 shadow-2xs">
                               {currentCourse?.category || 'Course'}
                             </span>
                           </div>
                           <p className="text-[11px] text-ink-500 mt-0.5">
-                            Instructor: <span className="font-semibold text-ink-800">{currentCourse?.instructor || 'Faculty Scholar'}</span> • {totalEnrolled} Enrolled • Mode: <span className="capitalize font-semibold text-ink-800">{currentCourse?.format || 'Hybrid'}</span>
+                            Instructor: <strong className="font-semibold text-ink-800">{currentCourse?.instructor || 'Faculty Scholar'}</strong> • <span className="font-medium text-ink-700">{totalEnrolled} Enrolled</span> • Mode: <span className="capitalize font-semibold text-primary-900">{currentCourse?.format || 'Hybrid'}</span>
                           </p>
                         </div>
                       </div>
 
                       <div className="flex items-center gap-2 self-end sm:self-center">
                         {/* Course Switcher */}
-                        <select
-                          value={attendanceCourseId}
-                          onChange={(e) => handleAttendanceCourseChange(e.target.value)}
-                          className="px-2.5 py-1.5 text-xs border border-sand-300 rounded-lg bg-white font-semibold text-ink-900 focus:outline-none focus:ring-2 focus:ring-primary-500/20 cursor-pointer max-w-[190px] truncate"
-                        >
-                          {courses.map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.title}
-                            </option>
-                          ))}
-                        </select>
+                        <div className="relative">
+                          <select
+                            value={attendanceCourseId}
+                            onChange={(e) => handleAttendanceCourseChange(e.target.value)}
+                            className="appearance-none pl-3 pr-7 py-1.5 text-xs border border-sand-300 rounded-xl bg-white font-bold text-ink-900 focus:outline-none focus:ring-2 focus:ring-primary-500/20 cursor-pointer max-w-[190px] truncate shadow-2xs"
+                          >
+                            {courses.map((c) => (
+                              <option key={c.id} value={c.id}>
+                                {c.title}
+                              </option>
+                            ))}
+                          </select>
+                          <ChevronDown size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-400 pointer-events-none" />
+                        </div>
 
                         <button
                           type="button"
                           onClick={() => setIsAttendanceModalOpen(false)}
-                          className="p-1.5 rounded-lg text-ink-400 hover:text-ink-700 hover:bg-sand-200/60 transition-colors cursor-pointer"
+                          className="p-1.5 rounded-xl text-ink-400 hover:text-ink-800 hover:bg-sand-200/60 transition-colors cursor-pointer"
                         >
                           <X size={18} />
                         </button>
                       </div>
                     </div>
 
-                    {/* Minimal Metrics Telemetry Strip */}
-                    <div className="px-5 py-2.5 bg-sand-50/60 border-b border-sand-200 grid grid-cols-2 sm:grid-cols-4 gap-2 shrink-0">
-                      <div className="bg-white px-3 py-1.5 rounded-lg border border-sand-200">
-                        <div className="text-[10px] font-bold uppercase tracking-wider text-ink-500">Curriculum</div>
-                        <div className="text-xs font-bold text-ink-900 mt-0.5">{availableCourseLessons.length} Lessons</div>
+                    {/* Brand Metrics Telemetry Strip */}
+                    <div className="px-5 py-2.5 bg-sand-50/40 border-b border-sand-200/80 grid grid-cols-2 sm:grid-cols-4 gap-2.5 shrink-0">
+                      <div className="bg-white p-2.5 rounded-xl border border-sand-200/90 shadow-2xs">
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-ink-500 flex items-center gap-1.5">
+                          <BookOpen size={11} className="text-primary-800" />
+                          Curriculum
+                        </div>
+                        <div className="text-xs font-bold text-ink-900 mt-1">{availableCourseLessons.length} Lessons</div>
                       </div>
-                      <div className="bg-white px-3 py-1.5 rounded-lg border border-sand-200">
-                        <div className="text-[10px] font-bold uppercase tracking-wider text-ink-500">Sessions Logged</div>
-                        <div className="text-xs font-bold text-emerald-800 mt-0.5">{thisCourseSessions.length} Recorded</div>
+                      <div className="bg-primary-50/50 p-2.5 rounded-xl border border-primary-200/70 shadow-2xs">
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-primary-950 flex items-center gap-1.5">
+                          <Check size={11} className="text-primary-800" />
+                          Sessions Logged
+                        </div>
+                        <div className="text-xs font-bold text-primary-950 mt-1">{thisCourseSessions.length} Recorded</div>
                       </div>
-                      <div className="bg-white px-3 py-1.5 rounded-lg border border-sand-200">
-                        <div className="text-[10px] font-bold uppercase tracking-wider text-ink-500">Unrecorded</div>
-                        <div className="text-xs font-bold text-ink-700 mt-0.5">{pendingLessonsCount} Pending</div>
+                      <div className="bg-white p-2.5 rounded-xl border border-sand-200/90 shadow-2xs">
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-ink-500 flex items-center gap-1.5">
+                          <Clock size={11} className="text-ink-400" />
+                          Unrecorded
+                        </div>
+                        <div className="text-xs font-bold text-ink-700 mt-1">{pendingLessonsCount} Pending</div>
                       </div>
-                      <div className="bg-white px-3 py-1.5 rounded-lg border border-sand-200">
-                        <div className="text-[10px] font-bold uppercase tracking-wider text-ink-500">Attendance Rate</div>
-                        <div className={`text-xs font-bold mt-0.5 ${courseAvgRate !== null && courseAvgRate >= 85 ? 'text-emerald-800' : 'text-amber-800'}`}>
+                      <div className="bg-gold-50/60 p-2.5 rounded-xl border border-gold-200/80 shadow-2xs">
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-gold-900 flex items-center gap-1.5">
+                          <ShieldCheck size={11} className="text-gold-700" />
+                          Attendance Rate
+                        </div>
+                        <div className={`text-xs font-bold mt-1 ${courseAvgRate !== null && courseAvgRate >= 85 ? 'text-primary-950' : 'text-gold-900'}`}>
                           {courseAvgRate !== null ? `${courseAvgRate}% Avg` : '—'}
                         </div>
                       </div>
@@ -7084,10 +7099,10 @@ export default function AdminDashboard() {
                             setAttendanceModalMode('rollcall');
                             setAttendanceActiveTab('register');
                           }}
-                          className="inline-flex items-center gap-1 text-[11px] font-bold text-primary-900 bg-sand-100 hover:bg-sand-200 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
+                          className="inline-flex items-center gap-1.5 text-[11px] font-bold text-primary-950 bg-primary-50/80 hover:bg-primary-100 border border-primary-200/80 px-3 py-1.5 rounded-xl transition-all cursor-pointer shadow-2xs"
                         >
                           <Plus size={12} />
-                          Custom Session
+                          <span>Custom Session</span>
                         </button>
                         <button
                           type="button"
@@ -7096,10 +7111,10 @@ export default function AdminDashboard() {
                             setAttendanceModalMode('rollcall');
                             setAttendanceActiveTab('upload');
                           }}
-                          className="inline-flex items-center gap-1 text-[11px] font-bold text-ink-700 bg-sand-100 hover:bg-sand-200 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
+                          className="inline-flex items-center gap-1.5 text-[11px] font-bold text-ink-700 bg-sand-100/90 hover:bg-sand-200/90 border border-sand-200 px-3 py-1.5 rounded-xl transition-all cursor-pointer shadow-2xs"
                         >
                           <UploadCloud size={12} />
-                          Upload Sheet
+                          <span>Upload Sheet</span>
                         </button>
                       </div>
                     </div>
@@ -7157,18 +7172,18 @@ export default function AdminDashboard() {
                               return (
                                 <div
                                   key={les.id || idx}
-                                  className={`p-3 sm:p-3.5 rounded-xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                                  className={`p-3.5 sm:p-4 rounded-xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs ${
                                     hasRecorded
-                                      ? 'bg-emerald-50/30 border-emerald-200/80 hover:border-emerald-300'
-                                      : 'bg-white border-sand-200 hover:border-sand-300'
+                                      ? 'bg-primary-50/20 border-primary-200/80 hover:border-primary-300'
+                                      : 'bg-white border-sand-200/90 hover:border-sand-300'
                                   }`}
                                 >
                                   <div className="flex items-start gap-3 min-w-0">
                                     <div
-                                      className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs shrink-0 mt-0.5 ${
+                                      className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 mt-0.5 ${
                                         hasRecorded
-                                          ? 'bg-emerald-100 text-emerald-900 border border-emerald-200'
-                                          : 'bg-sand-100 text-ink-600 border border-sand-200'
+                                          ? 'bg-primary-100 text-primary-950 border border-primary-200'
+                                          : 'bg-sand-100 text-ink-600 border border-sand-200/90'
                                       }`}
                                     >
                                       {idx + 1}
@@ -7182,7 +7197,7 @@ export default function AdminDashboard() {
                                         {hasRecorded ? (
                                           <>
                                             <span>•</span>
-                                            <span className="font-semibold text-emerald-800">
+                                            <span className="font-semibold text-primary-900">
                                               Recorded on {latest.date} ({latest.deliveryMode || 'hybrid'})
                                             </span>
                                             <span>•</span>
@@ -7193,7 +7208,7 @@ export default function AdminDashboard() {
                                         ) : (
                                           <>
                                             <span>•</span>
-                                            <span className="text-ink-400">Not yet recorded</span>
+                                            <span className="text-ink-400 italic">Not yet recorded</span>
                                           </>
                                         )}
                                       </div>
@@ -7203,14 +7218,14 @@ export default function AdminDashboard() {
                                   <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
                                     {hasRecorded ? (
                                       <>
-                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 font-bold text-[10px]">
+                                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-primary-100/90 text-primary-950 border border-primary-200/80 font-bold text-[10px]">
                                           <Check size={11} />
                                           Recorded
                                         </span>
                                         <button
                                           type="button"
                                           onClick={() => handleViewSessionAttendance(latest)}
-                                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-sand-300 bg-white hover:bg-sand-100 text-ink-800 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+                                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-sand-300 bg-white hover:bg-sand-50 text-ink-800 hover:text-ink-950 text-xs font-bold transition-all cursor-pointer shadow-2xs"
                                           title="View & inspect recorded student roll call for this lesson"
                                         >
                                           <Eye size={13} />
@@ -7219,13 +7234,13 @@ export default function AdminDashboard() {
                                       </>
                                     ) : (
                                       <>
-                                        <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-sand-100 text-ink-500 font-semibold text-[10px]">
+                                        <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-sand-100 text-ink-600 border border-sand-200/80 font-semibold text-[10px]">
                                           Pending
                                         </span>
                                         <button
                                           type="button"
                                           onClick={() => handleStartLessonAttendance(les)}
-                                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary-900 hover:bg-primary-800 text-white text-xs font-bold transition-all shadow-xs cursor-pointer"
+                                          className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-primary-900 hover:bg-primary-800 text-white text-xs font-bold transition-all shadow-xs hover:shadow cursor-pointer"
                                           title="Mark attendance for this lesson"
                                         >
                                           <ClipboardCheck size={13} />
@@ -7268,10 +7283,10 @@ export default function AdminDashboard() {
                                 return (
                                   <div
                                     key={sess.id}
-                                    className="p-3 bg-emerald-50/20 rounded-xl border border-emerald-200/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs"
+                                    className="p-3.5 bg-primary-50/20 rounded-xl border border-primary-200/70 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
                                   >
                                     <div className="flex items-center gap-2.5 min-w-0">
-                                      <div className="p-1.5 rounded-lg bg-emerald-100 text-emerald-900 shrink-0">
+                                      <div className="p-2 rounded-xl bg-primary-100 text-primary-950 border border-primary-200 shrink-0">
                                         <Calendar size={14} />
                                       </div>
                                       <div className="truncate">
@@ -7282,14 +7297,14 @@ export default function AdminDashboard() {
                                       </div>
                                     </div>
                                     <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
-                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 font-bold text-[10px]">
+                                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-primary-100/90 text-primary-950 border border-primary-200/80 font-bold text-[10px]">
                                         <Check size={11} />
                                         Recorded
                                       </span>
                                       <button
                                         type="button"
                                         onClick={() => handleViewSessionAttendance(sess)}
-                                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-sand-300 bg-white hover:bg-sand-100 text-ink-800 text-xs font-bold transition-colors cursor-pointer"
+                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-sand-300 bg-white hover:bg-sand-50 text-ink-800 text-xs font-bold transition-all cursor-pointer shadow-2xs"
                                       >
                                         <Eye size={12} />
                                         View Attendance
@@ -7390,10 +7405,10 @@ export default function AdminDashboard() {
                     </div>
 
                     {/* Lessons View Footer */}
-                    <div className="px-5 py-3 bg-sand-50 border-t border-sand-200 flex items-center justify-between shrink-0">
+                    <div className="px-5 py-3.5 bg-sand-50/90 border-t border-sand-200 flex items-center justify-between shrink-0">
                       <div className="text-xs text-ink-500">
                         {attendanceToast ? (
-                          <span className="font-bold text-emerald-800">• {attendanceToast}</span>
+                          <span className="font-bold text-primary-900">• {attendanceToast}</span>
                         ) : (
                           'Select any lesson to mark attendance or click "View Attendance" to inspect student records.'
                         )}
@@ -7401,7 +7416,7 @@ export default function AdminDashboard() {
                       <button
                         type="button"
                         onClick={() => setIsAttendanceModalOpen(false)}
-                        className="px-4 py-1.5 rounded-lg bg-sand-200 hover:bg-sand-300 text-ink-800 text-xs font-semibold cursor-pointer transition-colors"
+                        className="px-5 py-2 rounded-xl bg-primary-950 hover:bg-primary-900 text-white text-xs font-bold cursor-pointer transition-all shadow-2xs"
                       >
                         Close
                       </button>
@@ -7644,7 +7659,7 @@ export default function AdminDashboard() {
                           <button
                             type="button"
                             onClick={() => handleMarkAllAttendance('present', 'all')}
-                            className="text-[11px] font-semibold text-emerald-800 hover:text-emerald-950 px-2 py-1 rounded hover:bg-emerald-50 transition-colors cursor-pointer"
+                            className="text-[11px] font-bold text-primary-900 hover:text-primary-950 px-2.5 py-1 rounded-lg bg-primary-50/80 hover:bg-primary-100 border border-primary-200/70 transition-colors cursor-pointer"
                           >
                             Mark All Present
                           </button>
@@ -7652,7 +7667,7 @@ export default function AdminDashboard() {
                           <button
                             type="button"
                             onClick={() => handleMarkAllAttendance('absent', 'all')}
-                            className="text-[11px] font-semibold text-rose-700 hover:text-rose-900 px-2 py-1 rounded hover:bg-rose-50 transition-colors cursor-pointer"
+                            className="text-[11px] font-bold text-rose-700 hover:text-rose-900 px-2.5 py-1 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
                           >
                             Mark All Absent
                           </button>
@@ -7690,13 +7705,13 @@ export default function AdminDashboard() {
                                   </div>
                                 </div>
 
-                                <div className="flex items-center gap-1 shrink-0">
+                                <div className="flex items-center gap-1.5 shrink-0">
                                   <button
                                     type="button"
                                     onClick={() => handleSetStudentAttendance(std.id, 'present')}
-                                    className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all cursor-pointer ${
+                                    className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
                                       status === 'present'
-                                        ? 'bg-emerald-600 text-white font-bold shadow-xs'
+                                        ? 'bg-primary-900 text-white font-bold shadow-xs'
                                         : 'bg-sand-100 text-ink-600 hover:bg-sand-200'
                                     }`}
                                   >
@@ -7705,9 +7720,9 @@ export default function AdminDashboard() {
                                   <button
                                     type="button"
                                     onClick={() => handleSetStudentAttendance(std.id, 'late')}
-                                    className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all cursor-pointer ${
+                                    className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
                                       status === 'late'
-                                        ? 'bg-amber-500 text-white font-bold shadow-xs'
+                                        ? 'bg-gold-500 text-white font-bold shadow-xs'
                                         : 'bg-sand-100 text-ink-600 hover:bg-sand-200'
                                     }`}
                                   >
@@ -7716,7 +7731,7 @@ export default function AdminDashboard() {
                                   <button
                                     type="button"
                                     onClick={() => handleSetStudentAttendance(std.id, 'absent')}
-                                    className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all cursor-pointer ${
+                                    className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
                                       status === 'absent'
                                         ? 'bg-rose-600 text-white font-bold shadow-xs'
                                         : 'bg-sand-100 text-ink-600 hover:bg-sand-200'
@@ -7878,7 +7893,7 @@ export default function AdminDashboard() {
                     <button
                       type="button"
                       onClick={handleSaveAttendance}
-                      className="px-4 py-1.5 rounded-lg bg-primary-900 hover:bg-primary-800 text-white text-xs font-bold shadow-xs transition-all cursor-pointer"
+                      className="px-5 py-2 rounded-xl bg-primary-900 hover:bg-primary-800 text-white text-xs font-bold shadow-xs hover:shadow transition-all cursor-pointer"
                     >
                       {editingAttendanceSessionId ? 'Save & Update Session' : 'Save Attendance'}
                     </button>
@@ -8084,7 +8099,7 @@ export default function AdminDashboard() {
                       {editingPathway ? 'Edit Academic Pathway' : 'Create New Academic Pathway'}
                     </h3>
                     <p className="text-xs text-ink-500">
-                      Define curriculum tracks, cohort diploma programs, and masterclass pathways
+                      Define curriculum track name and program structure
                     </p>
                   </div>
                 </div>
@@ -8105,7 +8120,7 @@ export default function AdminDashboard() {
                 )}
 
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-ink-700 mb-1">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-ink-700 mb-1.5">
                     Pathway Name *
                   </label>
                   <input
@@ -8114,20 +8129,7 @@ export default function AdminDashboard() {
                     onChange={(e) => setPathwayFormData({ ...pathwayFormData, name: e.target.value })}
                     placeholder="e.g. Classical Arabic & Sarf Immersion"
                     required
-                    className="w-full px-3.5 py-2.5 text-xs sm:text-sm border border-sand-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-600"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-ink-700 mb-1">
-                    Subtitle / Tagline
-                  </label>
-                  <input
-                    type="text"
-                    value={pathwayFormData.subtitle}
-                    onChange={(e) => setPathwayFormData({ ...pathwayFormData, subtitle: e.target.value })}
-                    placeholder="e.g. 1-Year Diploma in Sacred Grammar & Rhetoric"
-                    className="w-full px-3.5 py-2.5 text-xs sm:text-sm border border-sand-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-600"
+                    className="w-full px-3.5 py-2.5 text-xs sm:text-sm border border-sand-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-600 font-medium text-ink-900 bg-white"
                   />
                 </div>
 
@@ -8135,7 +8137,7 @@ export default function AdminDashboard() {
                   <label className="block text-xs font-bold uppercase tracking-wider text-ink-700 mb-1.5">
                     Program Structure *
                   </label>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                     <button
                       type="button"
                       onClick={() =>
@@ -8143,22 +8145,20 @@ export default function AdminDashboard() {
                           ...pathwayFormData,
                           programStructure: 'multi_semester',
                           type: 'cohort',
-                          tuitionModel: 'bundled',
                           semesters: pathwayFormData.semesters || 2,
-                          duration: '8 Months (2 Semesters)',
                         })
                       }
-                      className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all ${
-                        pathwayFormData.programStructure === 'multi_semester'
+                      className={`p-3 rounded-xl border text-left cursor-pointer transition-all ${
+                        pathwayFormData.programStructure === 'multi_semester' || pathwayFormData.type === 'cohort'
                           ? 'border-primary-900 bg-primary-50/70 ring-2 ring-primary-500/20'
                           : 'border-sand-200 bg-white hover:bg-sand-50/60'
                       }`}
                     >
-                      <div className="font-bold text-xs text-ink-900 flex items-center gap-1">
-                        🎓 Multi-Semester
+                      <div className="font-bold text-xs text-ink-900 flex items-center gap-1.5">
+                        🎓 Multi-Semester Track
                       </div>
-                      <p className="text-[10px] text-ink-500 mt-0.5 leading-snug">
-                        Cohort program with semesters (e.g. Ilm Foundations)
+                      <p className="text-[11px] text-ink-500 mt-1 leading-snug">
+                        Organized into sequential semesters (e.g. Ilm Foundations)
                       </p>
                     </button>
 
@@ -8169,79 +8169,51 @@ export default function AdminDashboard() {
                           ...pathwayFormData,
                           programStructure: 'course_group',
                           type: 'modular',
-                          tuitionModel: 'per_course',
                           semesters: 0,
-                          duration: '2–4 Weeks per course',
                         })
                       }
-                      className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all ${
-                        pathwayFormData.programStructure === 'course_group'
-                          ? 'border-amber-600 bg-amber-50/70 ring-2 ring-amber-500/20'
+                      className={`p-3 rounded-xl border text-left cursor-pointer transition-all ${
+                        pathwayFormData.programStructure !== 'multi_semester' && pathwayFormData.type !== 'cohort'
+                          ? 'border-primary-900 bg-primary-50/70 ring-2 ring-primary-500/20'
                           : 'border-sand-200 bg-white hover:bg-sand-50/60'
                       }`}
                     >
-                      <div className="font-bold text-xs text-ink-900 flex items-center gap-1">
-                        ⚡ Course Group
+                      <div className="font-bold text-xs text-ink-900 flex items-center gap-1.5">
+                        ⚡ Modular / Non-Semester Track
                       </div>
-                      <p className="text-[10px] text-ink-500 mt-0.5 leading-snug">
-                        Non-semester masterclass collection (e.g. Ilm Intensives)
-                      </p>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setPathwayFormData({
-                          ...pathwayFormData,
-                          programStructure: 'single_course',
-                          type: 'modular',
-                          tuitionModel: 'per_course',
-                          semesters: 0,
-                          duration: '4 Weeks',
-                        })
-                      }
-                      className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all ${
-                        pathwayFormData.programStructure === 'single_course'
-                          ? 'border-gold-600 bg-gold-50/70 ring-2 ring-gold-500/20'
-                          : 'border-sand-200 bg-white hover:bg-sand-50/60'
-                      }`}
-                    >
-                      <div className="font-bold text-xs text-ink-900 flex items-center gap-1">
-                        📖 Single Course
-                      </div>
-                      <p className="text-[10px] text-ink-500 mt-0.5 leading-snug">
-                        Independent one-off course or workshop
+                      <p className="text-[11px] text-ink-500 mt-1 leading-snug">
+                        Collection of standalone courses (e.g. Ilm Intensives, Electives)
                       </p>
                     </button>
                   </div>
                 </div>
 
-                {pathwayFormData.programStructure === 'multi_semester' && (
-                  <div className="p-3 bg-emerald-50/60 border border-emerald-200/60 rounded-xl space-y-2">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {(pathwayFormData.programStructure === 'multi_semester' || pathwayFormData.type === 'cohort') && (
+                  <div className="p-3.5 bg-sand-50 border border-sand-200 rounded-xl space-y-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-center">
                       <div>
-                        <label className="block text-xs font-bold uppercase tracking-wider text-emerald-950 mb-1">
+                        <label className="block text-xs font-bold uppercase tracking-wider text-ink-700 mb-1">
                           Number of Semesters
                         </label>
                         <input
                           type="number"
                           min="1"
                           max="8"
-                          value={pathwayFormData.semesters}
+                          value={pathwayFormData.semesters || 2}
                           onChange={(e) =>
                             setPathwayFormData({
                               ...pathwayFormData,
-                              semesters: Number(e.target.value) || 2,
+                              semesters: Math.max(1, Math.min(8, Number(e.target.value) || 2)),
                             })
                           }
-                          className="w-full px-3 py-1.5 text-xs border border-emerald-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                          className="w-full px-3 py-1.5 text-xs border border-sand-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20 font-bold text-ink-900"
                         />
                       </div>
                       <div>
-                        <label className="block text-xs font-bold uppercase tracking-wider text-emerald-950 mb-1">
-                          Generated Structure
+                        <label className="block text-xs font-bold uppercase tracking-wider text-ink-500 mb-1">
+                          Generated Semesters
                         </label>
-                        <div className="text-xs font-bold text-emerald-900 py-1.5">
+                        <div className="text-xs font-bold text-primary-900 py-1">
                           {Array.from(
                             { length: pathwayFormData.semesters || 2 },
                             (_, i) => `Semester ${i + 1}`
@@ -8249,74 +8221,11 @@ export default function AdminDashboard() {
                         </div>
                       </div>
                     </div>
+                    <p className="text-[11px] text-ink-500">
+                      You can also dynamically add or remove semesters directly on the pathway card anytime.
+                    </p>
                   </div>
                 )}
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-ink-700 mb-1">
-                      Tuition Pricing Structure
-                    </label>
-                    <select
-                      value={pathwayFormData.tuitionModel}
-                      onChange={(e) =>
-                        setPathwayFormData({ ...pathwayFormData, tuitionModel: e.target.value })
-                      }
-                      className="w-full px-3 py-2 text-xs border border-sand-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 bg-white"
-                    >
-                      <option value="varies_by_course">Course-Specific Pricing (Varies Course to Course)</option>
-                      <option value="per_course">Standard Baseline Per Course</option>
-                      <option value="bundled">Bundled Overall Track</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-ink-700 mb-1">
-                      Guideline Base Fee (PKR)
-                    </label>
-                    <input
-                      type="number"
-                      value={pathwayFormData.defaultTuitionFee}
-                      onChange={(e) =>
-                        setPathwayFormData({
-                          ...pathwayFormData,
-                          defaultTuitionFee: Number(e.target.value) || 0,
-                        })
-                      }
-                      placeholder="e.g. 30000"
-                      className="w-full px-3.5 py-2 text-xs border border-sand-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-ink-700 mb-1">
-                    Duration Notes
-                  </label>
-                  <input
-                    type="text"
-                    value={pathwayFormData.duration}
-                    onChange={(e) =>
-                      setPathwayFormData({ ...pathwayFormData, duration: e.target.value })
-                    }
-                    placeholder="e.g. Duration varies by course (4-12 Weeks)"
-                    className="w-full px-3.5 py-2 text-xs border border-sand-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20"
-                  />
-                  <p className="text-[11px] text-ink-400 mt-1">Each individual course can define its own duration and dates.</p>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-ink-700 mb-1">
-                    Pathway Description &amp; Scope
-                  </label>
-                  <textarea
-                    rows={2}
-                    value={pathwayFormData.description}
-                    onChange={(e) => setPathwayFormData({ ...pathwayFormData, description: e.target.value })}
-                    placeholder="Outline curriculum coverage, classical texts, and prerequisites..."
-                    className="w-full px-3.5 py-2 text-xs border border-sand-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 resize-none"
-                  />
-                </div>
 
                 <div className="pt-3 flex items-center justify-end gap-2 border-t border-sand-200">
                   <button
@@ -8328,7 +8237,7 @@ export default function AdminDashboard() {
                   </button>
                   <button
                     type="submit"
-                    className="px-5 py-2 rounded-xl bg-primary-900 hover:bg-primary-800 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
+                    className="px-5 py-2 rounded-xl bg-primary-900 hover:bg-primary-800 text-white text-xs font-bold shadow-xs hover:shadow transition-colors cursor-pointer"
                   >
                     {editingPathway ? 'Update Pathway' : 'Save Pathway'}
                   </button>
