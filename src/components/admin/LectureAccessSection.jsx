@@ -74,7 +74,7 @@ function MinimalDropdown({
   const displayLabel = selectedOption ? selectedOption.label : placeholder;
 
   return (
-    <div className={`relative ${className}`} ref={containerRef} title={title}>
+    <div className={`relative ${className} ${isOpen ? 'z-50' : 'z-20'}`} ref={containerRef} title={title}>
       <button
         type="button"
         disabled={disabled || options.length === 0}
@@ -92,7 +92,7 @@ function MinimalDropdown({
 
       {isOpen && !disabled && options.length > 0 && (
         <div
-          className={`absolute ${align === 'right' ? 'right-0' : 'left-0'} top-full mt-1.5 ${menuWidth} max-w-[90vw] bg-white rounded-xl shadow-xl border border-sand-200/90 py-1.5 z-40 text-xs animate-in fade-in zoom-in-95 duration-100`}
+          className={`absolute ${align === 'right' ? 'right-0' : 'left-0'} top-full mt-1.5 ${menuWidth} max-w-[90vw] bg-white rounded-xl shadow-2xl border border-sand-200/90 py-1.5 z-50 text-xs animate-in fade-in zoom-in-95 duration-100`}
         >
           <div className="max-h-64 overflow-y-auto px-1 space-y-0.5">
             {options.map((opt) => {
@@ -479,7 +479,7 @@ export default function LectureAccessSection({ onShowToast, initialAcademicYear 
   };
 
   return (
-    <div className="bg-white rounded-2xl border border-sand-200 shadow-xs overflow-hidden">
+    <div className="bg-white rounded-2xl border border-sand-200 shadow-xs">
       {/* ── 1. Top Header & Unified Controls ── */}
       <div className="p-5 border-b border-sand-200 space-y-4">
         {/* Title & Active Override Pill */}
@@ -500,7 +500,7 @@ export default function LectureAccessSection({ onShowToast, initialAcademicYear 
         </div>
 
         {/* Unified Selectors & Cohort Action Menu in a Single Row */}
-        <div className="flex items-center gap-2.5 flex-nowrap overflow-x-auto no-scrollbar pt-1">
+        <div className="flex items-center gap-2.5 flex-nowrap pt-1">
           {/* Academic Year Dropdown */}
           <MinimalDropdown
             value={selectedAcademicYear}
@@ -548,7 +548,7 @@ export default function LectureAccessSection({ onShowToast, initialAcademicYear 
           />
 
           {/* Cohort Actions Dropdown */}
-          <div className="relative shrink-0" ref={cohortMenuRef}>
+          <div className={`relative shrink-0 ${isCohortMenuOpen ? 'z-50' : 'z-20'}`} ref={cohortMenuRef}>
             <button
               type="button"
               onClick={() => setIsCohortMenuOpen((prev) => !prev)}
@@ -561,7 +561,7 @@ export default function LectureAccessSection({ onShowToast, initialAcademicYear 
             </button>
 
               {isCohortMenuOpen && (
-                <div className="absolute right-0 top-full mt-1.5 w-52 bg-white rounded-xl shadow-xl border border-sand-200/90 py-1.5 z-40 text-xs animate-in fade-in zoom-in-95 duration-100">
+                <div className="absolute right-0 top-full mt-1.5 w-52 bg-white rounded-xl shadow-2xl border border-sand-200 py-1.5 z-50 text-xs animate-in fade-in zoom-in-95 duration-100">
                   <button
                     type="button"
                     onClick={() => {
