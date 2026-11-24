@@ -481,83 +481,84 @@ export default function LectureAccessSection({ onShowToast, initialAcademicYear 
   return (
     <div className="bg-white rounded-2xl border border-sand-200 shadow-xs overflow-hidden">
       {/* ── 1. Top Header & Unified Controls ── */}
-      <div className="p-5 border-b border-sand-200">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          {/* Title & Active Override Pill */}
-          <div className="flex items-center gap-3">
-            <div>
-              <h2 className="text-lg font-bold text-ink-900 flex items-center gap-2">
-                <span>Lecture Access</span>
-                {totalOverridesCount > 0 && (
-                  <span className="text-[11px] font-semibold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                    {totalOverridesCount} overrides
-                  </span>
-                )}
-              </h2>
-              <p className="text-xs text-ink-400">
-                Grant temporary or lifetime access, or enforce custom lesson lockouts.
-              </p>
-            </div>
+      <div className="p-5 border-b border-sand-200 space-y-4">
+        {/* Title & Active Override Pill */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-bold text-ink-900 flex items-center gap-2">
+              <span>Lecture Access</span>
+              {totalOverridesCount > 0 && (
+                <span className="text-[11px] font-semibold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                  {totalOverridesCount} overrides
+                </span>
+              )}
+            </h2>
+            <p className="text-xs text-ink-400">
+              Grant temporary or lifetime access, or enforce custom lesson lockouts.
+            </p>
           </div>
+        </div>
 
-          {/* Unified Selectors & Cohort Action Menu */}
-          <div className="flex flex-wrap items-center gap-2.5">
-            {/* Academic Year Dropdown */}
-            <MinimalDropdown
-              value={selectedAcademicYear}
-              onChange={setSelectedAcademicYear}
-              options={academicYearOptions}
-              placeholder="Academic Year"
-              menuWidth="w-48"
-              title="Filter by Academic Year"
-            />
+        {/* Unified Selectors & Cohort Action Menu in a Single Row */}
+        <div className="flex items-center gap-2.5 flex-nowrap overflow-x-auto no-scrollbar pt-1">
+          {/* Academic Year Dropdown */}
+          <MinimalDropdown
+            value={selectedAcademicYear}
+            onChange={setSelectedAcademicYear}
+            options={academicYearOptions}
+            placeholder="Academic Year"
+            className="w-28 shrink-0"
+            menuWidth="w-36"
+            title="Filter by Academic Year"
+          />
 
-            {/* Academic Pathway / Program Dropdown */}
-            <MinimalDropdown
-              value={selectedPathwayId}
-              onChange={setSelectedPathwayId}
-              options={pathwayOptions}
-              placeholder="All Programs"
-              menuWidth="w-52"
-              title="Filter by Academic Pathway / Program"
-            />
+          {/* Academic Pathway / Program Dropdown */}
+          <MinimalDropdown
+            value={selectedPathwayId}
+            onChange={setSelectedPathwayId}
+            options={pathwayOptions}
+            placeholder="All Programs"
+            className="w-36 shrink-0"
+            menuWidth="w-52"
+            title="Filter by Academic Pathway / Program"
+          />
 
-            {/* Course Dropdown */}
-            <MinimalDropdown
-              value={selectedCourseId}
-              onChange={setSelectedCourseId}
-              options={courseOptions}
-              placeholder={selectedAcademicYear !== 'all' ? `No courses for ${selectedAcademicYear}` : 'No courses'}
-              disabled={courseOptions.length === 0}
-              className="max-w-[210px] sm:max-w-[240px]"
-              menuWidth="w-64"
-              title="Select Enrolled Course"
-            />
+          {/* Course Dropdown */}
+          <MinimalDropdown
+            value={selectedCourseId}
+            onChange={setSelectedCourseId}
+            options={courseOptions}
+            placeholder={selectedAcademicYear !== 'all' ? `No courses for ${selectedAcademicYear}` : 'No courses'}
+            disabled={courseOptions.length === 0}
+            className="w-44 shrink-0"
+            menuWidth="w-64"
+            title="Select Enrolled Course"
+          />
 
-            {/* Lesson Dropdown */}
-            <MinimalDropdown
-              value={selectedLessonId}
-              onChange={setSelectedLessonId}
-              options={lessonOptions}
-              placeholder="No lessons"
-              disabled={lessonOptions.length === 0}
-              className="max-w-[250px] sm:max-w-[320px]"
-              menuWidth="w-80"
-              title="Select Target Lecture / Video"
-            />
+          {/* Lesson Dropdown */}
+          <MinimalDropdown
+            value={selectedLessonId}
+            onChange={setSelectedLessonId}
+            options={lessonOptions}
+            placeholder="No lessons"
+            disabled={lessonOptions.length === 0}
+            className="flex-1 min-w-[220px] max-w-[360px]"
+            menuWidth="w-80"
+            title="Select Target Lecture / Video"
+          />
 
-            {/* Cohort Actions Dropdown */}
-            <div className="relative" ref={cohortMenuRef}>
-              <button
-                type="button"
-                onClick={() => setIsCohortMenuOpen((prev) => !prev)}
-                className={`h-9 px-3 py-2 text-xs font-semibold rounded-xl border border-sand-200 bg-sand-50/70 hover:bg-sand-100/70 text-ink-800 flex items-center gap-1.5 transition-all cursor-pointer select-none ${
-                  isCohortMenuOpen ? 'ring-2 ring-primary-500/15 border-sand-300 bg-white shadow-2xs' : ''
-                }`}
-              >
-                <span>Cohort Actions</span>
-                <ChevronDown size={12} className={`text-ink-400 transition-transform duration-150 ${isCohortMenuOpen ? 'rotate-180 text-ink-700' : ''}`} />
-              </button>
+          {/* Cohort Actions Dropdown */}
+          <div className="relative shrink-0" ref={cohortMenuRef}>
+            <button
+              type="button"
+              onClick={() => setIsCohortMenuOpen((prev) => !prev)}
+              className={`h-9 px-3 py-2 text-xs font-semibold rounded-xl border border-sand-200 bg-sand-50/70 hover:bg-sand-100/70 text-ink-800 flex items-center gap-1.5 transition-all cursor-pointer select-none ${
+                isCohortMenuOpen ? 'ring-2 ring-primary-500/15 border-sand-300 bg-white shadow-2xs' : ''
+              }`}
+            >
+              <span>Cohort Actions</span>
+              <ChevronDown size={12} className={`text-ink-400 transition-transform duration-150 ${isCohortMenuOpen ? 'rotate-180 text-ink-700' : ''}`} />
+            </button>
 
               {isCohortMenuOpen && (
                 <div className="absolute right-0 top-full mt-1.5 w-52 bg-white rounded-xl shadow-xl border border-sand-200/90 py-1.5 z-40 text-xs animate-in fade-in zoom-in-95 duration-100">
@@ -614,7 +615,6 @@ export default function LectureAccessSection({ onShowToast, initialAcademicYear 
               )}
             </div>
           </div>
-        </div>
 
         {/* ── 2. Filter & Search Strip ── */}
         <div className="mt-4 pt-3 border-t border-sand-100 flex flex-col sm:flex-row items-center justify-between gap-3">
