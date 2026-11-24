@@ -2747,17 +2747,17 @@ export default function AdminDashboard() {
                 </div>
                 <nav className="space-y-1">
                   {[
-                    { id: 'courses', label: 'Course Management', icon: BookOpen, count: courses.length },
-                    { id: 'access', label: 'Lecture Access', icon: ShieldCheck, count: activeLectureOverridesCount },
                     { id: 'pathways', label: 'Academic Pathways', icon: Compass, count: pathways.length },
-                    { id: 'library', label: 'e-Library', icon: Library, count: libraryList.length },
-                    { id: 'quotes', label: 'Quotes', icon: Quote, count: quotesList.length },
+                    { id: 'courses', label: 'Course Management', icon: BookOpen, count: courses.length },
                     { id: 'students', label: 'Students', icon: Users, count: students.length },
+                    { id: 'access', label: 'Lecture Access', icon: ShieldCheck, count: activeLectureOverridesCount },
                     { id: 'attendance', label: 'Attendance', icon: ClipboardCheck, count: attendanceSessions.length },
-                    { id: 'instructors', label: 'Faculty', icon: GraduationCap, count: instructors.length },
                     { id: 'fees', label: 'Accounts', icon: CreditCard, count: accountsSummary.pendingCount },
-                    { id: 'applications', label: 'Admissions', icon: FileCheck, count: Array.isArray(sbApplications) ? sbApplications.filter(a => a.status === 'SUBMITTED' || a.status === 'UNDER_REVIEW').length : 0 },
                     { id: 'schedules', label: 'Schedule', icon: Calendar, count: activeWeeklySlots.length },
+                    { id: 'instructors', label: 'Faculty', icon: GraduationCap, count: instructors.length },
+                    { id: 'applications', label: 'Admissions', icon: FileCheck, count: Array.isArray(sbApplications) ? sbApplications.filter(a => a.status === 'SUBMITTED' || a.status === 'UNDER_REVIEW').length : 0 },
+                    { id: 'quotes', label: 'Quotes', icon: Quote, count: quotesList.length },
+                    { id: 'library', label: 'e-Library', icon: Library, count: libraryList.length },
                   ].map((tab) => {
                     const IconComp = tab.icon;
                     const isActive = activeTab === tab.id;
