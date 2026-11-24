@@ -1690,6 +1690,38 @@ export default function AdminDashboard() {
   const [isPathwayModalOpen, setIsPathwayModalOpen] = useState(false);
   const [editingPathway, setEditingPathway] = useState(null);
 
+  // Academic Year Segregation State & Helper
+  const [activePathwayYear, setActivePathwayYear] = useState(() => new Date().getFullYear());
+
+  const pathwayCalendarYears = useMemo(() => {
+    const currentYear = new Date().getFullYear();
+    const yearsSet = new Set([2026, 2027]);
+    if (currentYear > 2027) yearsSet.add(currentYear);
+    (sbBatches || []).forEach((b) => {
+      const d = b.start_date || b.startDate;
+      if (d) {
+        const y = new Date(d).getFullYear();
+        if (!isNaN(y) && y >= 2020 && y <= 2035) yearsSet.add(y);
+      }
+      const titleMatch = (b.name || b.title || '').match(/\b(202\d)\b/);
+      if (titleMatch) yearsSet.add(Number(titleMatch[1]));
+    });
+    return Array.from(yearsSet).sort((a, b) => a - b);
+  }, [sbBatches]);
+
+  const matchesBatchYear = (batch, targetYear) => {
+    if (!batch) return false;
+    const d = batch.start_date || batch.startDate;
+    if (d) {
+      const y = new Date(d).getFullYear();
+      if (!isNaN(y) && y === Number(targetYear)) return true;
+    }
+    const str = `${batch.name || ''} ${batch.title || ''} ${batch.slug || ''} ${batch.id || ''}`;
+    if (str.includes(String(targetYear))) return true;
+    if (Number(targetYear) === 2026 && !str.match(/\b202[0-9]\b/) && !d) return true;
+    return false;
+  };
+
   // Intake Management State & Handlers
   const [isIntakeModalOpen, setIsIntakeModalOpen] = useState(false);
   const [intakeModalMode, setIntakeModalMode] = useState('create'); // 'create' | 'advance'
@@ -1703,7 +1735,7 @@ export default function AdminDashboard() {
     setIntakeModalMode('create');
     setAdvancingBatch(null);
     setIntakeModalDefaultSemester(Number(defaultSemester) || 1);
-    setIntakeModalDefaultYear(defaultYear ? Number(defaultYear) : new Date().getFullYear());
+    setIntakeModalDefaultYear(defaultYear ? Number(defaultYear) : activePathwayYear);
     setIsIntakeModalOpen(true);
   };
 
@@ -2902,8 +2934,8 @@ export default function AdminDashboard() {
                   </div>
                   <button
                     type="button"
-                    onClick={() => handleOpenCreateIntake()}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-primary-900 hover:bg-primary-800 text-white text-xs font-bold transition-all shadow-xs cursor-pointer whitespace-nowrap"
+                    onClick={() => handleOpenCreateIntake(null, 1, activePathwayYear)}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold transition-all shadow-xs cursor-pointer whitespace-nowrap"
                   >
                     <Plus size={14} />
                     Create New Intake
@@ -2911,11 +2943,51 @@ export default function AdminDashboard() {
                   <button
                     type="button"
                     onClick={handleOpenAddPathway}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-sand-300 hover:bg-sand-100 text-ink-700 bg-white text-xs font-semibold transition-all shadow-2xs cursor-pointer whitespace-nowrap"
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#0a3528] hover:bg-primary-900 text-white text-xs font-bold transition-all shadow-xs cursor-pointer whitespace-nowrap"
                   >
                     <Plus size={14} />
                     Create New Pathway
                   </button>
+                </div>
+              </div>
+
+              {/* Academic Year Segregation Switcher */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1 pb-3 border-b border-sand-200/80">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-bold text-ink-500 uppercase tracking-wider mr-1 flex items-center gap-1.5">
+                    <Calendar size={13} className="text-primary-800" />
+                    Academic Year:
+                  </span>
+                  {pathwayCalendarYears.map((yr) => {
+                    const yrCount = (sbBatches || []).filter(
+                      (b) => matchesBatchYear(b, yr) && b.status !== 'archived'
+                    ).length;
+                    const isSelected = activePathwayYear === yr;
+                    return (
+                      <button
+                        key={yr}
+                        type="button"
+                        onClick={() => setActivePathwayYear(yr)}
+                        className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+                          isSelected
+                            ? 'bg-primary-950 text-white shadow-xs'
+                            : 'bg-sand-100/90 text-ink-700 hover:bg-sand-200/80 hover:text-ink-900'
+                        }`}
+                      >
+                        <span>{yr} Academic Cohorts</span>
+                        <span
+                          className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                            isSelected ? 'bg-white/20 text-white' : 'bg-sand-200 text-ink-600'
+                          }`}
+                        >
+                          {yrCount}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="text-xs text-ink-500 font-medium">
+                  Displaying <strong className="text-ink-900">{activePathwayYear}</strong> individual batch tracks & progression
                 </div>
               </div>
 
@@ -2936,135 +3008,177 @@ export default function AdminDashboard() {
                       (b) => b.pathway_id === p.id || b.pathway_id === p.slug
                     );
                     const activeOrEnrollingBatches = pathwayBatches.filter(
-                      (b) => b.status !== 'archived'
+                      (b) => matchesBatchYear(b, activePathwayYear) && b.status !== 'archived'
                     );
 
-                    if (isMultiSemester) {
-                      return (
-                        <div key={p.id || p.slug} className="col-span-full">
-                          <YearTabbedCohortView
-                            pathway={p}
-                            courses={courses}
-                            batches={sbBatches || []}
-                            students={students}
-                            instructors={instructors}
-                            onAdvanceBatch={(batch, pathway, targetSemester) =>
-                              handleOpenAdvanceBatch(batch, pathway, targetSemester)
-                            }
-                            onOpenCreateIntake={(pathway, defaultSemester, defaultYear) =>
-                              handleOpenCreateIntake(pathway, defaultSemester, defaultYear)
-                            }
-                            onDeleteBatch={handleDeleteBatch}
-                            onAddCourse={(pathway, semester) =>
-                              navigate(
-                                `/admin/courses/new?category=${pathway.id || pathway.slug}&semester=${semester}`
-                              )
-                            }
-                            onEditPathway={handleOpenEditPathway}
-                            onDeletePathway={handleDeletePathway}
-                          />
-                        </div>
-                      );
-                    }
+                    const getCourseSemester = (crs) => {
+                      if (crs.semester_number != null) return Number(crs.semester_number);
+                      if (typeof crs.semester === 'number') return crs.semester;
+                      if (crs.semester) {
+                        const match = String(crs.semester).match(/\d+/);
+                        if (match) return Number(match[0]);
+                      }
+                      return 1;
+                    };
+
+                    const sem1Courses = pathwayCourses.filter((c) => getCourseSemester(c) === 1);
+                    const sem2Courses = pathwayCourses.filter((c) => getCourseSemester(c) === 2);
 
                     return (
                       <div
                         key={p.id || p.slug}
                         className="rounded-2xl border border-sand-200 bg-white p-5 flex flex-col justify-between hover:shadow-card transition-all"
                       >
-                      <div className="space-y-4">
-                        {/* Pathway Header Row: Icon + Title + Count + Quick Actions */}
-                        <div className="flex items-start justify-between gap-3 pb-3 border-b border-sand-100">
-                          <div className="flex items-center gap-3 min-w-0">
-                            <div className="h-11 w-11 rounded-xl bg-primary-50 border border-primary-200/70 flex items-center justify-center text-primary-900 shrink-0 shadow-2xs">
-                              <Compass size={20} />
+                        <div className="space-y-4">
+                          {/* Pathway Header Row: Icon + Title + Count + Quick Actions */}
+                          <div className="flex items-start justify-between gap-3 pb-3 border-b border-sand-100">
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className="h-11 w-11 rounded-xl bg-primary-50 border border-primary-200/70 flex items-center justify-center text-primary-900 shrink-0 shadow-2xs">
+                                <Compass size={20} />
+                              </div>
+                              <div className="min-w-0">
+                                <h3 className="font-heading font-bold text-ink-900 text-base sm:text-lg leading-tight tracking-tight truncate" title={p.name}>
+                                  {p.name}
+                                </h3>
+                                <span className="text-xs text-ink-500 font-medium mt-0.5 block">
+                                  {pathwayCourses.length} {pathwayCourses.length === 1 ? 'Course' : 'Courses'}
+                                </span>
+                              </div>
                             </div>
-                            <div className="min-w-0">
-                              <h3 className="font-heading font-bold text-ink-900 text-base sm:text-lg leading-tight tracking-tight truncate" title={p.name}>
-                                {p.name}
-                              </h3>
-                              <span className="text-xs text-ink-500 font-medium mt-0.5 block">
-                                {pathwayCourses.length} {pathwayCourses.length === 1 ? 'Course' : 'Courses'}
-                              </span>
-                            </div>
-                          </div>
 
-                          <div className="flex items-center gap-1 shrink-0 pt-0.5">
-                            <button
-                              type="button"
-                              onClick={() => handleOpenEditPathway(p)}
-                              className="p-1.5 rounded-lg text-ink-400 hover:text-ink-900 hover:bg-sand-100 transition-colors cursor-pointer"
-                              title="Edit pathway"
-                            >
-                              <Edit3 size={14} />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDeletePathway(p.id || p.slug, p.name)}
-                              className="p-1.5 rounded-lg text-ink-300 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
-                              title="Delete pathway"
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Assigned Courses Section */}
-                        <div className="space-y-2">
-                          <ol className="space-y-1.5">
-                            {pathwayCourses.map((crs, cIdx) => (
-                              <li
-                                key={crs.id}
-                                className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-sand-50/90 border border-sand-200/90 text-xs font-medium text-ink-900 shadow-2xs hover:border-sand-300 transition-colors"
+                            <div className="flex items-center gap-1 shrink-0 pt-0.5">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditPathway(p)}
+                                className="p-1.5 rounded-lg text-ink-400 hover:text-ink-900 hover:bg-sand-100 transition-colors cursor-pointer"
+                                title="Edit pathway"
                               >
-                                <span className="w-5 h-5 rounded-full bg-sand-200 text-ink-800 font-bold text-[10px] flex items-center justify-center shrink-0">
-                                  {cIdx + 1}
-                                </span>
-                                <span className="truncate font-semibold" title={crs.title}>
-                                  {crs.title}
-                                </span>
-                              </li>
-                            ))}
-                            {pathwayCourses.length === 0 && (
-                              <li className="text-xs text-ink-400 italic py-1 list-none">No courses in this track yet</li>
-                            )}
-                          </ol>
-                        </div>
-
-                        {/* Intakes & Batches Section */}
-                        <div className="pt-3 border-t border-sand-100 space-y-2.5">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-1.5">
-                              <Calendar size={13} className="text-primary-800" />
-                              <span className="text-xs font-bold text-ink-900">
-                                Course Intakes
-                              </span>
-                              <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-sand-100 text-ink-600">
-                                {activeOrEnrollingBatches.length}
-                              </span>
+                                <Edit3 size={14} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeletePathway(p.id || p.slug, p.name)}
+                                className="p-1.5 rounded-lg text-ink-300 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
+                                title="Delete pathway"
+                              >
+                                <Trash2 size={14} />
+                              </button>
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => handleOpenCreateIntake(p)}
-                              className="text-[11px] font-bold text-primary-900 hover:text-primary-950 inline-flex items-center gap-1 transition-colors cursor-pointer"
-                            >
-                              <Plus size={12} />
-                              <span>New Intake</span>
-                            </button>
                           </div>
 
-                          {/* Standalone Modular Course Intakes */}
-                          <div className="space-y-2">
+                          {/* Assigned Courses Section */}
+                          {isMultiSemester ? (
+                            <div className="space-y-3.5">
+                              {/* Semester 1 */}
+                              <div className="space-y-1.5">
+                                <div className="text-xs font-bold text-ink-700">
+                                  Semester 1 <span className="font-normal text-ink-400">({sem1Courses.length} courses)</span>
+                                </div>
+                                {sem1Courses.length > 0 ? (
+                                  <ol className="space-y-1.5">
+                                    {sem1Courses.map((crs, cIdx) => (
+                                      <li
+                                        key={crs.id}
+                                        className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-sand-50/90 border border-sand-200/90 text-xs font-medium text-ink-900 shadow-2xs hover:border-sand-300 transition-colors"
+                                      >
+                                        <span className="w-5 h-5 rounded-full bg-sand-200 text-ink-800 font-bold text-[10px] flex items-center justify-center shrink-0">
+                                          {cIdx + 1}
+                                        </span>
+                                        <span className="truncate font-semibold" title={crs.title}>
+                                          {crs.title}
+                                        </span>
+                                      </li>
+                                    ))}
+                                  </ol>
+                                ) : (
+                                  <div className="text-xs text-ink-400 italic py-1">No courses in Semester 1 yet</div>
+                                )}
+                              </div>
+
+                              {/* Semester 2 */}
+                              <div className="space-y-1.5">
+                                <div className="text-xs font-bold text-ink-700">
+                                  Semester 2 <span className="font-normal text-ink-400">({sem2Courses.length} courses)</span>
+                                </div>
+                                {sem2Courses.length > 0 ? (
+                                  <ol className="space-y-1.5">
+                                    {sem2Courses.map((crs, cIdx) => (
+                                      <li
+                                        key={crs.id}
+                                        className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-sand-50/90 border border-sand-200/90 text-xs font-medium text-ink-900 shadow-2xs hover:border-sand-300 transition-colors"
+                                      >
+                                        <span className="w-5 h-5 rounded-full bg-sand-200 text-ink-800 font-bold text-[10px] flex items-center justify-center shrink-0">
+                                          {cIdx + 1}
+                                        </span>
+                                        <span className="truncate font-semibold" title={crs.title}>
+                                          {crs.title}
+                                        </span>
+                                      </li>
+                                    ))}
+                                  </ol>
+                                ) : (
+                                  <div className="text-xs text-ink-400 italic py-1">No courses in Semester 2 yet</div>
+                                )}
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="space-y-2">
+                              {pathwayCourses.length > 0 ? (
+                                <ol className="space-y-1.5">
+                                  {pathwayCourses.map((crs, cIdx) => (
+                                    <li
+                                      key={crs.id}
+                                      className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-sand-50/90 border border-sand-200/90 text-xs font-medium text-ink-900 shadow-2xs hover:border-sand-300 transition-colors"
+                                    >
+                                      <span className="w-5 h-5 rounded-full bg-sand-200 text-ink-800 font-bold text-[10px] flex items-center justify-center shrink-0">
+                                        {cIdx + 1}
+                                      </span>
+                                      <span className="truncate font-semibold" title={crs.title}>
+                                        {crs.title}
+                                      </span>
+                                    </li>
+                                  ))}
+                                </ol>
+                              ) : (
+                                <div className="text-xs text-ink-400 italic py-1">No courses in this track yet</div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Intakes & Batches Section */}
+                          <div className="pt-3 border-t border-sand-100 space-y-2.5">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-1.5">
+                                <Calendar size={13} className="text-primary-800" />
+                                <span className="text-xs font-bold text-ink-900">
+                                  {isMultiSemester ? 'Cohort Intakes' : 'Course Intakes'}
+                                </span>
+                                <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-sand-100 text-ink-600">
+                                  {activeOrEnrollingBatches.length}
+                                </span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenCreateIntake(p, 1, activePathwayYear)}
+                                className="text-[11px] font-bold text-primary-900 hover:text-primary-950 inline-flex items-center gap-1 transition-colors cursor-pointer"
+                              >
+                                <Plus size={12} />
+                                <span>{isMultiSemester ? '+ New Batch (Sem 1)' : '+ New Intake'}</span>
+                              </button>
+                            </div>
+
+                            {/* Batches List or Empty State */}
+                            <div className="space-y-2">
                               {activeOrEnrollingBatches.length === 0 ? (
                                 <button
                                   type="button"
-                                  onClick={() => handleOpenCreateIntake(p)}
-                                  className="w-full p-3.5 rounded-xl bg-sand-50/60 hover:bg-sand-100/70 border border-dashed border-sand-300 text-center text-[11px] font-medium text-ink-600 hover:text-primary-950 transition-colors cursor-pointer space-y-1 block"
+                                  onClick={() => handleOpenCreateIntake(p, 1, activePathwayYear)}
+                                  className="w-full p-3.5 rounded-xl bg-sand-50/60 hover:bg-sand-100/70 border border-dashed border-sand-300 text-center text-[11px] font-medium text-ink-500 hover:text-primary-950 transition-colors cursor-pointer block"
                                 >
-                                  <div>No course intakes scheduled yet.</div>
-                                  <div className="font-bold text-primary-900 inline-flex items-center gap-1">
-                                    <Plus size={12} />
-                                    <span>Launch Course Intake</span>
+                                  <div>
+                                    {isMultiSemester
+                                      ? `No active batches yet. Click "+ New Batch (Sem 1)" to start an intake.`
+                                      : `No course intakes scheduled. Click "+ New Intake" to launch one.`}
                                   </div>
                                 </button>
                               ) : (
@@ -3076,10 +3190,11 @@ export default function AdminDashboard() {
                                       (i) => i.id === b.course_instructors?.[0]?.instructor_id
                                     )?.name ||
                                     targetCrs?.instructor ||
-                                    'Curriculum Lead';
+                                    (isMultiSemester ? 'Curriculum Faculty' : 'Course Lead');
                                   const enrolledCount = students.filter(
                                     (s) => s.cohort_id === b.id
                                   ).length;
+                                  const semNumber = Number(b.semester ?? b.semester_number ?? 1);
 
                                   return (
                                     <div
@@ -3088,12 +3203,12 @@ export default function AdminDashboard() {
                                     >
                                       <div className="flex items-start justify-between gap-2">
                                         <div className="min-w-0">
-                                          <div className="flex items-center gap-1.5">
+                                          <div className="flex items-center gap-1.5 flex-wrap">
                                             <span
                                               className="font-bold text-xs text-ink-900 truncate"
-                                              title={b.name}
+                                              title={b.name || b.title}
                                             >
-                                              {b.name}
+                                              {b.name || b.title}
                                             </span>
                                             <span
                                               className={`text-[9px] font-bold px-1.5 py-0.2 rounded-full uppercase tracking-wider ${
@@ -3102,24 +3217,34 @@ export default function AdminDashboard() {
                                                   : 'bg-emerald-100 text-emerald-800'
                                               }`}
                                             >
-                                              {b.status}
+                                              {b.status || 'active'}
                                             </span>
                                           </div>
                                           <div className="flex items-center gap-2 text-[10px] text-ink-500 mt-0.5 flex-wrap">
-                                            <span className="truncate">
-                                              Faculty:{' '}
-                                              <strong className="text-ink-800">{assignedInst}</strong>
-                                            </span>
-                                            <span>•</span>
+                                            {isMultiSemester ? (
+                                              <>
+                                                <span className="font-semibold text-primary-900 bg-primary-50 px-1.5 py-0.2 rounded">
+                                                  Semester {semNumber}
+                                                </span>
+                                                <span>•</span>
+                                              </>
+                                            ) : (
+                                              <>
+                                                <span className="truncate">
+                                                  Faculty: <strong className="text-ink-800">{assignedInst}</strong>
+                                                </span>
+                                                <span>•</span>
+                                              </>
+                                            )}
                                             <span>
                                               <strong>{enrolledCount}</strong>{' '}
                                               {enrolledCount === 1 ? 'student' : 'students'}
                                             </span>
-                                            {b.tuition_fee && (
+                                            {(b.tuition_fee || p.default_tuition_fee) && (
                                               <>
                                                 <span>•</span>
                                                 <span>
-                                                  Rs. {Number(b.tuition_fee).toLocaleString()}
+                                                  Rs. {Number(b.tuition_fee || p.default_tuition_fee).toLocaleString()}
                                                 </span>
                                               </>
                                             )}
@@ -3128,41 +3253,63 @@ export default function AdminDashboard() {
 
                                         <button
                                           type="button"
-                                          onClick={() => handleDeleteBatch(b.id, b.name)}
+                                          onClick={() => handleDeleteBatch(b.id, b.name || b.title)}
                                           className="p-1 rounded-md text-ink-300 hover:text-red-600 transition-colors cursor-pointer shrink-0"
                                           title="Remove Intake"
                                         >
                                           <Trash2 size={12} />
                                         </button>
                                       </div>
+
+                                      {/* Multi-Semester Advancement Action for Cohort Track */}
+                                      {isMultiSemester && (
+                                        <div className="pt-1.5 mt-1 border-t border-sand-200/60">
+                                          {semNumber < 2 ? (
+                                            <button
+                                              type="button"
+                                              onClick={() => handleOpenAdvanceBatch(b, p, 2)}
+                                              className="w-full py-1 px-2 rounded-lg bg-primary-900 hover:bg-primary-950 text-white text-[10px] font-bold flex items-center justify-center gap-1 shadow-2xs transition-colors cursor-pointer"
+                                            >
+                                              <span>Advance to Semester 2</span>
+                                              <ArrowRight size={11} />
+                                            </button>
+                                          ) : (
+                                            <div className="text-[10px] px-2 py-0.5 rounded bg-emerald-50 border border-emerald-200 text-emerald-800 font-semibold flex items-center justify-between">
+                                              <span>🎓 Completed ({activePathwayYear})</span>
+                                              <span className="font-bold uppercase text-[9px]">Graduated</span>
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
                                     </div>
                                   );
                                 })
                               )}
                             </div>
+                          </div>
+                        </div>
+
+                        {/* Card Footer Actions */}
+                        <div className="pt-3 mt-3 border-t border-sand-100 flex items-center justify-between">
+                          <Link
+                            to={`/admin/courses/new?category=${p.id || p.slug}`}
+                            className="text-xs font-bold text-primary-900 hover:text-primary-950 inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+                          >
+                            <Plus size={14} />
+                            <span>Add Course</span>
+                          </Link>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenCreateIntake(p, 1, activePathwayYear)}
+                            className="text-xs font-bold text-primary-900 hover:text-primary-950 inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+                          >
+                            <Plus size={14} />
+                            <span>Add Intake</span>
+                          </button>
                         </div>
                       </div>
-
-                      {/* Card Footer Actions */}
-                      <div className="pt-3 mt-3 border-t border-sand-100 flex items-center justify-between">
-                        <Link
-                          to="/admin/courses/new"
-                          className="text-xs font-bold text-primary-900 hover:text-primary-950 inline-flex items-center gap-1.5 transition-colors cursor-pointer"
-                        >
-                          <Plus size={14} />
-                          <span>Add Course</span>
-                        </Link>
-                        <button
-                          type="button"
-                          onClick={() => handleOpenEditPathway(p)}
-                          className="text-xs font-semibold text-ink-500 hover:text-ink-900 transition-colors cursor-pointer"
-                        >
-                          <span>Edit Pathway</span>
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
 
                 {filteredPathways.length === 0 && (
                   <div className="col-span-full py-12 text-center text-xs text-ink-500 border border-dashed border-sand-300 rounded-2xl">
