@@ -1968,7 +1968,13 @@ export function getAllPathways() {
     if (stored) {
       const parsed = JSON.parse(stored);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
+        const merged = [...parsed];
+        DEFAULT_ACADEMIC_PATHWAYS.forEach((def) => {
+          if (!merged.some((p) => p.id === def.id || p.slug === def.slug)) {
+            merged.push(def);
+          }
+        });
+        return merged;
       }
     }
   } catch (err) {

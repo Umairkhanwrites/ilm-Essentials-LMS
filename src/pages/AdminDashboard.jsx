@@ -167,6 +167,7 @@ import {
   syncAllStudentsAttendance,
   generateTemporaryPassword,
   getAllPathways,
+  DEFAULT_ACADEMIC_PATHWAYS,
   savePathway,
   deletePathway,
   getScheduleSlots,
@@ -1679,10 +1680,16 @@ export default function AdminDashboard() {
   // Pathways State & Handlers
   const [pathways, setPathways] = useState(() => getAllPathways());
 
-  // Synchronize pathways with Supabase live records
+  // Synchronize pathways with Supabase live records (merging default tracks like Electives)
   useEffect(() => {
     if (sbPathways && sbPathways.length > 0) {
-      setPathways(sbPathways);
+      const merged = [...sbPathways];
+      DEFAULT_ACADEMIC_PATHWAYS.forEach((def) => {
+        if (!merged.some((p) => p.id === def.id || p.slug === def.slug)) {
+          merged.push(def);
+        }
+      });
+      setPathways(merged);
     }
   }, [sbPathways]);
 
@@ -3031,13 +3038,13 @@ export default function AdminDashboard() {
                       >
                         <div className="space-y-4">
                           {/* Pathway Header Row: Icon + Title + Count + Quick Actions */}
-                          <div className="flex items-start justify-between gap-3 pb-3 border-b border-sand-100">
-                            <div className="flex items-center gap-3 min-w-0">
-                              <div className="h-11 w-11 rounded-xl bg-primary-50 border border-primary-200/70 flex items-center justify-center text-primary-900 shrink-0 shadow-2xs">
-                                <Compass size={20} />
+                          <div className="flex items-start justify-between gap-2 pb-3 border-b border-sand-100">
+                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                              <div className="h-10 w-10 rounded-xl bg-primary-50 border border-primary-200/70 flex items-center justify-center text-primary-900 shrink-0 shadow-2xs">
+                                <Compass size={18} />
                               </div>
-                              <div className="min-w-0">
-                                <h3 className="font-heading font-bold text-ink-900 text-base sm:text-lg leading-tight tracking-tight truncate" title={p.name}>
+                              <div className="min-w-0 flex-1">
+                                <h3 className="font-heading font-bold text-ink-900 text-sm sm:text-base leading-snug tracking-tight" title={p.name}>
                                   {p.name}
                                 </h3>
                                 <span className="text-xs text-ink-500 font-medium mt-0.5 block">
@@ -3147,8 +3154,8 @@ export default function AdminDashboard() {
 
                           {/* Intakes & Batches Section */}
                           <div className="pt-3 border-t border-sand-100 space-y-2.5">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-1.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-1.5 shrink-0">
                                 <Calendar size={13} className="text-primary-800" />
                                 <span className="text-xs font-bold text-ink-900">
                                   {isMultiSemester ? 'Cohort Intakes' : 'Course Intakes'}
@@ -3160,10 +3167,10 @@ export default function AdminDashboard() {
                               <button
                                 type="button"
                                 onClick={() => handleOpenCreateIntake(p, 1, activePathwayYear)}
-                                className="text-[11px] font-bold text-primary-900 hover:text-primary-950 inline-flex items-center gap-1 transition-colors cursor-pointer"
+                                className="text-[11px] font-bold text-primary-900 hover:text-primary-950 inline-flex items-center gap-1 transition-colors cursor-pointer shrink-0"
                               >
                                 <Plus size={12} />
-                                <span>{isMultiSemester ? '+ New Batch (Sem 1)' : '+ New Intake'}</span>
+                                <span>{isMultiSemester ? 'New Batch (Sem 1)' : 'New Intake'}</span>
                               </button>
                             </div>
 
@@ -3177,8 +3184,8 @@ export default function AdminDashboard() {
                                 >
                                   <div>
                                     {isMultiSemester
-                                      ? `No active batches yet. Click "+ New Batch (Sem 1)" to start an intake.`
-                                      : `No course intakes scheduled. Click "+ New Intake" to launch one.`}
+                                      ? `No active batches for ${activePathwayYear} yet. Click "New Batch (Sem 1)" to start an intake.`
+                                      : `No course intakes scheduled for ${activePathwayYear}. Click "New Intake" to launch one.`}
                                   </div>
                                 </button>
                               ) : (
@@ -3289,7 +3296,7 @@ export default function AdminDashboard() {
                           </div>
                         </div>
 
-                        {/* Card Footer Actions */}
+                        {/* Card Footer Actions: Add Course to curriculum + Configure Pathway settings */}
                         <div className="pt-3 mt-3 border-t border-sand-100 flex items-center justify-between">
                           <Link
                             to={`/admin/courses/new?category=${p.id || p.slug}`}
@@ -3300,11 +3307,10 @@ export default function AdminDashboard() {
                           </Link>
                           <button
                             type="button"
-                            onClick={() => handleOpenCreateIntake(p, 1, activePathwayYear)}
-                            className="text-xs font-bold text-primary-900 hover:text-primary-950 inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+                            onClick={() => handleOpenEditPathway(p)}
+                            className="text-xs font-semibold text-ink-500 hover:text-ink-900 transition-colors cursor-pointer"
                           >
-                            <Plus size={14} />
-                            <span>Add Intake</span>
+                            <span>Edit Pathway</span>
                           </button>
                         </div>
                       </div>
