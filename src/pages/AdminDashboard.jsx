@@ -1695,13 +1695,15 @@ export default function AdminDashboard() {
   const [intakeModalMode, setIntakeModalMode] = useState('create'); // 'create' | 'advance'
   const [intakeModalPathway, setIntakeModalPathway] = useState(null);
   const [intakeModalDefaultSemester, setIntakeModalDefaultSemester] = useState(1);
+  const [intakeModalDefaultYear, setIntakeModalDefaultYear] = useState(() => new Date().getFullYear());
   const [advancingBatch, setAdvancingBatch] = useState(null);
 
-  const handleOpenCreateIntake = (pathway = null, defaultSemester = 1) => {
+  const handleOpenCreateIntake = (pathway = null, defaultSemester = 1, defaultYear = null) => {
     setIntakeModalPathway(pathway);
     setIntakeModalMode('create');
     setAdvancingBatch(null);
     setIntakeModalDefaultSemester(Number(defaultSemester) || 1);
+    setIntakeModalDefaultYear(defaultYear ? Number(defaultYear) : new Date().getFullYear());
     setIsIntakeModalOpen(true);
   };
 
@@ -2949,8 +2951,8 @@ export default function AdminDashboard() {
                             onAdvanceBatch={(batch, pathway, targetSemester) =>
                               handleOpenAdvanceBatch(batch, pathway, targetSemester)
                             }
-                            onOpenCreateIntake={(pathway, defaultSemester) =>
-                              handleOpenCreateIntake(pathway, defaultSemester)
+                            onOpenCreateIntake={(pathway, defaultSemester, defaultYear) =>
+                              handleOpenCreateIntake(pathway, defaultSemester, defaultYear)
                             }
                             onDeleteBatch={handleDeleteBatch}
                             onAddCourse={(pathway, semester) =>
@@ -8091,6 +8093,7 @@ export default function AdminDashboard() {
           onClose={() => setIsIntakeModalOpen(false)}
           initialPathway={intakeModalPathway}
           defaultSemester={intakeModalDefaultSemester}
+          defaultYear={intakeModalDefaultYear}
           mode={intakeModalMode}
           advancingBatch={advancingBatch}
           pathways={pathways}

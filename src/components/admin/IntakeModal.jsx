@@ -34,6 +34,7 @@ export default function IntakeModal({
   onClose,
   initialPathway = null, // pathway object or slug (null if opened from global toolbar)
   defaultSemester = 1,
+  defaultYear = null,
   mode = 'create', // 'create' | 'advance'
   advancingBatch = null, // batch object if mode === 'advance'
   pathways = [],
@@ -220,13 +221,19 @@ export default function IntakeModal({
         setSelectedPathwayId(initialPathway.slug);
       }
 
+      const targetYear = defaultYear ? Number(defaultYear) : new Date().getFullYear();
+      const isCurrentYear = targetYear === new Date().getFullYear();
       const today = new Date().toISOString().split('T')[0];
-      setStartDate(today);
+      const initialStart = isCurrentYear ? today : `${targetYear}-08-15`;
+      setStartDate(initialStart);
 
       if (isCohortModel) {
-        // Calculate next batch number for this cohort pathway
+        // Calculate next batch number for this cohort pathway in this target year
         const existingForPathway = existingBatches.filter(
-          (b) => b.pathway_id === activePathway.id || b.pathway_id === activePathway.slug
+          (b) =>
+            (b.pathway_id === activePathway.id || b.pathway_id === activePathway.slug) &&
+            ((b.start_date && new Date(b.start_date).getFullYear() === targetYear) ||
+              (b.name || '').includes(String(targetYear)))
         );
         const nextNum = Math.max(existingForPathway.length + 1, 1);
         setBatchNumber(nextNum);
@@ -237,9 +244,9 @@ export default function IntakeModal({
             : '30000'
         );
 
-        const sixMonths = new Date();
-        sixMonths.setMonth(sixMonths.getMonth() + 6);
-        setEndDate(sixMonths.toISOString().split('T')[0]);
+        const endCal = new Date(initialStart);
+        endCal.setMonth(endCal.getMonth() + 6);
+        setEndDate(endCal.toISOString().split('T')[0]);
       } else {
         // Modular Model
         if (pathwayCourses.length > 0) {
@@ -262,7 +269,7 @@ export default function IntakeModal({
         setEndDate(twoMonths.toISOString().split('T')[0]);
       }
     }
-  }, [isOpen, mode, advancingBatch, activePathway, isCohortModel, initialPathway, defaultSemester]);
+  }, [isOpen, mode, advancingBatch, activePathway, isCohortModel, initialPathway, defaultSemester, defaultYear]);
 
   // Synchronize faculty leads whenever startingSemester courses change in cohort mode
   useEffect(() => {
@@ -282,21 +289,26 @@ export default function IntakeModal({
   // Auto-calculated human-readable title (zero cross-pathway string leaking)
   const autoTitle = useMemo(() => {
     if (mode === 'advance') return customTitle;
-    const year = startDate ? new Date(startDate).getFullYear() : new Date().getFullYear();
+    const year = startDate
+      ? new Date(startDate).getFullYear()
+      : defaultYear || new Date().getFullYear();
 
     if (isCohortModel) {
-      return `${activePathway.name} — Batch ${batchNumber} (Semester ${startingSemester})`;
+      return `${activePathway.name} — ${year} Batch ${batchNumber} (Semester ${startingSemester})`;
     }
     return activeCourse
       ? `${activeCourse.title} — Intake ${year}`
       : `${activePathway.name} — Intake ${year}`;
-  }, [mode, customTitle, startDate, isCohortModel, activePathway, batchNumber, startingSemester, activeCourse]);
+  }, [mode, customTitle, startDate, defaultYear, isCohortModel, activePathway, batchNumber, startingSemester, activeCourse]);
 
-  // Auto-slug: Formats as ${pathwayId}_b${batchNumber}_sem${startingSemester} for cohorts
+  // Auto-slug: Formats as ${pathwayId}_${year}_b${batchNumber}_sem${startingSemester} for cohorts
   const autoCohortSlug = useMemo(() => {
     const pathwayKey = activePathway.id || activePathway.slug || 'foundations';
-    return generateBatchSlug(`${pathwayKey}_b${batchNumber}_sem${startingSemester}`);
-  }, [activePathway, batchNumber, startingSemester]);
+    const year = startDate
+      ? new Date(startDate).getFullYear()
+      : defaultYear || new Date().getFullYear();
+    return generateBatchSlug(`${pathwayKey}_${year}_b${batchNumber}_sem${startingSemester}`);
+  }, [activePathway, startDate, defaultYear, batchNumber, startingSemester]);
 
   const resolvedTitle = isTitleEdited ? customTitle : autoTitle;
   const resolvedSlug = isSlugEdited
@@ -401,7 +413,10 @@ export default function IntakeModal({
       };
 
       if (isCohortModel) {
-        const cleanGroup = generateBatchSlug(`${activePathway.id}_b${batchNumber}`);
+        const year = startDate
+          ? new Date(startDate).getFullYear()
+          : defaultYear || new Date().getFullYear();
+        const cleanGroup = generateBatchSlug(`${activePathway.id || activePathway.slug}_${year}_b${batchNumber}`);
         intakePayload.cohort_group = cleanGroup;
         intakePayload.semester = startingSemester;
         intakePayload.course_id = null;
