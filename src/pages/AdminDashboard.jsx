@@ -1926,6 +1926,44 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleDeleteSemesterFromPathway = async (pathway, semNum, semName) => {
+    const semCourses = courses.filter(
+      (c) =>
+        (c.category === pathway.slug || c.category === pathway.id || c.pathway_id === pathway.slug || c.pathway_id === pathway.id) &&
+        (c.semester_number === semNum || c.semester === semNum || String(c.semester || '').includes(String(semNum)))
+    );
+    const confirmMsg = semCourses.length > 0
+      ? `Are you sure you want to delete ${semName}? It currently contains ${semCourses.length} course(s).`
+      : `Are you sure you want to delete ${semName}?`;
+    if (!window.confirm(confirmMsg)) return;
+
+    const currentSemCount = Number(pathway.semesters) || (Array.isArray(pathway.semesterNames) ? pathway.semesterNames.length : 2);
+    const newSemCount = Math.max(1, currentSemCount - 1);
+    let newSemNames = Array.isArray(pathway.semesterNames) && pathway.semesterNames.length > 0
+      ? pathway.semesterNames.filter((_, idx) => idx + 1 !== semNum)
+      : Array.from({ length: newSemCount }, (_, i) => `Semester ${i + 1}`);
+    if (newSemNames.length === 0) newSemNames = ['Semester 1'];
+
+    const updated = {
+      ...pathway,
+      semesters: newSemCount,
+      semesterNames: newSemNames,
+      duration: `${newSemCount * 4} Months (${newSemCount} ${newSemCount === 1 ? 'Semester' : 'Semesters'})`,
+    };
+
+    savePathway(updated);
+    setPathways((prev) =>
+      prev.map((p) => ((p.id === pathway.id || p.slug === pathway.slug) ? updated : p))
+    );
+
+    try {
+      await savePathwaySupabase(updated);
+      if (refetchSbPathways) refetchSbPathways();
+    } catch (err) {
+      console.error('Failed to sync deleted semester to Supabase:', err);
+    }
+  };
+
   const filteredPathways = useMemo(() => {
     return pathways.filter((p) => {
       const q = pathwaySearch.toLowerCase();
@@ -3123,31 +3161,62 @@ export default function AdminDashboard() {
                             <div className="space-y-4">
                               {semestersList.map(({ semNum, semName, semCourses }) => (
                                 <div key={semNum} className="space-y-1.5 p-3 rounded-xl bg-sand-50/70 border border-sand-200/80">
-                                  <div className="flex items-center justify-between">
-                                    <div className="text-xs font-bold text-ink-800">
+                                  <div className="flex items-center justify-between gap-1">
+                                    <div className="text-xs font-bold text-ink-800 truncate">
                                       {semName} <span className="font-normal text-ink-500">({semCourses.length} {semCourses.length === 1 ? 'course' : 'courses'})</span>
                                     </div>
-                                    <Link
-                                      to={`/admin/courses/new?category=${p.id || p.slug}&semester=${semNum}&year=${activePathwayYear}`}
-                                      className="text-[11px] font-bold text-primary-900 hover:text-primary-950 inline-flex items-center gap-1 transition-colors cursor-pointer"
-                                    >
-                                      <Plus size={11} />
-                                      <span>Add Course</span>
-                                    </Link>
+                                    <div className="flex items-center gap-1.5 shrink-0">
+                                      <Link
+                                        to={`/admin/courses/new?category=${p.id || p.slug}&semester=${semNum}&year=${activePathwayYear}`}
+                                        className="text-[11px] font-bold text-primary-900 hover:text-primary-950 inline-flex items-center gap-0.5 transition-colors cursor-pointer whitespace-nowrap"
+                                      >
+                                        <Plus size={11} />
+                                        <span>Add Course</span>
+                                      </Link>
+                                      {semestersList.length > 1 && (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleDeleteSemesterFromPathway(p, semNum, semName)}
+                                          className="p-1 rounded text-ink-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer shrink-0"
+                                          title={`Delete ${semName}`}
+                                        >
+                                          <Trash2 size={12} />
+                                        </button>
+                                      )}
+                                    </div>
                                   </div>
                                   {semCourses.length > 0 ? (
                                     <ol className="space-y-1.5 pt-1">
                                       {semCourses.map((crs, cIdx) => (
                                         <li
                                           key={crs.id}
-                                          className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white border border-sand-200/90 text-xs font-medium text-ink-900 shadow-2xs hover:border-sand-300 transition-colors"
+                                          className="group flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg bg-white border border-sand-200/90 text-xs font-medium text-ink-900 shadow-2xs hover:border-sand-300 transition-colors"
                                         >
-                                          <span className="w-5 h-5 rounded-full bg-sand-200 text-ink-800 font-bold text-[10px] flex items-center justify-center shrink-0">
-                                            {cIdx + 1}
-                                          </span>
-                                          <span className="truncate font-semibold" title={crs.title}>
-                                            {crs.title}
-                                          </span>
+                                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                                            <span className="w-5 h-5 rounded-full bg-sand-200 text-ink-800 font-bold text-[10px] flex items-center justify-center shrink-0">
+                                              {cIdx + 1}
+                                            </span>
+                                            <span className="truncate font-semibold" title={crs.title}>
+                                              {crs.title}
+                                            </span>
+                                          </div>
+                                          <div className="flex items-center gap-1 opacity-70 group-hover:opacity-100 transition-opacity shrink-0">
+                                            <Link
+                                              to={`/admin/courses/edit/${crs.id}`}
+                                              className="p-1 rounded text-ink-400 hover:text-ink-800 hover:bg-sand-100 transition-colors"
+                                              title="Edit course"
+                                            >
+                                              <Edit3 size={11} />
+                                            </Link>
+                                            <button
+                                              type="button"
+                                              onClick={() => handleDeleteCourse(crs.id, crs.title)}
+                                              className="p-1 rounded text-ink-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
+                                              title="Delete course"
+                                            >
+                                              <Trash2 size={11} />
+                                            </button>
+                                          </div>
                                         </li>
                                       ))}
                                     </ol>
@@ -3174,14 +3243,33 @@ export default function AdminDashboard() {
                                   {pathwayCourses.map((crs, cIdx) => (
                                     <li
                                       key={crs.id}
-                                      className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-sand-50/90 border border-sand-200/90 text-xs font-medium text-ink-900 shadow-2xs hover:border-sand-300 transition-colors"
+                                      className="group flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg bg-sand-50/90 border border-sand-200/90 text-xs font-medium text-ink-900 shadow-2xs hover:border-sand-300 transition-colors"
                                     >
-                                      <span className="w-5 h-5 rounded-full bg-sand-200 text-ink-800 font-bold text-[10px] flex items-center justify-center shrink-0">
-                                        {cIdx + 1}
-                                      </span>
-                                      <span className="truncate font-semibold" title={crs.title}>
-                                        {crs.title}
-                                      </span>
+                                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                                        <span className="w-5 h-5 rounded-full bg-sand-200 text-ink-800 font-bold text-[10px] flex items-center justify-center shrink-0">
+                                          {cIdx + 1}
+                                        </span>
+                                        <span className="truncate font-semibold" title={crs.title}>
+                                          {crs.title}
+                                        </span>
+                                      </div>
+                                      <div className="flex items-center gap-1 opacity-70 group-hover:opacity-100 transition-opacity shrink-0">
+                                        <Link
+                                          to={`/admin/courses/edit/${crs.id}`}
+                                          className="p-1 rounded text-ink-400 hover:text-ink-800 hover:bg-sand-200/70 transition-colors"
+                                          title="Edit course"
+                                        >
+                                          <Edit3 size={11} />
+                                        </Link>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleDeleteCourse(crs.id, crs.title)}
+                                          className="p-1 rounded text-ink-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
+                                          title="Delete course"
+                                        >
+                                          <Trash2 size={11} />
+                                        </button>
+                                      </div>
                                     </li>
                                   ))}
                                 </ol>
