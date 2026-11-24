@@ -2572,14 +2572,6 @@ export default function AdminDashboard() {
 
               {/* Admin Actions & Profile */}
               <div className="flex items-center gap-2.5">
-                <Link
-                  to="/admin/courses/new"
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-white text-xs font-semibold border border-white/15 transition-all shadow-2xs cursor-pointer"
-                >
-                  <Plus size={14} />
-                  <span>Create Course</span>
-                </Link>
-
                 <button
                   onClick={handleAdminLogout}
                   className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-white/80 hover:text-white text-xs font-medium border border-white/10 transition-colors cursor-pointer"
@@ -2674,19 +2666,29 @@ export default function AdminDashboard() {
                       </p>
                     </div>
 
-                    <div className="bg-sand-50 border border-sand-200/80 rounded-xl px-4 py-2.5 flex items-center gap-3 shrink-0">
-                      <div className="h-8 w-8 rounded-lg bg-emerald-100 text-emerald-800 flex items-center justify-center shrink-0">
-                        <BookOpen size={16} />
-                      </div>
-                      <div>
-                        <div className="text-[10px] font-bold uppercase tracking-wider text-ink-400">Course Offerings</div>
-                        <div className="flex items-baseline gap-2">
-                          <span className="text-lg font-bold text-ink-900 font-heading">{courses.length}</span>
-                          <span className="text-[11px] text-emerald-800 font-medium">
-                            {courses.filter((c) => c.status === 'Active').length} Active • {courses.filter((c) => c.category === 'foundations').length} Foundations, {courses.filter((c) => c.category === 'intensives').length} Intensives
-                          </span>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <div className="bg-sand-50 border border-sand-200/80 rounded-xl px-4 py-2.5 flex items-center gap-3 shrink-0">
+                        <div className="h-8 w-8 rounded-lg bg-emerald-100 text-emerald-800 flex items-center justify-center shrink-0">
+                          <BookOpen size={16} />
+                        </div>
+                        <div>
+                          <div className="text-[10px] font-bold uppercase tracking-wider text-ink-400">Course Offerings</div>
+                          <div className="flex items-baseline gap-2">
+                            <span className="text-lg font-bold text-ink-900 font-heading">{courses.length}</span>
+                            <span className="text-[11px] text-emerald-800 font-medium">
+                              {courses.filter((c) => c.status === 'Active').length} Active • {courses.filter((c) => c.category === 'foundations').length} Foundations, {courses.filter((c) => c.category === 'intensives').length} Intensives
+                            </span>
+                          </div>
                         </div>
                       </div>
+
+                      <Link
+                        to="/admin/courses/new"
+                        className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-primary-900 hover:bg-primary-800 text-white text-xs font-semibold shadow-xs transition-colors shrink-0 cursor-pointer"
+                      >
+                        <Plus size={14} />
+                        <span>Create Course</span>
+                      </Link>
                     </div>
                   </div>
 
