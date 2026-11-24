@@ -3045,14 +3045,6 @@ export default function AdminDashboard() {
                               >
                                 <Eye size={14} />
                               </Link>
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteCourse(c.id, c.title)}
-                                className="p-1.5 rounded-lg text-ink-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
-                                title="Remove course from catalog"
-                              >
-                                <Trash2 size={14} />
-                              </button>
                             </div>
                           </td>
                         </tr>
