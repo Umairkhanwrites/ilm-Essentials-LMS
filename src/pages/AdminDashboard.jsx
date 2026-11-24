@@ -3349,8 +3349,8 @@ export default function AdminDashboard() {
                           )}
                         </div>
 
-                        {/* Card Footer Actions: Add Course to curriculum + Configure Pathway settings */}
-                        <div className="pt-3 mt-3 border-t border-sand-100 flex items-center justify-between">
+                        {/* Card Footer Actions: Add Course to curriculum */}
+                        <div className="pt-3 mt-3 border-t border-sand-100 flex items-center">
                           <Link
                             to={`/admin/courses/new?category=${p.id || p.slug}&year=${activePathwayYear}`}
                             className="text-xs font-bold text-primary-900 hover:text-primary-950 inline-flex items-center gap-1.5 transition-colors cursor-pointer"
@@ -3358,13 +3358,6 @@ export default function AdminDashboard() {
                             <Plus size={14} />
                             <span>Add Course</span>
                           </Link>
-                          <button
-                            type="button"
-                            onClick={() => handleOpenEditPathway(p)}
-                            className="text-xs font-semibold text-ink-500 hover:text-ink-900 transition-colors cursor-pointer"
-                          >
-                            <span>Edit Pathway</span>
-                          </button>
                         </div>
                       </div>
                     );
