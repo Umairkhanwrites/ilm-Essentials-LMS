@@ -12,7 +12,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { useNavigate, useParams, Link } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ArrowLeft,
@@ -214,6 +214,9 @@ const calculateCourseDuration = (startStr, endStr) => {
 export default function CreateCourse() {
   const navigate = useNavigate();
   const { id } = useParams(); // If present, we are in EDIT mode
+  const [searchParams] = useSearchParams();
+  const queryCategory = searchParams.get('category');
+  const querySemester = searchParams.get('semester');
   const { user } = useAuth();
 
   const isEditMode = Boolean(id);
@@ -322,8 +325,8 @@ export default function CreateCourse() {
   const [formData, setFormData] = useState({
     title: '',
     subtitle: '',
-    category: 'foundations',
-    semester: 'Semester 1',
+    category: queryCategory || 'foundations',
+    semester: querySemester ? `Semester ${String(querySemester).replace(/\D/g, '')}` : 'Semester 1',
     format: 'live-online',
     classCategory: 'online', // 'online' | 'onsite' | 'hybrid'
     level: 'Beginner',
@@ -1431,6 +1434,9 @@ export default function CreateCourse() {
                           </option>
                         ))}
                       </select>
+                      <p className="text-[11px] text-ink-500 mt-1">
+                        Select the pathway for this course. It will automatically update and appear under that pathway card in Academic Pathways.
+                      </p>
                     </div>
 
                     {/* Program Semester (if multi-semester like Ilm Foundations) or Program Type display */}

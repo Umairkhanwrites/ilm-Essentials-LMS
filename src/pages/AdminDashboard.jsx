@@ -3152,124 +3152,111 @@ export default function AdminDashboard() {
                             </div>
                           )}
 
-                          {/* Intakes & Batches Section */}
-                          <div className="pt-3 border-t border-sand-100 space-y-2.5">
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="flex items-center gap-1.5 shrink-0">
-                                <Calendar size={13} className="text-primary-800" />
-                                <span className="text-xs font-bold text-ink-900">
-                                  {isMultiSemester ? 'Cohort Intakes' : 'Course Intakes'}
-                                </span>
-                                <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-sand-100 text-ink-600">
-                                  {activeOrEnrollingBatches.length}
-                                </span>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => handleOpenCreateIntake(p, 1, activePathwayYear)}
-                                className="text-[11px] font-bold text-primary-900 hover:text-primary-950 inline-flex items-center gap-1 transition-colors cursor-pointer shrink-0"
-                              >
-                                <Plus size={12} />
-                                <span>{isMultiSemester ? 'New Batch (Sem 1)' : 'New Intake'}</span>
-                              </button>
-                            </div>
-
-                            {/* Batches List or Empty State */}
-                            <div className="space-y-2">
-                              {activeOrEnrollingBatches.length === 0 ? (
+                          {/* Intakes & Batches Section — Only for multi-semester cohort tracks like Ilm Foundations */}
+                          {isMultiSemester && (
+                            <div className="pt-3 border-t border-sand-100 space-y-2.5">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <Calendar size={13} className="text-primary-800" />
+                                  <span className="text-xs font-bold text-ink-900">
+                                    Cohort Intakes
+                                  </span>
+                                  <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-sand-100 text-ink-600">
+                                    {activeOrEnrollingBatches.length}
+                                  </span>
+                                </div>
                                 <button
                                   type="button"
                                   onClick={() => handleOpenCreateIntake(p, 1, activePathwayYear)}
-                                  className="w-full p-3.5 rounded-xl bg-sand-50/60 hover:bg-sand-100/70 border border-dashed border-sand-300 text-center text-[11px] font-medium text-ink-500 hover:text-primary-950 transition-colors cursor-pointer block"
+                                  className="text-[11px] font-bold text-primary-900 hover:text-primary-950 inline-flex items-center gap-1 transition-colors cursor-pointer shrink-0"
                                 >
-                                  <div>
-                                    {isMultiSemester
-                                      ? `No active batches for ${activePathwayYear} yet. Click "New Batch (Sem 1)" to start an intake.`
-                                      : `No course intakes scheduled for ${activePathwayYear}. Click "New Intake" to launch one.`}
-                                  </div>
+                                  <Plus size={12} />
+                                  <span>New Batch (Sem 1)</span>
                                 </button>
-                              ) : (
-                                activeOrEnrollingBatches.map((b) => {
-                                  const targetCrs = courses.find((c) => c.id === b.course_id);
-                                  const assignedInst =
-                                    b.course_instructors?.[0]?.instructor?.name ||
-                                    instructors.find(
-                                      (i) => i.id === b.course_instructors?.[0]?.instructor_id
-                                    )?.name ||
-                                    targetCrs?.instructor ||
-                                    (isMultiSemester ? 'Curriculum Faculty' : 'Course Lead');
-                                  const enrolledCount = students.filter(
-                                    (s) => s.cohort_id === b.id
-                                  ).length;
-                                  const semNumber = Number(b.semester ?? b.semester_number ?? 1);
+                              </div>
 
-                                  return (
-                                    <div
-                                      key={b.id}
-                                      className="p-2.5 rounded-xl bg-sand-50/70 border border-sand-200/80 shadow-2xs space-y-1 hover:border-sand-300 transition-colors"
-                                    >
-                                      <div className="flex items-start justify-between gap-2">
-                                        <div className="min-w-0">
-                                          <div className="flex items-center gap-1.5 flex-wrap">
-                                            <span
-                                              className="font-bold text-xs text-ink-900 truncate"
-                                              title={b.name || b.title}
-                                            >
-                                              {b.name || b.title}
-                                            </span>
-                                            <span
-                                              className={`text-[9px] font-bold px-1.5 py-0.2 rounded-full uppercase tracking-wider ${
-                                                b.status === 'enrolling'
-                                                  ? 'bg-amber-100 text-amber-800'
-                                                  : 'bg-emerald-100 text-emerald-800'
-                                              }`}
-                                            >
-                                              {b.status || 'active'}
-                                            </span>
+                              {/* Batches List or Empty State */}
+                              <div className="space-y-2">
+                                {activeOrEnrollingBatches.length === 0 ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenCreateIntake(p, 1, activePathwayYear)}
+                                    className="w-full p-3.5 rounded-xl bg-sand-50/60 hover:bg-sand-100/70 border border-dashed border-sand-300 text-center text-[11px] font-medium text-ink-500 hover:text-primary-950 transition-colors cursor-pointer block"
+                                  >
+                                    <div>
+                                      No active batches for {activePathwayYear} yet. Click "New Batch (Sem 1)" to start an intake.
+                                    </div>
+                                  </button>
+                                ) : (
+                                  activeOrEnrollingBatches.map((b) => {
+                                    const targetCrs = courses.find((c) => c.id === b.course_id);
+                                    const assignedInst =
+                                      b.course_instructors?.[0]?.instructor?.name ||
+                                      instructors.find(
+                                        (i) => i.id === b.course_instructors?.[0]?.instructor_id
+                                      )?.name ||
+                                      targetCrs?.instructor ||
+                                      'Curriculum Faculty';
+                                    const enrolledCount = students.filter(
+                                      (s) => s.cohort_id === b.id
+                                    ).length;
+                                    const semNumber = Number(b.semester ?? b.semester_number ?? 1);
+
+                                    return (
+                                      <div
+                                        key={b.id}
+                                        className="p-2.5 rounded-xl bg-sand-50/70 border border-sand-200/80 shadow-2xs space-y-1 hover:border-sand-300 transition-colors"
+                                      >
+                                        <div className="flex items-start justify-between gap-2">
+                                          <div className="min-w-0">
+                                            <div className="flex items-center gap-1.5 flex-wrap">
+                                              <span
+                                                className="font-bold text-xs text-ink-900 truncate"
+                                                title={b.name || b.title}
+                                              >
+                                                {b.name || b.title}
+                                              </span>
+                                              <span
+                                                className={`text-[9px] font-bold px-1.5 py-0.2 rounded-full uppercase tracking-wider ${
+                                                  b.status === 'enrolling'
+                                                    ? 'bg-amber-100 text-amber-800'
+                                                    : 'bg-emerald-100 text-emerald-800'
+                                                }`}
+                                              >
+                                                {b.status || 'active'}
+                                              </span>
+                                            </div>
+                                            <div className="flex items-center gap-2 text-[10px] text-ink-500 mt-0.5 flex-wrap">
+                                              <span className="font-semibold text-primary-900 bg-primary-50 px-1.5 py-0.2 rounded">
+                                                Semester {semNumber}
+                                              </span>
+                                              <span>•</span>
+                                              <span>
+                                                <strong>{enrolledCount}</strong>{' '}
+                                                {enrolledCount === 1 ? 'student' : 'students'}
+                                              </span>
+                                              {(b.tuition_fee || p.default_tuition_fee) && (
+                                                <>
+                                                  <span>•</span>
+                                                  <span>
+                                                    Rs. {Number(b.tuition_fee || p.default_tuition_fee).toLocaleString()}
+                                                  </span>
+                                                </>
+                                              )}
+                                            </div>
                                           </div>
-                                          <div className="flex items-center gap-2 text-[10px] text-ink-500 mt-0.5 flex-wrap">
-                                            {isMultiSemester ? (
-                                              <>
-                                                <span className="font-semibold text-primary-900 bg-primary-50 px-1.5 py-0.2 rounded">
-                                                  Semester {semNumber}
-                                                </span>
-                                                <span>•</span>
-                                              </>
-                                            ) : (
-                                              <>
-                                                <span className="truncate">
-                                                  Faculty: <strong className="text-ink-800">{assignedInst}</strong>
-                                                </span>
-                                                <span>•</span>
-                                              </>
-                                            )}
-                                            <span>
-                                              <strong>{enrolledCount}</strong>{' '}
-                                              {enrolledCount === 1 ? 'student' : 'students'}
-                                            </span>
-                                            {(b.tuition_fee || p.default_tuition_fee) && (
-                                              <>
-                                                <span>•</span>
-                                                <span>
-                                                  Rs. {Number(b.tuition_fee || p.default_tuition_fee).toLocaleString()}
-                                                </span>
-                                              </>
-                                            )}
-                                          </div>
+
+                                          <button
+                                            type="button"
+                                            onClick={() => handleDeleteBatch(b.id, b.name || b.title)}
+                                            className="p-1 rounded-md text-ink-300 hover:text-red-600 transition-colors cursor-pointer shrink-0"
+                                            title="Remove Intake"
+                                          >
+                                            <Trash2 size={12} />
+                                          </button>
                                         </div>
 
-                                        <button
-                                          type="button"
-                                          onClick={() => handleDeleteBatch(b.id, b.name || b.title)}
-                                          className="p-1 rounded-md text-ink-300 hover:text-red-600 transition-colors cursor-pointer shrink-0"
-                                          title="Remove Intake"
-                                        >
-                                          <Trash2 size={12} />
-                                        </button>
-                                      </div>
-
-                                      {/* Multi-Semester Advancement Action for Cohort Track */}
-                                      {isMultiSemester && (
+                                        {/* Multi-Semester Advancement Action for Cohort Track */}
                                         <div className="pt-1.5 mt-1 border-t border-sand-200/60">
                                           {semNumber < 2 ? (
                                             <button
@@ -3287,13 +3274,13 @@ export default function AdminDashboard() {
                                             </div>
                                           )}
                                         </div>
-                                      )}
-                                    </div>
-                                  );
-                                })
-                              )}
+                                      </div>
+                                    );
+                                  })
+                                )}
+                              </div>
                             </div>
-                          </div>
+                          )}
                         </div>
 
                         {/* Card Footer Actions: Add Course to curriculum + Configure Pathway settings */}
