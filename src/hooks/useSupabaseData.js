@@ -7,7 +7,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { supabase, isSupabaseConfigured } from '../services/supabase.js';
-import { compressReceiptImage } from '../utils/imageCompression.js';
+import { compressReceiptImage, sanitizeNoBase64 } from '../utils/imageCompression.js';
 
 /**
  * Hook to retrieve all published academic courses with instructor & pathway relations
@@ -550,6 +550,20 @@ export function useSupabaseBatches() {
  * UUID syntax validation regex
  */
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * RFC4122 v4 UUID generator (works in browser and Node)
+ */
+export function generateUuid() {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
 
 /**
  * Helper to resolve student UUID from email, roster ID, or raw UUID
@@ -1509,6 +1523,565 @@ export async function deletePathwayIntakeSupabase(batchId) {
     return { success: true };
   } catch (err) {
     console.error('Failed to delete pathway intake in Supabase:', err);
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Normalize an Academic Pathway record from Supabase
+ * Ensures camelCase and snake_case properties are both populated.
+ */
+export function normalizePathway(p) {
+  if (!p) return null;
+  const isCohort = p.type === 'cohort' || p.programStructure === 'multi_semester';
+  const semesters = Number(p.semesters) || (isCohort ? 2 : 1);
+  return {
+    ...p,
+    id: p.id,
+    slug: p.slug || p.id,
+    name: p.name,
+    subtitle: p.subtitle || '',
+    description: p.description || '',
+    type: isCohort ? 'cohort' : 'modular',
+    programStructure: isCohort ? 'multi_semester' : 'single_course',
+    duration: p.duration || (isCohort ? `${semesters * 4} Months (${semesters} Semesters)` : '4 Weeks'),
+    semesters,
+    semesterNames: Array.isArray(p.semesterNames) && p.semesterNames.length > 0
+      ? p.semesterNames
+      : Array.from({ length: semesters }, (_, i) => `Semester ${i + 1}`),
+    tuitionModel: p.tuition_model || p.tuitionModel || (isCohort ? 'bundled' : 'per_course'),
+    tuition_model: p.tuition_model || p.tuitionModel || (isCohort ? 'bundled' : 'per_course'),
+    defaultTuitionFee: Number(p.default_tuition_fee ?? p.defaultTuitionFee) || 0,
+    default_tuition_fee: Number(p.default_tuition_fee ?? p.defaultTuitionFee) || 0,
+    color: p.color || 'emerald',
+    icon: p.icon || 'GraduationCap',
+    status: p.status || 'Active',
+  };
+}
+
+/**
+ * Normalize an Instructor record from Supabase
+ * Ensures camelCase and snake_case properties are both populated.
+ */
+export function normalizeInstructor(inst) {
+  if (!inst) return null;
+  return {
+    ...inst,
+    id: inst.id,
+    name: inst.name,
+    title: inst.title || 'Instructor of Islamic Sciences',
+    specialization: inst.specialization || '',
+    bio: inst.bio || '',
+    email: inst.email || '',
+    phone: inst.phone || '',
+    avatar: inst.avatar_url || inst.avatar || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=200&q=80',
+    avatar_url: inst.avatar_url || inst.avatar || '',
+    status: inst.status || 'Active',
+    assignedCourses: inst.assignedCourses || [],
+  };
+}
+
+/**
+ * Hook to retrieve all academic pathways from Supabase
+ */
+export function useSupabasePathways() {
+  const [pathways, setPathways] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  const fetchPathways = useCallback(async () => {
+    if (!isSupabaseConfigured) {
+      setIsLoading(false);
+      return;
+    }
+    try {
+      setIsLoading(true);
+      const { data, error: fetchErr } = await supabase
+        .from('pathways')
+        .select('*')
+        .order('name', { ascending: true });
+
+      if (fetchErr) throw fetchErr;
+      setPathways((data || []).map(normalizePathway));
+      setError(null);
+    } catch (err) {
+      console.error('Error fetching Supabase pathways:', err);
+      setError(err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchPathways();
+  }, [fetchPathways]);
+
+  return { pathways, isLoading, error, refetch: fetchPathways };
+}
+
+/**
+ * Hook to retrieve all instructors / faculty scholars from Supabase
+ */
+export function useSupabaseInstructors() {
+  const [instructors, setInstructors] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  const fetchInstructors = useCallback(async () => {
+    if (!isSupabaseConfigured) {
+      setIsLoading(false);
+      return;
+    }
+    try {
+      setIsLoading(true);
+      const { data, error: fetchErr } = await supabase
+        .from('instructors')
+        .select('*')
+        .order('name', { ascending: true });
+
+      if (fetchErr) throw fetchErr;
+      setInstructors((data || []).map(normalizeInstructor));
+      setError(null);
+    } catch (err) {
+      console.error('Error fetching Supabase instructors:', err);
+      setError(err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchInstructors();
+  }, [fetchInstructors]);
+
+  return { instructors, isLoading, error, refetch: fetchInstructors };
+}
+
+/**
+ * Mutation: Create or Update an Academic Pathway in Supabase
+ */
+export async function savePathwaySupabase(pathwayData) {
+  if (!isSupabaseConfigured) return { success: false, error: 'Supabase not configured' };
+  try {
+    const rawName = (pathwayData.name || '').trim();
+    if (!rawName) throw new Error('Pathway name is required.');
+
+    const cleanSlug = (pathwayData.slug || rawName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')).trim();
+    const cleanId = (pathwayData.id || cleanSlug).trim();
+
+    const isCohort = pathwayData.type === 'cohort' || pathwayData.programStructure === 'multi_semester';
+    const semesters = isCohort ? (Number(pathwayData.semesters) || 1) : 1;
+    const tuitionModel = pathwayData.tuition_model || pathwayData.tuitionModel || (isCohort ? 'bundled' : 'per_course');
+
+    const payload = {
+      id: cleanId,
+      slug: cleanSlug,
+      name: rawName,
+      subtitle: (pathwayData.subtitle || '').trim() || null,
+      description: (pathwayData.description || '').trim() || null,
+      type: isCohort ? 'cohort' : 'modular',
+      duration: (pathwayData.duration || '').trim() || (isCohort ? `${semesters * 4} Months (${semesters} Semesters)` : '4 Weeks'),
+      semesters,
+      tuition_model: tuitionModel === 'bundled' ? 'bundled' : 'per_course',
+      default_tuition_fee: Number(pathwayData.default_tuition_fee ?? pathwayData.defaultTuitionFee) || 0,
+      color: pathwayData.color || 'emerald',
+      icon: pathwayData.icon || 'GraduationCap',
+    };
+
+    const { data, error } = await supabase
+      .from('pathways')
+      .upsert(payload, { onConflict: 'id' })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return { success: true, data: normalizePathway(data) };
+  } catch (err) {
+    console.error('Failed to save academic pathway in Supabase:', err);
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Mutation: Delete an Academic Pathway from Supabase
+ * Enforces foreign key safety by checking courses and batches first.
+ */
+export async function deletePathwaySupabase(pathwayId) {
+  if (!isSupabaseConfigured) return { success: false, error: 'Supabase not configured' };
+  try {
+    const cleanId = (pathwayId || '').trim();
+    if (!cleanId) throw new Error('Pathway ID is required.');
+
+    // Check course dependency
+    const { count: courseCount, error: crsErr } = await supabase
+      .from('courses')
+      .select('id', { count: 'exact', head: true })
+      .eq('pathway_id', cleanId);
+    if (crsErr) throw crsErr;
+    if (courseCount > 0) {
+      throw new Error(`Cannot delete pathway '${cleanId}' because it is linked to ${courseCount} active course(s). Please reassign or delete them first.`);
+    }
+
+    // Check batch dependency
+    const { count: batchCount, error: bErr } = await supabase
+      .from('batches')
+      .select('id', { count: 'exact', head: true })
+      .eq('pathway_id', cleanId);
+    if (bErr) throw bErr;
+    if (batchCount > 0) {
+      throw new Error(`Cannot delete pathway '${cleanId}' because it has ${batchCount} intake batch(es) linked to it. Please archive or delete those batches first.`);
+    }
+
+    const { error } = await supabase
+      .from('pathways')
+      .delete()
+      .eq('id', cleanId);
+
+    if (error) throw error;
+    return { success: true };
+  } catch (err) {
+    console.error('Failed to delete pathway in Supabase:', err);
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Mutation: Create or Update a Faculty Scholar / Instructor in Supabase
+ */
+export async function saveInstructorSupabase(instructorData) {
+  if (!isSupabaseConfigured) return { success: false, error: 'Supabase not configured' };
+  try {
+    const rawName = (instructorData.name || '').trim();
+    if (!rawName) throw new Error('Instructor name is required.');
+
+    const cleanId = (instructorData.id || `inst_${Date.now()}`).trim();
+    const rawAvatar = (instructorData.avatar_url || instructorData.avatar || '').trim();
+    // Do not store heavy base64 strings in PostgreSQL
+    const cleanAvatar = rawAvatar.startsWith('data:') ? '' : rawAvatar;
+
+    const payload = {
+      id: cleanId,
+      name: rawName,
+      title: (instructorData.title || '').trim() || 'Instructor of Islamic Sciences',
+      specialization: (instructorData.specialization || '').trim() || null,
+      bio: (instructorData.bio || '').trim() || null,
+      email: (instructorData.email || '').trim() || null,
+      phone: (instructorData.phone || '').trim() || null,
+      avatar_url: cleanAvatar || null,
+      status: instructorData.status === 'On Leave' ? 'On Leave' : 'Active',
+    };
+
+    const { data, error } = await supabase
+      .from('instructors')
+      .upsert(payload, { onConflict: 'id' })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return { success: true, data: normalizeInstructor(data) };
+  } catch (err) {
+    console.error('Failed to save faculty scholar in Supabase:', err);
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Mutation: Delete a Faculty Scholar / Instructor from Supabase
+ * Enforces relational integrity by checking courses, batches, and schedule slots.
+ */
+export async function deleteInstructorSupabase(instructorId) {
+  if (!isSupabaseConfigured) return { success: false, error: 'Supabase not configured' };
+  try {
+    const cleanId = (instructorId || '').trim();
+    if (!cleanId) throw new Error('Instructor ID is required.');
+
+    // Check course dependency
+    const { count: courseCount, error: crsErr } = await supabase
+      .from('courses')
+      .select('id', { count: 'exact', head: true })
+      .eq('instructor_id', cleanId);
+    if (crsErr) throw crsErr;
+    if (courseCount > 0) {
+      throw new Error(`Cannot delete scholar because they are assigned as primary instructor to ${courseCount} course(s).`);
+    }
+
+    // Check batch course instructors
+    const { count: batchInstCount, error: bInstErr } = await supabase
+      .from('batch_course_instructors')
+      .select('id', { count: 'exact', head: true })
+      .eq('instructor_id', cleanId);
+    if (bInstErr) throw bInstErr;
+    if (batchInstCount > 0) {
+      throw new Error(`Cannot delete scholar because they are assigned to ${batchInstCount} cohort batch intake(s).`);
+    }
+
+    // Check schedule slots
+    const { count: slotCount, error: slotErr } = await supabase
+      .from('schedule_slots')
+      .select('id', { count: 'exact', head: true })
+      .eq('instructor_id', cleanId);
+    if (slotErr) throw slotErr;
+    if (slotCount > 0) {
+      throw new Error(`Cannot delete scholar because they are scheduled for ${slotCount} timetable lecture slot(s).`);
+    }
+
+    const { error } = await supabase
+      .from('instructors')
+      .delete()
+      .eq('id', cleanId);
+
+    if (error) throw error;
+    return { success: true };
+  } catch (err) {
+    console.error('Failed to delete instructor in Supabase:', err);
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Mutation: Create or Update a Course in Supabase
+ * Upserts public.courses, and upserts its modules and lessons, preserving existing lesson UUIDs
+ * and stripping any Base64 strings from reading_notes. Also prunes deleted modules & lessons.
+ */
+export async function saveCourseSupabase(courseData, modulesData = null) {
+  if (!isSupabaseConfigured) return { success: false, error: 'Supabase not configured' };
+  try {
+    const rawTitle = (courseData.title || '').trim();
+    if (!rawTitle) throw new Error('Course title is required.');
+
+    const cleanId = (courseData.id || `crs_${Date.now()}`).trim();
+    const cleanSlug = (courseData.slug || rawTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')).trim();
+
+    // Pathway mapping
+    const pathwayId = (courseData.pathway_id || courseData.category || 'foundations').trim();
+
+    // Instructor mapping
+    let instructorId = courseData.instructor_id || courseData.instructorId;
+    if (!instructorId && typeof courseData.instructor === 'object' && courseData.instructor?.id) {
+      instructorId = courseData.instructor.id;
+    }
+    if (!instructorId) {
+      instructorId = 'inst_001';
+    }
+
+    // Format normalization: 'hybrid' | 'online' | 'onsite'
+    let format = 'online';
+    const rawFormat = (courseData.format || courseData.classCategory || '').toLowerCase();
+    if (rawFormat.includes('onsite') || rawFormat.includes('on-site')) {
+      format = 'onsite';
+    } else if (rawFormat.includes('hybrid')) {
+      format = 'hybrid';
+    }
+
+    // Status normalization: 'active' | 'upcoming' | 'draft'
+    let status = 'active';
+    const rawStatus = (courseData.status || '').toLowerCase();
+    if (['active', 'upcoming', 'draft'].includes(rawStatus)) {
+      status = rawStatus;
+    }
+
+    // Tuition fee numeric extraction
+    let tuitionFee = 0;
+    if (courseData.tuition_fee !== undefined && courseData.tuition_fee !== null) {
+      tuitionFee = Number(courseData.tuition_fee) || 0;
+    } else if (typeof courseData.fee === 'string') {
+      const match = courseData.fee.replace(/,/g, '').match(/\d+/);
+      tuitionFee = match ? parseInt(match[0], 10) : 0;
+    } else if (typeof courseData.fee === 'number') {
+      tuitionFee = courseData.fee;
+    }
+
+    const coursePayload = {
+      id: cleanId,
+      pathway_id: pathwayId,
+      instructor_id: instructorId,
+      title: rawTitle,
+      slug: cleanSlug,
+      description: (courseData.description || courseData.subtitle || '').trim() || null,
+      format,
+      level: courseData.level || 'Beginner',
+      tuition_fee: tuitionFee,
+      status,
+      semester: parseInt(courseData.semester, 10) || 1,
+    };
+
+    // 1. Upsert course record
+    const { data: courseRow, error: courseErr } = await supabase
+      .from('courses')
+      .upsert(coursePayload, { onConflict: 'id' })
+      .select()
+      .single();
+
+    if (courseErr) throw courseErr;
+
+    // 2. Process modules & lessons if provided
+    const modules = modulesData || courseData.modules || [];
+    if (Array.isArray(modules) && modules.length > 0) {
+      const persistedModuleIds = [];
+
+      for (let modIdx = 0; modIdx < modules.length; modIdx++) {
+        const mod = modules[modIdx];
+        const rawModTitle = (mod.title || `Module ${modIdx + 1}`).trim();
+        const isExistingModUuid = mod.id && UUID_REGEX.test(mod.id);
+        const moduleId = isExistingModUuid ? mod.id : generateUuid();
+
+        const modPayload = {
+          id: moduleId,
+          course_id: cleanId,
+          title: rawModTitle,
+          display_order: modIdx + 1,
+        };
+
+        const { data: savedMod, error: modErr } = await supabase
+          .from('modules')
+          .upsert(modPayload, { onConflict: 'id' })
+          .select()
+          .single();
+
+        if (modErr) {
+          console.warn(`Warning: Failed to upsert module ${moduleId}:`, modErr);
+          continue;
+        }
+
+        persistedModuleIds.push(savedMod.id);
+
+        // Process lessons inside this module
+        const lessons = mod.lessons || [];
+        if (Array.isArray(lessons)) {
+          const persistedLessonIds = [];
+
+          for (let lesIdx = 0; lesIdx < lessons.length; lesIdx++) {
+            const les = lessons[lesIdx];
+            const rawLesTitle = (les.title || `Lesson ${lesIdx + 1}`).trim();
+            const isExistingLesUuid = les.id && UUID_REGEX.test(les.id);
+            const lessonId = isExistingLesUuid ? les.id : generateUuid();
+
+            // Sanitize reading_notes by removing any base64 data URLs
+            const rawNotes = les.reading_notes || les.readingNotes || '';
+            const cleanNotes = sanitizeNoBase64(rawNotes, '');
+
+            const lesPayload = {
+              id: lessonId,
+              module_id: savedMod.id,
+              title: rawLesTitle,
+              display_order: lesIdx + 1,
+              duration_minutes: parseInt(les.duration_minutes || les.duration, 10) || 0,
+              bunny_library_id: les.bunny_library_id || les.bunnyLibraryId || null,
+              bunny_video_guid: les.bunny_video_guid || les.bunnyVideoGuid || null,
+              reading_notes: cleanNotes || null,
+            };
+
+            const { data: savedLes, error: lesErr } = await supabase
+              .from('lessons')
+              .upsert(lesPayload, { onConflict: 'id' })
+              .select()
+              .single();
+
+            if (lesErr) {
+              console.warn(`Warning: Failed to upsert lesson ${lessonId}:`, lesErr);
+              continue;
+            }
+
+            persistedLessonIds.push(savedLes.id);
+          }
+
+          // Clean up deleted/orphaned lessons within this module
+          if (persistedLessonIds.length > 0) {
+            const { error: pruneLesErr } = await supabase
+              .from('lessons')
+              .delete()
+              .eq('module_id', savedMod.id)
+              .not('id', 'in', `(${persistedLessonIds.join(',')})`);
+            if (pruneLesErr) console.warn('Lesson prune notice:', pruneLesErr);
+          }
+        }
+      }
+
+      // Clean up deleted/orphaned modules for this course
+      if (persistedModuleIds.length > 0) {
+        const { error: pruneModErr } = await supabase
+          .from('modules')
+          .delete()
+          .eq('course_id', cleanId)
+          .not('id', 'in', `(${persistedModuleIds.join(',')})`);
+        if (pruneModErr) console.warn('Module prune notice:', pruneModErr);
+      }
+    }
+
+    return { success: true, data: courseRow };
+  } catch (err) {
+    console.error('Failed to save course in Supabase:', err);
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Mutation: Delete a Course from Supabase
+ * Enforces relational integrity by checking invoices and intake batches first.
+ */
+export async function deleteCourseSupabase(courseId) {
+  if (!isSupabaseConfigured) return { success: false, error: 'Supabase not configured' };
+  try {
+    const cleanId = (courseId || '').trim();
+    if (!cleanId) throw new Error('Course ID is required.');
+
+    // 1. Check if invoices are linked
+    const { count: invoiceCount, error: invErr } = await supabase
+      .from('invoices')
+      .select('id', { count: 'exact', head: true })
+      .eq('course_id', cleanId);
+
+    if (invErr) throw invErr;
+    if (invoiceCount > 0) {
+      throw new Error(`Cannot delete course '${cleanId}' because it has ${invoiceCount} linked invoice billing record(s).`);
+    }
+
+    // 2. Check if intake batches are linked
+    const { count: batchCount, error: bErr } = await supabase
+      .from('batches')
+      .select('id', { count: 'exact', head: true })
+      .eq('course_id', cleanId);
+
+    if (bErr) throw bErr;
+    if (batchCount > 0) {
+      throw new Error(`Cannot delete course '${cleanId}' because it is linked to ${batchCount} intake batch(es).`);
+    }
+
+    // 3. Delete from courses (cascades to modules, lessons, enrollments, schedule_slots)
+    const { error } = await supabase
+      .from('courses')
+      .delete()
+      .eq('id', cleanId);
+
+    if (error) throw error;
+    return { success: true };
+  } catch (err) {
+    console.error('Failed to delete course in Supabase:', err);
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Mutation: Update Course Status in Supabase ('active', 'upcoming', 'draft')
+ */
+export async function updateCourseStatusSupabase(courseId, newStatus) {
+  if (!isSupabaseConfigured) return { success: false, error: 'Supabase not configured' };
+  try {
+    const cleanId = (courseId || '').trim();
+    const cleanStatus = (newStatus || 'active').toLowerCase();
+    const validStatus = ['active', 'upcoming', 'draft'].includes(cleanStatus) ? cleanStatus : 'active';
+
+    const { data, error } = await supabase
+      .from('courses')
+      .update({ status: validStatus })
+      .eq('id', cleanId)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return { success: true, data };
+  } catch (err) {
+    console.error('Failed to update course status in Supabase:', err);
     return { success: false, error: err.message };
   }
 }

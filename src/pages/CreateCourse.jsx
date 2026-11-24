@@ -73,6 +73,7 @@ import {
   getAllPathways,
   savePathway,
 } from '../services/courseStorage';
+import { saveCourseSupabase } from '../hooks/useSupabaseData';
 import { DEFAULT_BUNNY_VIDEO_URL } from '../data/mockData';
 import logoWhite from '../assets/logo-white.png';
 
@@ -1134,7 +1135,7 @@ export default function CreateCourse() {
   };
 
   // Final Submit / Save Course
-  const handleFinalSubmit = (statusOverride) => {
+  const handleFinalSubmit = async (statusOverride) => {
     const isFoundations = formData.category === 'foundations';
     const isOnline = formData.classCategory === 'online';
     const isOnsite = formData.classCategory === 'onsite';
@@ -1181,6 +1182,17 @@ export default function CreateCourse() {
       learningObjectives: formData.learningObjectives.filter((o) => o.trim().length > 0),
     };
 
+    // 1. Sync to Supabase PostgreSQL (courses, modules, lessons)
+    try {
+      const res = await saveCourseSupabase(courseToSave, formData.modules);
+      if (!res.success) {
+        console.warn('Supabase course save notice:', res.error);
+      }
+    } catch (sbErr) {
+      console.error('Error saving course to Supabase:', sbErr);
+    }
+
+    // 2. Persist local cache & navigate
     saveCourse(courseToSave);
     setIsDirty(false);
     navigate('/admin');

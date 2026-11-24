@@ -97,10 +97,18 @@ import LectureAccessSection from '../components/admin/LectureAccessSection';
 import IntakeModal from '../components/admin/IntakeModal';
 import {
   useSupabaseCourses,
+  deleteCourseSupabase,
+  updateCourseStatusSupabase,
   useSupabaseStudents,
   useSupabaseSchedule,
   useSupabaseInvoices,
   useSupabaseBatches,
+  useSupabasePathways,
+  useSupabaseInstructors,
+  savePathwaySupabase,
+  deletePathwaySupabase,
+  saveInstructorSupabase,
+  deleteInstructorSupabase,
   savePathwayIntakeSupabase,
   advanceBatchSemesterSupabase,
   deletePathwayIntakeSupabase,
@@ -223,6 +231,8 @@ export default function AdminDashboard() {
   const { schedule: sbSchedule, refetch: refetchSbSchedule } = useSupabaseSchedule();
   const { invoices: sbInvoices, refetch: refetchSbInvoices } = useSupabaseInvoices();
   const { batches: sbBatches, refetch: refetchSbBatches } = useSupabaseBatches();
+  const { pathways: sbPathways, refetch: refetchSbPathways } = useSupabasePathways();
+  const { instructors: sbInstructors, refetch: refetchSbInstructors } = useSupabaseInstructors();
   const { sessions: sbAttendanceSessions, refetch: refetchSbAttendance } = useSupabaseAttendance();
   const { items: sbLibraryItems, refetch: refetchLibrary } = useSupabaseLibrary();
   const { quotes: sbQuotes, refetch: refetchQuotes } = useSupabaseQuotes(true);
@@ -917,6 +927,24 @@ export default function AdminDashboard() {
   // Faculty & Instructor Management State & Handlers
   const [instructorSearch, setInstructorSearch] = useState('');
   const [instructors, setInstructors] = useState(() => getAllInstructors());
+
+  // Synchronize instructors with Supabase live records and dynamic course assignments
+  useEffect(() => {
+    if (sbInstructors && sbInstructors.length > 0) {
+      setInstructors(
+        sbInstructors.map((inst) => {
+          const assigned = courses
+            .filter((c) => c.instructor_id === inst.id || c.instructor === inst.name)
+            .map((c) => c.title);
+          return {
+            ...inst,
+            assignedCourses: assigned.length > 0 ? assigned : (inst.assignedCourses || []),
+          };
+        })
+      );
+    }
+  }, [sbInstructors, courses]);
+
   const [isInstructorModalOpen, setIsInstructorModalOpen] = useState(false);
   const [editingInstructor, setEditingInstructor] = useState(null);
   const [instructorFormData, setInstructorFormData] = useState({
@@ -975,7 +1003,7 @@ export default function AdminDashboard() {
     setIsInstructorModalOpen(true);
   };
 
-  const handleSaveInstructorForm = (e) => {
+  const handleSaveInstructorForm = async (e) => {
     e.preventDefault();
     if (!instructorFormData.name.trim() || !instructorFormData.email.trim()) return;
 
@@ -1000,19 +1028,39 @@ export default function AdminDashboard() {
     setInstructors(getAllInstructors());
     setIsInstructorModalOpen(false);
     setEditingInstructor(null);
+
+    // Sync to Supabase PostgreSQL
+    const res = await saveInstructorSupabase(payload);
+    if (res.success && refetchSbInstructors) {
+      refetchSbInstructors();
+    }
   };
 
-  const handleDeleteInstructor = (instId, instName) => {
+  const handleDeleteInstructor = async (instId, instName) => {
     if (window.confirm(`Are you sure you want to remove faculty scholar "${instName}"?`)) {
+      const res = await deleteInstructorSupabase(instId);
+      if (!res.success) {
+        alert(res.error || 'Failed to delete faculty member from database.');
+        return;
+      }
+      if (refetchSbInstructors) refetchSbInstructors();
       const updated = deleteInstructor(instId);
       setInstructors(updated);
     }
   };
 
-  const handleToggleInstructorStatus = (instId, currentStatus) => {
+  const handleToggleInstructorStatus = async (instId, currentStatus) => {
     const newStatus = currentStatus === 'Active' ? 'On Leave' : 'Active';
+    const found = instructors.find((i) => i.id === instId);
     saveInstructor({ id: instId, status: newStatus });
     setInstructors(getAllInstructors());
+
+    if (found) {
+      const res = await saveInstructorSupabase({ ...found, status: newStatus });
+      if (res.success && refetchSbInstructors) {
+        refetchSbInstructors();
+      }
+    }
   };
 
   // ========================================================
@@ -1629,6 +1677,14 @@ export default function AdminDashboard() {
 
   // Pathways State & Handlers
   const [pathways, setPathways] = useState(() => getAllPathways());
+
+  // Synchronize pathways with Supabase live records
+  useEffect(() => {
+    if (sbPathways && sbPathways.length > 0) {
+      setPathways(sbPathways);
+    }
+  }, [sbPathways]);
+
   const [pathwaySearch, setPathwaySearch] = useState('');
   const [isPathwayModalOpen, setIsPathwayModalOpen] = useState(false);
   const [editingPathway, setEditingPathway] = useState(null);
@@ -1731,30 +1787,44 @@ export default function AdminDashboard() {
     setIsPathwayModalOpen(true);
   };
 
-  const handleSavePathwaySubmit = (e) => {
+  const handleSavePathwaySubmit = async (e) => {
     e.preventDefault();
     if (!pathwayFormData.name.trim()) {
       setPathwayFormError('Pathway name is required.');
       return;
     }
     const slug = editingPathway?.slug || pathwayFormData.name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-');
-    savePathway({
+    const payload = {
       ...(editingPathway || {}),
       ...pathwayFormData,
       slug,
-    });
+      id: editingPathway?.id || slug,
+    };
+    savePathway(payload);
     setPathways(getAllPathways());
     setIsPathwayModalOpen(false);
     setEditingPathway(null);
+
+    // Sync to Supabase PostgreSQL
+    const res = await savePathwaySupabase(payload);
+    if (res.success && refetchSbPathways) {
+      refetchSbPathways();
+    }
   };
 
-  const handleDeletePathway = (id, name) => {
-    const isAssigned = courses.some((c) => c.category === id);
+  const handleDeletePathway = async (id, name) => {
+    const isAssigned = courses.some((c) => c.category === id || c.pathway_id === id);
     if (isAssigned) {
       alert(`Cannot delete pathway "${name}" because active courses are currently assigned to it. Please reassign or delete the courses first.`);
       return;
     }
     if (window.confirm(`Are you sure you want to remove Academic Pathway "${name}"?`)) {
+      const res = await deletePathwaySupabase(id);
+      if (!res.success) {
+        alert(res.error || 'Failed to delete academic pathway from database.');
+        return;
+      }
+      if (refetchSbPathways) refetchSbPathways();
       const updated = deletePathway(id);
       setPathways(updated);
     }
@@ -1791,16 +1861,26 @@ export default function AdminDashboard() {
   };
 
   // Handle course deletion
-  const handleDeleteCourse = (courseId, courseTitle) => {
+  const handleDeleteCourse = async (courseId, courseTitle) => {
     if (window.confirm(`Are you sure you want to remove "${courseTitle}" from the course catalog?`)) {
+      const res = await deleteCourseSupabase(courseId);
+      if (!res.success) {
+        alert(res.error || 'Failed to delete course from database.');
+        return;
+      }
+      if (refetchSbCourses) refetchSbCourses();
       const updated = deleteCourse(courseId);
       setCourses(updated);
     }
   };
 
   // Handle course status toggle
-  const handleToggleStatus = (courseId, currentStatus) => {
+  const handleToggleStatus = async (courseId, currentStatus) => {
     const nextStatus = currentStatus === 'Active' ? 'Upcoming' : currentStatus === 'Upcoming' ? 'Draft' : 'Active';
+    const res = await updateCourseStatusSupabase(courseId, nextStatus.toLowerCase());
+    if (res.success && refetchSbCourses) {
+      refetchSbCourses();
+    }
     const updated = updateCourseStatus(courseId, nextStatus);
     setCourses(updated);
   };
