@@ -95,6 +95,30 @@ import BillingDrawer from '../components/admin/BillingDrawer';
 import ScheduleDrawer from '../components/admin/ScheduleDrawer';
 import LectureAccessSection from '../components/admin/LectureAccessSection';
 import {
+  useSupabaseCourses,
+  useSupabaseStudents,
+  useSupabaseSchedule,
+  useSupabaseInvoices,
+  useSupabaseBatches,
+  useSupabaseAttendance,
+  saveAttendanceSessionSupabase,
+  deleteAttendanceSessionSupabase,
+  approveInstallmentSupabase,
+  rejectInstallmentSupabase,
+  applyDiscountSupabase,
+  resolveReceiptUrl,
+  useSupabaseLibrary,
+  saveLibraryItemSupabase,
+  deleteLibraryItemSupabase,
+  useSupabaseQuotes,
+  saveQuoteSupabase,
+  toggleQuoteStatusSupabase,
+  deleteQuoteSupabase,
+  useSupabaseAdmissions,
+  updateApplicationStatusSupabase,
+} from '../hooks/useSupabaseData';
+import { supabase, isSupabaseConfigured } from '../services/supabase';
+import {
   adminOverviewStats,
   adminStudentsList,
   courseFormats,
@@ -188,6 +212,85 @@ export default function AdminDashboard() {
   // Courses filter & persistent state
   const [courseCategoryFilter, setCourseCategoryFilter] = useState('all');
   const [courses, setCourses] = useState(() => getAllCourses());
+
+  // Supabase reactive data hooks for Courses, Students, Schedule, Batches and Invoices
+  const { courses: sbCourses, refetch: refetchSbCourses } = useSupabaseCourses();
+  const { students: sbStudents, refetch: refetchSbStudents } = useSupabaseStudents();
+  const { schedule: sbSchedule, refetch: refetchSbSchedule } = useSupabaseSchedule();
+  const { invoices: sbInvoices, refetch: refetchSbInvoices } = useSupabaseInvoices();
+  const { batches: sbBatches, refetch: refetchSbBatches } = useSupabaseBatches();
+  const { sessions: sbAttendanceSessions, refetch: refetchSbAttendance } = useSupabaseAttendance();
+  const { items: sbLibraryItems, refetch: refetchLibrary } = useSupabaseLibrary();
+  const { quotes: sbQuotes, refetch: refetchQuotes } = useSupabaseQuotes(true);
+  const { applications: sbApplications, refetch: refetchApplications } = useSupabaseAdmissions();
+
+  useEffect(() => {
+    if (sbCourses && sbCourses.length > 0) {
+      setCourses(sbCourses.map((c) => ({
+        id: c.id,
+        title: c.title,
+        subtitle: c.description || c.title,
+        category: c.pathway_id || 'foundations',
+        instructor: c.instructor?.name || 'Instructor',
+        format: c.format === 'onsite' ? 'on-site' : c.format === 'hybrid' ? 'hybrid' : 'live-online',
+        classCategory: c.format === 'onsite' ? 'onsite' : 'online',
+        enrolledCount: 142,
+        capacity: 150,
+        fee: c.tuition_fee ? `PKR ${c.tuition_fee.toLocaleString()}` : 'Ilm Foundations',
+        semester: 'Semester 1',
+        status: c.status === 'upcoming' ? 'Upcoming' : 'Active',
+        startDate: '2026-03-01',
+        duration: '16 Weeks',
+        venue: c.format === 'onsite' ? 'Campus Hall A' : 'Live Online',
+        schedule: 'Tuesdays & Thursdays',
+      })));
+    }
+  }, [sbCourses]);
+
+  useEffect(() => {
+    if (sbStudents && sbStudents.length > 0) {
+      setStudents(sbStudents.map((s) => ({
+        id: s.id,
+        name: s.name,
+        email: s.email,
+        phone: s.phone,
+        program: s.cohort_id === 'foundations_sem1' ? 'Ilm Foundations' : 'Ilm Intensives',
+        semester: 'Semester 1',
+        format: s.format,
+        progress: 0,
+        feeStatus: 'Paid',
+        attendance: '100%',
+        enrolledDate: s.created_at ? s.created_at.slice(0, 10) : '2026-11-13',
+        isVideoRestricted: Boolean(s.is_video_restricted),
+      })));
+    }
+  }, [sbStudents]);
+
+  useEffect(() => {
+    if (sbSchedule && sbSchedule.length > 0) {
+      setScheduleSlots(sbSchedule.map((s) => ({
+        id: s.id,
+        courseId: s.course_id,
+        courseTitle: s.course?.title || s.course_id,
+        cohortId: s.cohort_id,
+        cohortName: s.cohort_id === 'foundations_sem1' ? 'Ilm Foundations • Semester 1' : 'Ilm Intensives',
+        enrolledCount: 142,
+        topic: s.course?.title ? `${s.course.title} Lecture` : 'Lecture Topic',
+        instructorId: s.instructor_id,
+        instructorName: s.instructor?.name || 'Instructor',
+        dayOfWeek: s.day_of_week,
+        startTime: s.start_time ? s.start_time.slice(0, 5) : '18:30',
+        endTime: s.end_time ? s.end_time.slice(0, 5) : '19:30',
+        durationMinutes: 60,
+        scheduleType: 'recurring',
+        status: s.status === 'cancelled' ? 'cancelled' : 'scheduled',
+        modality: s.modality,
+        meetLink: s.meet_link || '',
+        campusRoom: s.campus_room || '',
+        roomCapacity: 35,
+      })));
+    }
+  }, [sbSchedule]);
 
   // Roster Management Modal State
   const [rosterModalCourse, setRosterModalCourse] = useState(null);
@@ -478,6 +581,9 @@ export default function AdminDashboard() {
   const [attendanceLessonsTab, setAttendanceLessonsTab] = useState('lessons'); // 'lessons' | 'history'
   const [editingAttendanceSessionId, setEditingAttendanceSessionId] = useState(null);
   const [attendanceCourseId, setAttendanceCourseId] = useState('');
+  const [attendanceCohortId, setAttendanceCohortId] = useState('foundations_sem1');
+  const [admissionsFilterStatus, setAdmissionsFilterStatus] = useState('all');
+  const [isApprovingAppId, setIsApprovingAppId] = useState(null);
   const [attendanceDate, setAttendanceDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [attendanceTopic, setAttendanceTopic] = useState('');
   const [isCustomTopic, setIsCustomTopic] = useState(false);
@@ -495,6 +601,17 @@ export default function AdminDashboard() {
   const [attendanceSectionCourseFilter, setAttendanceSectionCourseFilter] = useState('all');
   const [attendanceSectionPathwayFilter, setAttendanceSectionPathwayFilter] = useState('all');
   const [attendanceSectionStandingFilter, setAttendanceSectionStandingFilter] = useState('all');
+
+  // Synchronize Supabase Attendance Sessions
+  useEffect(() => {
+    if (Array.isArray(sbAttendanceSessions) && sbAttendanceSessions.length > 0) {
+      setAttendanceSessions((prev) => {
+        const sbIds = new Set(sbAttendanceSessions.map((s) => s.id));
+        const localOnly = prev.filter((s) => !sbIds.has(s.id));
+        return [...sbAttendanceSessions, ...localOnly];
+      });
+    }
+  }, [sbAttendanceSessions]);
 
   // Listen for global attendance updates across components
   useEffect(() => {
@@ -533,6 +650,7 @@ export default function AdminDashboard() {
     if (existingSession) {
       setEditingAttendanceSessionId(existingSession.id);
       setAttendanceCourseId(existingSession.courseId);
+      setAttendanceCohortId(existingSession.cohortId || existingSession.cohort_id || 'foundations_sem1');
       setAttendanceDate(existingSession.date);
       setAttendanceTopic(existingSession.topic || '');
       setAttendanceDeliveryMode(existingSession.deliveryMode || 'hybrid');
@@ -547,6 +665,11 @@ export default function AdminDashboard() {
       const selectedCourseId = courseId || courses[0]?.id || '';
       setEditingAttendanceSessionId(null);
       setAttendanceCourseId(selectedCourseId);
+
+      const course = courses.find((c) => c.id === selectedCourseId);
+      const defaultBatch = Array.isArray(sbBatches) ? sbBatches.find((b) => b.pathway_id === course?.category && b.status === 'active') : null;
+      setAttendanceCohortId(course?.cohort_id || defaultBatch?.id || 'foundations_sem1');
+
       const today = new Date().toISOString().split('T')[0];
       setAttendanceDate(today);
       setAttendanceDeliveryMode('hybrid');
@@ -556,7 +679,6 @@ export default function AdminDashboard() {
       const lessons = detail?.modules?.flatMap((m) => m.lessons || []) || [];
       setAttendanceTopic(lessons[0]?.title || `Lesson 1: Introduction`);
 
-      const course = courses.find((c) => c.id === selectedCourseId);
       const enrolledIds = course ? getCourseEnrolledStudentIds(course.id, course.category) : [];
       const initialRecs = {};
       enrolledIds.forEach((id) => {
@@ -601,6 +723,7 @@ export default function AdminDashboard() {
   const handleViewSessionAttendance = (session) => {
     setEditingAttendanceSessionId(session.id);
     setAttendanceCourseId(session.courseId);
+    setAttendanceCohortId(session.cohortId || session.cohort_id || 'foundations_sem1');
     setAttendanceDate(session.date);
     setAttendanceTopic(session.topic || '');
     setAttendanceDeliveryMode(session.deliveryMode || 'hybrid');
@@ -626,11 +749,14 @@ export default function AdminDashboard() {
 
     // If not editing an existing past session, load lessons and reset roster for new course
     if (!editingAttendanceSessionId) {
+      const course = courses.find((c) => c.id === newCourseId);
+      const defaultBatch = Array.isArray(sbBatches) ? sbBatches.find((b) => b.pathway_id === course?.category && b.status === 'active') : null;
+      if (defaultBatch?.id) setAttendanceCohortId(defaultBatch.id);
+
       const detail = getCourseDetailById(newCourseId);
       const lessons = detail?.modules?.flatMap((m) => m.lessons || []) || [];
       setAttendanceTopic(lessons[0]?.title || `Lesson 1`);
 
-      const course = courses.find((c) => c.id === newCourseId);
       const enrolledIds = course ? getCourseEnrolledStudentIds(course.id, course.category) : [];
       const initialRecs = {};
       enrolledIds.forEach((id) => {
@@ -720,17 +846,41 @@ export default function AdminDashboard() {
 
     const matchedLesson = availableCourseLessons.find((l) => l.title === attendanceTopic);
 
+    // Strictly resolve cohort_id for multi-batch foreign key integrity
+    let cohortId = attendanceCohortId || course?.cohort_id || null;
+    if (!cohortId && Array.isArray(sbBatches)) {
+      const matchedBatch = sbBatches.find(
+        (b) => b.pathway_id === course?.category && b.status === 'active'
+      );
+      cohortId = matchedBatch?.id || 'foundations_sem1';
+    } else if (!cohortId) {
+      cohortId = 'foundations_sem1';
+    }
+
     const sessionPayload = {
       ...(editingAttendanceSessionId ? { id: editingAttendanceSessionId } : {}),
       courseId: attendanceCourseId,
+      cohortId,
       courseTitle,
       lessonId: matchedLesson?.id || null,
       date: attendanceDate,
+      sessionDate: attendanceDate,
       topic: attendanceTopic.trim() || `Class Session (${attendanceDate})`,
       deliveryMode: attendanceDeliveryMode,
       records: attendanceRecords,
     };
 
+    // 1. Direct Supabase save (strictly includes cohort_id and upserts on (session_id, student_id))
+    if (isSupabaseConfigured) {
+      try {
+        await saveAttendanceSessionSupabase(sessionPayload);
+        if (refetchSbAttendance) await refetchSbAttendance();
+      } catch (sbErr) {
+        console.warn('Supabase attendance save notice:', sbErr);
+      }
+    }
+
+    // 2. Synchronize local storage & student records
     await saveAttendanceSession(sessionPayload);
     setStudents(getAllStudents());
     setAttendanceSessions(getAttendanceSessions());
@@ -744,6 +894,14 @@ export default function AdminDashboard() {
 
   const handleDeleteAttendanceSession = async (sessionId) => {
     if (window.confirm('Are you sure you want to delete this attendance session? All student rates will be recalculated.')) {
+      if (isSupabaseConfigured) {
+        try {
+          await deleteAttendanceSessionSupabase(sessionId);
+          if (refetchSbAttendance) await refetchSbAttendance();
+        } catch (sbErr) {
+          console.warn('Supabase attendance delete notice:', sbErr);
+        }
+      }
       await deleteAttendanceSession(sessionId);
       setStudents(getAllStudents());
       setAttendanceSessions(getAttendanceSessions());
@@ -861,6 +1019,22 @@ export default function AdminDashboard() {
   const [installmentQueueTab, setInstallmentQueueTab] = useState('review'); // 'review' | 'overdue' | 'approved' | 'rejected' | 'all'
   const [installmentSearch, setInstallmentSearch] = useState('');
   const [inspectingInst, setInspectingInst] = useState(null);
+  const [inspectingReceiptUrl, setInspectingReceiptUrl] = useState(null);
+
+  // Generate on-the-fly signed URL when inspecting private receipt proof
+  useEffect(() => {
+    let isMounted = true;
+    const raw = inspectingInst?.receiptImageUrl || inspectingInst?.receiptUrl;
+    if (!raw) {
+      setInspectingReceiptUrl(null);
+      return;
+    }
+    resolveReceiptUrl(raw).then((url) => {
+      if (isMounted) setInspectingReceiptUrl(url);
+    });
+    return () => { isMounted = false; };
+  }, [inspectingInst]);
+
   const [rejectionReasonInput, setRejectionReasonInput] = useState('');
   const [isRejectingMode, setIsRejectingMode] = useState(false);
   const [showCreateInstallmentModal, setShowCreateInstallmentModal] = useState(false);
@@ -944,11 +1118,23 @@ export default function AdminDashboard() {
     return students.filter((s) => studentIdSet.has(s.id) && !s.isVideoRestricted);
   }, [feeInstallments, students, todayDateStr]);
 
-  // Approve Installment Action (with Auto-Unlock Check)
-  const handleApproveInstallmentAction = (inst) => {
+  // Approve Installment Action (with Auto-Unlock Check and Supabase Trigger A sync)
+  const handleApproveInstallmentAction = async (inst) => {
     if (!inst) return;
     const adminId = user?.id || 'adm_001';
     const adminName = user?.name || 'Administrator';
+
+    // 1. Direct Supabase mutation if live (Trigger A automatically recalculates parent invoice status & balance)
+    if (isSupabaseConfigured && inst.id) {
+      try {
+        await approveInstallmentSupabase(inst.id, adminName);
+        if (refetchSbInvoices) await refetchSbInvoices();
+      } catch (sbErr) {
+        console.warn('Supabase installment approval note:', sbErr);
+      }
+    }
+
+    // 2. Synchronize local state
     const result = approveInstallment(inst.id, adminId, adminName);
     if (!result) return;
 
@@ -976,7 +1162,7 @@ export default function AdminDashboard() {
   };
 
   // Reject Installment Action
-  const handleRejectInstallmentAction = (inst) => {
+  const handleRejectInstallmentAction = async (inst) => {
     if (!inst) return;
     if (!rejectionReasonInput.trim()) {
       alert('Please provide a specific rejection reason for the student.');
@@ -984,6 +1170,18 @@ export default function AdminDashboard() {
     }
     const adminId = user?.id || 'adm_001';
     const adminName = user?.name || 'Administrator';
+
+    // 1. Direct Supabase mutation if live
+    if (isSupabaseConfigured && inst.id) {
+      try {
+        await rejectInstallmentSupabase(inst.id, rejectionReasonInput.trim(), adminName);
+        if (refetchSbInvoices) await refetchSbInvoices();
+      } catch (sbErr) {
+        console.warn('Supabase installment rejection note:', sbErr);
+      }
+    }
+
+    // 2. Synchronize local state
     const rejected = rejectInstallment(inst.id, rejectionReasonInput.trim(), adminId, adminName);
     if (!rejected) return;
 
@@ -1196,6 +1394,26 @@ export default function AdminDashboard() {
   const [feeStatusFilter, setFeeStatusFilter] = useState('all');
   const [selectedInvoiceRecord, setSelectedInvoiceRecord] = useState(null);
 
+  // Synchronize Supabase Invoices & Fee Installments into ledger state
+  useEffect(() => {
+    if (Array.isArray(sbInvoices) && sbInvoices.length > 0) {
+      setFeeRecords((prev) => {
+        const sbIds = new Set(sbInvoices.map((i) => i.id));
+        const sbInvNos = new Set(sbInvoices.map((i) => i.invoiceNo));
+        const localOnly = prev.filter((p) => !sbIds.has(p.id) && !sbInvNos.has(p.invoiceNo));
+        return [...sbInvoices, ...localOnly];
+      });
+      const allInsts = sbInvoices.flatMap((inv) => inv.installments || []);
+      if (allInsts.length > 0) {
+        setFeeInstallments((prev) => {
+          const sbInstIds = new Set(allInsts.map((i) => i.id));
+          const localOnlyInsts = prev.filter((i) => !sbInstIds.has(i.id));
+          return [...allInsts, ...localOnlyInsts];
+        });
+      }
+    }
+  }, [sbInvoices]);
+
   // View Mode: 'flat' (All Invoices) vs 'grouped' (Grouped by Student)
   const [tableViewMode, setTableViewMode] = useState('flat');
   const [expandedStudentKeys, setExpandedStudentKeys] = useState(() => new Set(['std_001', 'std_004']));
@@ -1323,7 +1541,25 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleDrawerSaveDiscount = (feeId, discountData) => {
+  const handleDrawerSaveDiscount = async (feeId, discountData) => {
+    // 1. Direct Supabase invoice concession update
+    if (isSupabaseConfigured) {
+      try {
+        const baseFee = Number(selectedDrawerFee?.baseFee) || 30000;
+        await applyDiscountSupabase({
+          invoiceId: feeId,
+          discountType: discountData.discountType,
+          discountValue: discountData.discountValue,
+          discountReason: discountData.discountReason,
+          approvedBy: discountData.approvedBy || user?.name || 'Faculty Administration',
+          baseFee,
+        });
+        if (refetchSbInvoices) await refetchSbInvoices();
+      } catch (sbErr) {
+        console.warn('Supabase discount application note:', sbErr);
+      }
+    }
+
     applyFeeDiscount(feeId, discountData);
     setFeeRecords(getFeeRecords());
     setStudents(getAllStudents());
@@ -1334,7 +1570,27 @@ export default function AdminDashboard() {
     setFeeRecords(getFeeRecords());
   };
 
-  const handleDrawerRecordPayment = (feeId, paymentData) => {
+  const handleDrawerRecordPayment = async (feeId, paymentData) => {
+    // 1. Direct Supabase payment approval (Trigger A recalculates invoice automatically)
+    if (isSupabaseConfigured) {
+      try {
+        const adminName = user?.name || 'Administrator';
+        if (paymentData.installmentId) {
+          await supabase
+            .from('fee_installments')
+            .update({
+              status: 'APPROVED',
+              approved_by: adminName,
+              approved_at: new Date().toISOString(),
+            })
+            .eq('id', paymentData.installmentId);
+        }
+        if (refetchSbInvoices) await refetchSbInvoices();
+      } catch (sbErr) {
+        console.warn('Supabase payment recording note:', sbErr);
+      }
+    }
+
     recordFeePayment(feeId, paymentData);
     setFeeRecords(getFeeRecords());
     setStudents(getAllStudents());
@@ -1602,9 +1858,70 @@ export default function AdminDashboard() {
     setIsScheduleDrawerOpen(true);
   };
 
-  const handleSaveScheduleSlot = (slotData, notificationData) => {
+  const handleSaveScheduleSlot = async (slotData, notificationData) => {
+    if (isSupabaseConfigured) {
+      try {
+        let instId = 'inst_001';
+        const instName = (slotData.instructorName || '').toLowerCase();
+        if (instName.includes('mutee')) instId = 'inst_001';
+        else if (instName.includes('salman')) instId = 'inst_002';
+        else if (instName.includes('zubair')) instId = 'inst_003';
+        else if (instName.includes('hamid')) instId = 'inst_004';
+        else if (instName.includes('ahmed khan')) instId = 'inst_005';
+        else if (instName.includes('saeed')) instId = 'inst_006';
+        else if (instName.includes('muhammad ali')) instId = 'inst_007';
+        else if (instName.includes('raja zia')) instId = 'inst_008';
+
+        let cId = slotData.courseId || 'crs_found_01';
+        if (cId === 'crs_001') cId = 'crs_found_01';
+        else if (cId === 'crs_002') cId = 'crs_found_02';
+        else if (cId === 'crs_003') cId = 'crs_found_03';
+        else if (cId === 'crs_004') cId = 'crs_found_04';
+        else if (cId === 'crs_005') cId = 'crs_found_05';
+        else if (cId === 'crs_006') cId = 'crs_found_06';
+
+        const startTime = slotData.startTime.length === 5 ? `${slotData.startTime}:00` : slotData.startTime;
+        const endTime = slotData.endTime.length === 5 ? `${slotData.endTime}:00` : slotData.endTime;
+
+        const slotPayload = {
+          course_id: cId,
+          instructor_id: instId,
+          cohort_id: slotData.cohortId,
+          day_of_week: slotData.dayOfWeek,
+          start_time: startTime,
+          end_time: endTime,
+          modality: slotData.modality === 'onsite_campus' ? 'onsite_campus' : slotData.modality === 'hybrid' ? 'hybrid' : 'online_meet',
+          campus_room: slotData.campusRoom || '',
+          meet_link: slotData.meetLink || '',
+          status: slotData.status === 'cancelled' ? 'cancelled' : 'active',
+        };
+
+        if (slotData.id && slotData.id.includes('-')) {
+          slotPayload.id = slotData.id;
+        }
+
+        const { data: savedSbSlot, error: slotErr } = await supabase
+          .from('schedule_slots')
+          .upsert(slotPayload)
+          .select()
+          .single();
+
+        if (slotErr) {
+          console.warn('Schedule collision detected by Trigger B:', slotErr.message);
+          return { success: false, error: slotErr.message };
+        }
+
+        if (savedSbSlot?.id) {
+          slotData.id = savedSbSlot.id;
+        }
+      } catch (err) {
+        return { success: false, error: err.message };
+      }
+    }
+
     const { record, updatedSlots } = saveScheduleSlot(slotData);
     setScheduleSlots(updatedSlots);
+    refetchSbSchedule?.();
 
     if (notificationData) {
       const { updatedNotifs } = recordScheduleNotification(notificationData);
@@ -1621,12 +1938,18 @@ export default function AdminDashboard() {
     setTimeout(() => {
       setScheduleToast(null);
     }, 5000);
+
+    return { success: true };
   };
 
-  const handleDeleteScheduleSlotItem = (slotId, courseTitle) => {
+  const handleDeleteScheduleSlotItem = async (slotId, courseTitle) => {
     if (window.confirm(`Are you sure you want to remove the lecture slot for "${courseTitle}"?`)) {
+      if (isSupabaseConfigured && slotId?.includes('-')) {
+        await supabase.from('schedule_slots').delete().eq('id', slotId);
+      }
       const updated = deleteScheduleSlot(slotId);
       setScheduleSlots(updated);
+      refetchSbSchedule?.();
       setScheduleToast({
         message: `✓ Lecture slot removed from timetable.`,
       });
@@ -1705,6 +2028,31 @@ export default function AdminDashboard() {
     };
   }, []);
 
+  // Synchronize library items with Supabase catalog
+  useEffect(() => {
+    if (Array.isArray(sbLibraryItems) && sbLibraryItems.length > 0) {
+      const mapped = sbLibraryItems.map((sb) => ({
+        id: sb.id,
+        title: sb.title,
+        titleArabic: sb.title_arabic,
+        author: sb.author,
+        category: sb.category,
+        type: sb.type,
+        language: sb.language,
+        pages: sb.pages,
+        downloadUrl: sb.storage_path,
+        externalUrl: sb.storage_path,
+        storagePath: sb.storage_path,
+        fileSize: sb.file_size_bytes ? `${(sb.file_size_bytes / (1024 * 1024)).toFixed(1)} MB` : '15 MB',
+        isDownloadAllowed: sb.is_download_allowed,
+        featured: sb.featured,
+        status: sb.status || 'published',
+        description: sb.title_arabic ? `${sb.title_arabic} — Canonical text` : '',
+      }));
+      setLibraryList(mapped);
+    }
+  }, [sbLibraryItems]);
+
   const handleOpenAddLibraryModal = () => {
     setEditingLibraryItem(null);
     setLibraryFormData(initialLibraryForm);
@@ -1732,7 +2080,7 @@ export default function AdminDashboard() {
     setIsLibraryModalOpen(true);
   };
 
-  const handleSaveLibrarySubmit = (e) => {
+  const handleSaveLibrarySubmit = async (e) => {
     e.preventDefault();
     if (!libraryFormData.title.trim()) {
       setLibraryFormError('Please enter a title for the library resource.');
@@ -1740,6 +2088,14 @@ export default function AdminDashboard() {
     }
 
     try {
+      if (isSupabaseConfigured) {
+        await saveLibraryItemSupabase({
+          ...(editingLibraryItem ? { id: editingLibraryItem.id } : {}),
+          ...libraryFormData,
+          storage_path: libraryFormData.downloadUrl || libraryFormData.externalUrl || libraryFormData.storagePath || '',
+        });
+        if (refetchLibrary) await refetchLibrary();
+      }
       saveLibraryItem({
         ...(editingLibraryItem ? { id: editingLibraryItem.id } : {}),
         ...libraryFormData,
@@ -1753,7 +2109,11 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleToggleLibraryFeatured = (id) => {
+  const handleToggleLibraryFeatured = async (id, currentFeatured) => {
+    if (isSupabaseConfigured) {
+      await supabase.from('library_items').update({ featured: !currentFeatured }).eq('id', id);
+      if (refetchLibrary) await refetchLibrary();
+    }
     const updated = toggleLibraryItemFeatured(id);
     setLibraryList(updated);
   };
@@ -1763,8 +2123,12 @@ export default function AdminDashboard() {
     setIsLibraryDeleteModalOpen(true);
   };
 
-  const handleConfirmDeleteLibrary = () => {
+  const handleConfirmDeleteLibrary = async () => {
     if (libraryItemToDelete) {
+      if (isSupabaseConfigured) {
+        await deleteLibraryItemSupabase(libraryItemToDelete.id);
+        if (refetchLibrary) await refetchLibrary();
+      }
       const updated = deleteLibraryItem(libraryItemToDelete.id);
       setLibraryList(updated);
       setIsLibraryDeleteModalOpen(false);
@@ -1819,18 +2183,12 @@ export default function AdminDashboard() {
   };
   const [quoteFormData, setQuoteFormData] = useState(initialQuoteForm);
 
-  // Sync quotes dynamically across events
-  React.useEffect(() => {
-    const handleUpdate = () => {
-      setQuotesList(getDailyQuotes());
-    };
-    window.addEventListener('ilm-quotes-updated', handleUpdate);
-    window.addEventListener('storage', handleUpdate);
-    return () => {
-      window.removeEventListener('ilm-quotes-updated', handleUpdate);
-      window.removeEventListener('storage', handleUpdate);
-    };
-  }, []);
+  // Sync quotes with Supabase
+  useEffect(() => {
+    if (Array.isArray(sbQuotes) && sbQuotes.length > 0) {
+      setQuotesList(sbQuotes);
+    }
+  }, [sbQuotes]);
 
   const handleOpenAddQuoteModal = () => {
     setEditingQuote(null);
@@ -1852,7 +2210,7 @@ export default function AdminDashboard() {
     setIsQuoteModalOpen(true);
   };
 
-  const handleSaveQuoteSubmit = (e) => {
+  const handleSaveQuoteSubmit = async (e) => {
     e.preventDefault();
     setQuoteFormError('');
 
@@ -1869,6 +2227,13 @@ export default function AdminDashboard() {
     }
 
     try {
+      if (isSupabaseConfigured) {
+        await saveQuoteSupabase({
+          ...(editingQuote ? { id: editingQuote.id } : {}),
+          ...quoteFormData,
+        });
+        if (refetchQuotes) await refetchQuotes();
+      }
       saveDailyQuote({
         ...(editingQuote ? { id: editingQuote.id, createdAt: editingQuote.createdAt } : {}),
         ...quoteFormData,
@@ -1881,8 +2246,21 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleToggleQuotePinned = (id) => {
+  const handleToggleQuotePinned = async (id, currentPinned) => {
+    if (isSupabaseConfigured) {
+      await supabase.from('daily_quotes').update({ pinned: !currentPinned }).eq('id', id);
+      if (refetchQuotes) await refetchQuotes();
+    }
     const updated = toggleQuotePinned(id);
+    setQuotesList(updated);
+  };
+
+  const handleToggleQuoteStatus = async (id, currentActive) => {
+    if (isSupabaseConfigured) {
+      await toggleQuoteStatusSupabase(id, currentActive);
+      if (refetchQuotes) await refetchQuotes();
+    }
+    const updated = toggleQuoteStatus(id);
     setQuotesList(updated);
   };
 
@@ -1891,8 +2269,12 @@ export default function AdminDashboard() {
     setIsQuoteDeleteModalOpen(true);
   };
 
-  const handleConfirmDeleteQuote = () => {
+  const handleConfirmDeleteQuote = async () => {
     if (quoteToDelete) {
+      if (isSupabaseConfigured) {
+        await deleteQuoteSupabase(quoteToDelete.id);
+        if (refetchQuotes) await refetchQuotes();
+      }
       const updated = deleteDailyQuote(quoteToDelete.id);
       setQuotesList(updated);
       setIsQuoteDeleteModalOpen(false);
@@ -1913,6 +2295,118 @@ export default function AdminDashboard() {
       return matchesSearch && matchesType;
     });
   }, [quotesList, quoteSearch, quoteTypeFilter]);
+
+  // ==========================================
+  // ADMISSIONS PIPELINE STATE & HANDLERS
+  // ==========================================
+  const handleUpdateAppStatus = async (appId, newStatus) => {
+    try {
+      if (isSupabaseConfigured) {
+        await updateApplicationStatusSupabase(appId, newStatus);
+        if (refetchApplications) await refetchApplications();
+      }
+      setAccountsToast({
+        type: 'success',
+        title: 'Status Updated',
+        message: `Application marked as ${newStatus.replace('_', ' ')}.`,
+      });
+    } catch (err) {
+      setAccountsToast({
+        type: 'error',
+        title: 'Update Error',
+        message: err.message || 'Failed to update status.',
+      });
+    }
+  };
+
+  const handleApproveApplication = async (app) => {
+    setIsApprovingAppId(app.id);
+    try {
+      const studentName = app.applicant_name || app.name;
+      const studentEmail = app.applicant_email || app.email;
+      const studentPhone = app.applicant_phone || app.phone;
+      const pathwayId = app.applied_pathway_id || 'foundations';
+      const cohortId = app.applied_cohort_id || 'foundations_sem1';
+      const format = app.preferred_format || 'online';
+
+      // 1. Provision student account
+      const provisioned = await saveStudent({
+        name: studentName,
+        email: studentEmail,
+        phone: studentPhone,
+        format,
+        cohort_id: cohortId,
+        program: pathwayId === 'foundations' ? 'Ilm Foundations' : 'Ilm Intensives',
+      });
+
+      const studentId = provisioned?.id;
+
+      // 2. Create enrollments & invoice in Supabase
+      if (isSupabaseConfigured && studentId) {
+        try {
+          const relevantCourses = courses.filter((c) => c.category === pathwayId || c.pathway_id === pathwayId);
+          const enrollmentsData = relevantCourses.map((c) => ({
+            student_id: studentId,
+            course_id: c.id,
+            pathway_id: pathwayId,
+            cohort_id: cohortId,
+            status: 'active',
+          }));
+          if (enrollmentsData.length > 0) {
+            await supabase.from('enrollments').upsert(enrollmentsData, { onConflict: 'student_id,course_id,cohort_id' });
+          }
+
+          const batch = (sbBatches || []).find((b) => b.id === cohortId);
+          const tuitionFee = batch?.tuition_fee || 30000;
+          const invoiceNo = `INV-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+          const { data: invData } = await supabase.from('invoices').insert({
+            invoice_no: invoiceNo,
+            student_id: studentId,
+            pathway_id: pathwayId,
+            cohort_id: cohortId,
+            base_fee: tuitionFee,
+            discount_amount: 0,
+            net_payable: tuitionFee,
+            status: 'ISSUED',
+          }).select().single();
+
+          if (invData?.id) {
+            const installmentAmount = Math.round(tuitionFee / 3);
+            const now = new Date();
+            const installments = [
+              { invoice_id: invData.id, installment_no: 1, amount: installmentAmount, due_date: new Date(now.getTime() + 7 * 86400000).toISOString().split('T')[0], status: 'PENDING' },
+              { invoice_id: invData.id, installment_no: 2, amount: installmentAmount, due_date: new Date(now.getTime() + 37 * 86400000).toISOString().split('T')[0], status: 'PENDING' },
+              { invoice_id: invData.id, installment_no: 3, amount: tuitionFee - (installmentAmount * 2), due_date: new Date(now.getTime() + 67 * 86400000).toISOString().split('T')[0], status: 'PENDING' },
+            ];
+            await supabase.from('fee_installments').insert(installments);
+          }
+        } catch (enrollErr) {
+          console.warn('Admissions enrollment / invoice setup note:', enrollErr);
+        }
+      }
+
+      // 3. Mark application APPROVED and link converted student ID
+      if (isSupabaseConfigured && app.id) {
+        await updateApplicationStatusSupabase(app.id, 'APPROVED', studentId);
+        if (refetchApplications) await refetchApplications();
+        if (refetchSbStudents) await refetchSbStudents();
+      }
+
+      setAccountsToast({
+        type: 'success',
+        title: 'Application Approved & Enrolled',
+        message: `Applicant ${studentName} successfully enrolled into ${cohortId}. Student account and invoice issued.`,
+      });
+    } catch (err) {
+      setAccountsToast({
+        type: 'error',
+        title: 'Approval Failed',
+        message: err.message || 'Could not provision student account.',
+      });
+    } finally {
+      setIsApprovingAppId(null);
+    }
+  };
 
   const quotesMetrics = useMemo(() => {
     const total = quotesList.length;
@@ -1989,7 +2483,7 @@ export default function AdminDashboard() {
                     { id: 'attendance', label: 'Attendance', icon: ClipboardCheck, count: attendanceSessions.length },
                     { id: 'instructors', label: 'Faculty', icon: GraduationCap, count: instructors.length },
                     { id: 'fees', label: 'Accounts', icon: CreditCard, count: accountsSummary.pendingCount },
-                    { id: 'applications', label: 'Admissions', icon: FileCheck, count: 38 },
+                    { id: 'applications', label: 'Admissions', icon: FileCheck, count: Array.isArray(sbApplications) ? sbApplications.filter(a => a.status === 'SUBMITTED' || a.status === 'UNDER_REVIEW').length : 0 },
                     { id: 'schedules', label: 'Schedule', icon: Calendar, count: activeWeeklySlots.length },
                   ].map((tab) => {
                     const IconComp = tab.icon;
@@ -3995,107 +4489,213 @@ export default function AdminDashboard() {
         )}
 
           {/* Tab 5: Admissions */}
-          {activeTab === 'applications' && (
-            <div className="bg-white rounded-2xl border border-sand-200 p-6 space-y-6 shadow-xs">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-sand-200/80">
-                <div>
-                  <h2 className="text-xl sm:text-2xl font-heading font-bold text-ink-900 tracking-tight">
-                    Admissions
-                  </h2>
-                  <p className="text-xs text-ink-500 mt-1">
-                    Review candidate qualifications, education background, and campus preferences.
-                  </p>
-                </div>
+          {activeTab === 'applications' && (() => {
+            const appList = Array.isArray(sbApplications) ? sbApplications : [];
+            const pendingCount = appList.filter((a) => a.status === 'SUBMITTED' || a.status === 'UNDER_REVIEW').length;
+            const interviewCount = appList.filter((a) => a.status === 'INTERVIEW_SCHEDULED').length;
+            const approvedCount = appList.filter((a) => a.status === 'APPROVED').length;
 
-                <div className="bg-amber-50 border border-amber-200/80 rounded-xl px-4 py-2 flex items-center gap-3 shrink-0">
-                  <div className="h-8 w-8 rounded-lg bg-amber-100 text-amber-800 flex items-center justify-center shrink-0">
-                    <FileCheck size={16} />
-                  </div>
+            const filteredApps = appList.filter((a) => {
+              if (admissionsFilterStatus === 'all') return true;
+              return a.status === admissionsFilterStatus;
+            });
+
+            return (
+              <div className="bg-white rounded-2xl border border-sand-200 p-6 space-y-6 shadow-xs">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-sand-200/80">
                   <div>
-                    <div className="text-[10px] font-bold uppercase tracking-wider text-amber-900">Pending Applications</div>
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-lg font-bold text-ink-900 font-heading">38</span>
-                      <span className="text-[11px] text-amber-800 font-semibold">Requires review</span>
+                    <h2 className="text-xl sm:text-2xl font-heading font-bold text-ink-900 tracking-tight">
+                      Admissions Pipeline
+                    </h2>
+                    <p className="text-xs text-ink-500 mt-1">
+                      Direct intake applications submitted via public registration portal and batch enrollments.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <div className="bg-amber-50 border border-amber-200/80 rounded-xl px-4 py-2 flex items-center gap-3 shrink-0">
+                      <div className="h-8 w-8 rounded-lg bg-amber-100 text-amber-800 flex items-center justify-center shrink-0">
+                        <FileCheck size={16} />
+                      </div>
+                      <div>
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-amber-900">Pending Review</div>
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-lg font-bold text-ink-900 font-heading">{pendingCount}</span>
+                          <span className="text-[11px] text-amber-800 font-semibold">Requires action</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-emerald-50 border border-emerald-200/80 rounded-xl px-4 py-2 flex items-center gap-3 shrink-0">
+                      <div className="h-8 w-8 rounded-lg bg-emerald-100 text-emerald-800 flex items-center justify-center shrink-0">
+                        <UserCheck size={16} />
+                      </div>
+                      <div>
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-900">Enrolled Students</div>
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-lg font-bold text-ink-900 font-heading">{approvedCount}</span>
+                          <span className="text-[11px] text-emerald-800 font-semibold">Approved</span>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {[
-                  {
-                    name: 'Kashif Mehmood',
-                    age: '22 yrs',
-                    education: 'BS Computer Science (LUMS)',
-                    program: 'Ilm Foundations (Lahore Campus)',
-                    applied: 'Yesterday',
-                  },
-                  {
-                    name: 'Sara Farhan',
-                    age: '24 yrs',
-                    education: 'MBBS Doctor',
-                    program: 'Ilm Foundations (Live Online)',
-                    applied: '2 days ago',
-                  },
-                  {
-                    name: 'Zeeshan Ali',
-                    age: '20 yrs',
-                    education: 'A-Levels Completed',
-                    program: 'Purification of the Heart Intensive',
-                    applied: '3 days ago',
-                  },
-                  {
-                    name: 'Hina Qureshi',
-                    age: '26 yrs',
-                    education: 'Chartered Accountant',
-                    program: 'Ilm Foundations (Live Online)',
-                    applied: '4 days ago',
-                  },
-                ].map((app, i) => (
-                  <div
-                    key={i}
-                    className="border border-sand-200 rounded-xl p-4 flex flex-col justify-between gap-3 hover:border-sand-300 transition-colors"
-                  >
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <h4 className="font-semibold text-ink-900">{app.name}</h4>
-                        <span className="text-[11px] text-ink-400">{app.applied}</span>
+                {/* Filter Status Pills */}
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
+                  {[
+                    { id: 'all', label: `All Applications (${appList.length})` },
+                    { id: 'SUBMITTED', label: 'Submitted' },
+                    { id: 'UNDER_REVIEW', label: 'Under Review' },
+                    { id: 'INTERVIEW_SCHEDULED', label: `Interview Scheduled (${interviewCount})` },
+                    { id: 'APPROVED', label: `Approved & Enrolled (${approvedCount})` },
+                    { id: 'REJECTED', label: 'Rejected' },
+                  ].map((filter) => (
+                    <button
+                      key={filter.id}
+                      type="button"
+                      onClick={() => setAdmissionsFilterStatus(filter.id)}
+                      className={`px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer whitespace-nowrap ${
+                        admissionsFilterStatus === filter.id
+                          ? 'bg-primary-900 text-white font-semibold shadow-xs'
+                          : 'bg-sand-100 hover:bg-sand-200 text-ink-700'
+                      }`}
+                    >
+                      {filter.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Applications Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {filteredApps.map((app) => {
+                    const statusColors = {
+                      SUBMITTED: 'bg-amber-100 text-amber-900 border-amber-300',
+                      UNDER_REVIEW: 'bg-blue-100 text-blue-900 border-blue-300',
+                      INTERVIEW_SCHEDULED: 'bg-purple-100 text-purple-900 border-purple-300',
+                      APPROVED: 'bg-emerald-100 text-emerald-900 border-emerald-300',
+                      REJECTED: 'bg-rose-100 text-rose-900 border-rose-300',
+                    };
+
+                    const batchName = app.batch?.name || app.applied_cohort_id || 'Ilm Foundations';
+                    const appliedDate = app.created_at
+                      ? new Date(app.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                      : 'Recently';
+
+                    return (
+                      <div
+                        key={app.id}
+                        className="border border-sand-200 rounded-xl p-4 flex flex-col justify-between gap-3 hover:border-sand-300 transition-colors bg-white shadow-xs"
+                      >
+                        <div>
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <h4 className="font-semibold text-sm text-ink-900">{app.applicant_name}</h4>
+                              <p className="text-xs text-primary-800 font-semibold mt-0.5">
+                                {batchName} • <span className="capitalize">{app.preferred_format || 'online'}</span>
+                              </p>
+                            </div>
+                            <span
+                              className={`text-[10px] px-2 py-0.5 rounded-full font-bold border uppercase shrink-0 ${
+                                statusColors[app.status] || 'bg-sand-100 text-ink-700 border-sand-300'
+                              }`}
+                            >
+                              {(app.status || 'SUBMITTED').replace('_', ' ')}
+                            </span>
+                          </div>
+
+                          <div className="mt-2.5 space-y-1 text-xs text-ink-600 bg-sand-50/60 p-2.5 rounded-lg border border-sand-200/60">
+                            <div>
+                              <span className="text-ink-400">Email:</span> <span className="font-mono text-ink-800">{app.applicant_email}</span>
+                            </div>
+                            <div>
+                              <span className="text-ink-400">Phone / WhatsApp:</span> <span className="font-medium text-ink-800">{app.applicant_phone}</span>
+                            </div>
+                            {app.prior_islamic_education && (
+                              <div className="pt-1 border-t border-sand-200/50">
+                                <span className="text-ink-400">Education:</span> <span className="text-ink-700">{app.prior_islamic_education}</span>
+                              </div>
+                            )}
+                            {app.statement_of_intent && (
+                              <div>
+                                <span className="text-ink-400">Goal:</span> <span className="text-ink-700 italic">&ldquo;{app.statement_of_intent}&rdquo;</span>
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="mt-2 flex items-center justify-between text-[11px] text-ink-400">
+                            <span>Applied: {appliedDate}</span>
+                            {app.converted_student_id && (
+                              <span className="text-emerald-700 font-semibold flex items-center gap-1">
+                                <Check size={12} /> Student Account Linked
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-end gap-1.5 pt-2 border-t border-sand-100 flex-wrap">
+                          {app.status !== 'APPROVED' && app.status !== 'INTERVIEW_SCHEDULED' && (
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateAppStatus(app.id, 'INTERVIEW_SCHEDULED')}
+                              className="px-2.5 py-1 rounded-lg bg-sand-100 hover:bg-sand-200 text-xs font-semibold text-ink-700 transition-colors cursor-pointer"
+                            >
+                              Schedule Interview
+                            </button>
+                          )}
+
+                          {app.status === 'SUBMITTED' && (
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateAppStatus(app.id, 'UNDER_REVIEW')}
+                              className="px-2.5 py-1 rounded-lg bg-sand-100 hover:bg-sand-200 text-xs font-semibold text-ink-700 transition-colors cursor-pointer"
+                            >
+                              Mark Under Review
+                            </button>
+                          )}
+
+                          {app.status !== 'APPROVED' && app.status !== 'REJECTED' && (
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateAppStatus(app.id, 'REJECTED')}
+                              className="px-2.5 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-xs font-semibold text-rose-700 transition-colors cursor-pointer"
+                            >
+                              Reject
+                            </button>
+                          )}
+
+                          {app.status !== 'APPROVED' ? (
+                            <button
+                              type="button"
+                              disabled={isApprovingAppId === app.id}
+                              onClick={() => handleApproveApplication(app)}
+                              className="px-3 py-1.5 rounded-lg bg-primary-900 hover:bg-primary-800 text-xs font-bold text-white transition-colors cursor-pointer shadow-xs flex items-center gap-1.5"
+                            >
+                              {isApprovingAppId === app.id ? (
+                                <span>Provisioning...</span>
+                              ) : (
+                                <span>Approve &amp; Enroll &rarr;</span>
+                              )}
+                            </button>
+                          ) : (
+                            <span className="text-xs font-bold text-emerald-800 bg-emerald-100 px-3 py-1 rounded-lg flex items-center gap-1">
+                              <CheckCircle size={13} /> Enrolled
+                            </span>
+                          )}
+                        </div>
                       </div>
-                      <p className="text-xs text-primary-800 font-medium mt-0.5">{app.program}</p>
-                      <p className="text-xs text-ink-500 mt-2">
-                        Education: <span className="text-ink-700">{app.education}</span> • Age: {app.age}
-                      </p>
-                    </div>
+                    );
+                  })}
 
-                    <div className="flex items-center justify-end gap-2 pt-2 border-t border-sand-100">
-                      <button
-                        type="button"
-                        onClick={() => setAccountsToast({
-                          type: 'success',
-                          title: 'Interview Scheduled',
-                          message: `Candidate ${app.name} has been queued for faculty interview.`
-                        })}
-                        className="px-3 py-1.5 rounded-lg bg-sand-100 hover:bg-sand-200 text-xs font-semibold text-ink-700 transition-colors cursor-pointer"
-                      >
-                        Schedule Interview
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setAccountsToast({
-                          type: 'success',
-                          title: 'Application Approved',
-                          message: `Application for ${app.name} approved. Welcome packet issued.`
-                        })}
-                        className="px-3 py-1.5 rounded-lg bg-primary-900 hover:bg-primary-800 text-xs font-semibold text-white transition-colors cursor-pointer"
-                      >
-                        Approve &amp; Enroll
-                      </button>
+                  {filteredApps.length === 0 && (
+                    <div className="col-span-2 py-12 text-center text-xs text-ink-500 bg-sand-50/50 rounded-xl border border-sand-200">
+                      No applications found matching the selected filter.
                     </div>
-                  </div>
-                ))}
+                  )}
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* Tab 6: Schedules Planner */}
           {activeTab === 'schedules' && (
@@ -6347,7 +6947,7 @@ export default function AdminDashboard() {
 
                 {/* Session Configuration (Compact Row) */}
                 <div className="p-4 bg-sand-50/40 border-b border-sand-200 space-y-2.5 shrink-0">
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5">
                     <div>
                       <label className="text-[10px] font-bold uppercase tracking-wider text-ink-500 block mb-1">
                         Course
@@ -6362,6 +6962,29 @@ export default function AdminDashboard() {
                             {c.title}
                           </option>
                         ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-ink-500 block mb-1">
+                        Batch / Intake
+                      </label>
+                      <select
+                        value={attendanceCohortId}
+                        onChange={(e) => setAttendanceCohortId(e.target.value)}
+                        className="w-full px-2.5 py-1.5 text-xs border border-sand-300 rounded-lg bg-white font-semibold text-ink-900 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                      >
+                        {Array.isArray(sbBatches) && sbBatches.filter((b) => b.status !== 'archived').map((b) => (
+                          <option key={b.id} value={b.id}>
+                            {b.name}
+                          </option>
+                        ))}
+                        {(!sbBatches || sbBatches.length === 0) && (
+                          <>
+                            <option value="foundations_sem1">Ilm Foundations • Fall 2026</option>
+                            <option value="cohort_2026">General Cohort 2026</option>
+                          </>
+                        )}
                       </select>
                     </div>
 
@@ -7817,9 +8440,9 @@ export default function AdminDashboard() {
                       <Image size={14} className="text-ink-500" />
                       Uploaded Payment Screenshot
                     </span>
-                    {inspectingInst.receiptImageUrl && (
+                    {(inspectingReceiptUrl || inspectingInst.receiptImageUrl) && (
                       <a
-                        href={inspectingInst.receiptImageUrl}
+                        href={inspectingReceiptUrl || inspectingInst.receiptImageUrl}
                         target="_blank"
                         rel="noreferrer"
                         className="text-[11px] text-[#0B3324] font-bold hover:underline inline-flex items-center gap-1"
@@ -7830,10 +8453,10 @@ export default function AdminDashboard() {
                     )}
                   </div>
 
-                  {inspectingInst.receiptImageUrl ? (
+                  {(inspectingReceiptUrl || inspectingInst.receiptImageUrl) ? (
                     <div className="rounded-xl border border-sand-300 bg-sand-100 overflow-hidden flex items-center justify-center p-2 max-h-[380px]">
                       <img
-                        src={inspectingInst.receiptImageUrl}
+                        src={inspectingReceiptUrl || inspectingInst.receiptImageUrl}
                         alt="Receipt preview"
                         className="max-h-[360px] w-auto object-contain rounded-lg shadow-xs"
                       />

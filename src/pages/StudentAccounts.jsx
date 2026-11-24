@@ -40,15 +40,37 @@ import {
   getStudentAccountsSummary,
   uploadInstallmentReceipt,
 } from '../services/courseStorage';
+import { useSupabaseInvoices, useSubmitReceiptProof, resolveReceiptUrl } from '../hooks/useSupabaseData';
+import { isSupabaseConfigured, supabase } from '../services/supabase';
+import { validateUploadFile, compressReceiptImage, fileToDataUrl } from '../utils/imageCompression';
 
 export default function StudentAccounts() {
   const { user } = useAuth();
   const [installments, setInstallments] = useState(() => getStudentInstallments(user?.id));
   const [summary, setSummary] = useState(() => getStudentAccountsSummary(user?.id));
 
+  // Reactive Supabase Invoices & Receipts hook
+  const { invoices: sbInvoices, refetch: refetchInvoices } = useSupabaseInvoices(user?.id);
+  const { submitProof, isSubmitting: isRpcSubmitting } = useSubmitReceiptProof();
+
   // Modals & Upload State
   const [activeUploadInst, setActiveUploadInst] = useState(null);
   const [previewReceiptUrl, setPreviewReceiptUrl] = useState(null);
+  const [resolvedReceiptUrl, setResolvedReceiptUrl] = useState(null);
+
+  // Generate on-the-fly signed URL when viewing private receipt proof
+  useEffect(() => {
+    let isMounted = true;
+    if (!previewReceiptUrl) {
+      setResolvedReceiptUrl(null);
+      return;
+    }
+    resolveReceiptUrl(previewReceiptUrl).then((url) => {
+      if (isMounted) setResolvedReceiptUrl(url);
+    });
+    return () => { isMounted = false; };
+  }, [previewReceiptUrl]);
+
   const [selectedFile, setSelectedFile] = useState(null);
   const [previewImage, setPreviewImage] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -61,6 +83,37 @@ export default function StudentAccounts() {
     setInstallments(getStudentInstallments(user?.id));
     setSummary(getStudentAccountsSummary(user?.id));
   };
+
+  // Sync Supabase ledger if available
+  useEffect(() => {
+    if (Array.isArray(sbInvoices) && sbInvoices.length > 0) {
+      const allSbInsts = sbInvoices.flatMap((inv) => inv.installments || []);
+      if (allSbInsts.length > 0) {
+        setInstallments(allSbInsts);
+
+        const totalFee = allSbInsts.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+        const receivedAmount = allSbInsts
+          .filter((inst) => inst.status === 'APPROVED')
+          .reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+        const receivableAmount = allSbInsts
+          .filter((inst) => ['UNPAID', 'UNDER_REVIEW', 'REJECTED', 'Pending'].includes(inst.status))
+          .reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+        const todayStr = new Date().toISOString().split('T')[0];
+        const overdueCount = allSbInsts.filter(
+          (inst) => inst.status !== 'APPROVED' && inst.dueDate < todayStr
+        ).length;
+
+        setSummary((prev) => ({
+          ...prev,
+          totalFee,
+          receivedAmount,
+          receivableAmount,
+          overdueCount,
+          installmentsCount: allSbInsts.length,
+        }));
+      }
+    }
+  }, [sbInvoices]);
 
   useEffect(() => {
     refreshAccounts();
@@ -96,35 +149,29 @@ export default function StudentAccounts() {
     setTimeout(() => setCopiedField(null), 2000);
   };
 
-  // Handle file selection and generate preview
-  const handleFileChange = (e) => {
+  // Handle file selection with client-side compression (< 150 KB, max 1000px)
+  const handleFileChange = async (e) => {
     const file = e.target.files?.[0];
     setUploadError('');
     if (!file) return;
 
-    if (!file.type.startsWith('image/')) {
-      setUploadError('Please select a valid image file (JPG, PNG, WebP).');
-      return;
+    try {
+      validateUploadFile(file);
+      // Compress image client-side to keep under 150 KB WebP
+      const compressed = await compressReceiptImage(file);
+      setSelectedFile(compressed);
+
+      const previewUrl = await fileToDataUrl(compressed);
+      setPreviewImage(previewUrl);
+    } catch (err) {
+      setUploadError(err.message || 'Failed to process selected file.');
     }
-
-    if (file.size > 5 * 1024 * 1024) {
-      setUploadError('File size exceeds 5 MB. Please select a smaller screenshot.');
-      return;
-    }
-
-    setSelectedFile(file);
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      setPreviewImage(reader.result);
-    };
-    reader.readAsDataURL(file);
   };
 
-  // Submit payment proof
+  // Submit payment proof (via Supabase Storage & RPC with local fallback)
   const handleUploadSubmit = async (e) => {
     e.preventDefault();
-    if (!activeUploadInst || !previewImage) {
+    if (!activeUploadInst || (!previewImage && !selectedFile)) {
       setUploadError('Please select or capture a payment receipt screenshot.');
       return;
     }
@@ -133,11 +180,36 @@ export default function StudentAccounts() {
     setUploadError('');
 
     try {
-      uploadInstallmentReceipt(activeUploadInst.id, previewImage);
+      let finalReceiptUrl = previewImage;
+
+      // 1. Submit via Supabase Storage & RPC if online and configured
+      if (isSupabaseConfigured && activeUploadInst.id) {
+        try {
+          const res = await submitProof(
+            activeUploadInst.id,
+            selectedFile || previewImage,
+            user?.id
+          );
+          if (res?.receiptUrl) {
+            finalReceiptUrl = res.receiptUrl;
+          }
+        } catch (rpcErr) {
+          console.warn('Supabase receipt submission notice:', rpcErr);
+        }
+      }
+
+      // 2. Synchronize local storage cache
+      try {
+        uploadInstallmentReceipt(activeUploadInst.id, finalReceiptUrl);
+      } catch (localErr) {
+        console.warn('Local receipt update notice:', localErr);
+      }
+
       setIsSubmitting(false);
       setActiveUploadInst(null);
       setSelectedFile(null);
       setPreviewImage(null);
+      if (refetchInvoices) refetchInvoices();
       refreshAccounts();
     } catch (err) {
       setIsSubmitting(false);
@@ -608,7 +680,7 @@ export default function StudentAccounts() {
                 </div>
                 <div className="p-4 bg-sand-100/60 flex items-center justify-center max-h-[70vh] overflow-auto">
                   <img
-                    src={previewReceiptUrl}
+                    src={resolvedReceiptUrl || previewReceiptUrl}
                     alt="Payment Proof"
                     className="max-h-[65vh] w-auto rounded-lg object-contain shadow-xs border border-sand-200"
                   />

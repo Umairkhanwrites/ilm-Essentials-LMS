@@ -1,89 +1,68 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Mail, Lock, Eye, EyeOff, User, UserPlus, Loader2 } from 'lucide-react';
+import { 
+  User, Mail, Phone, Calendar, MapPin, 
+  BookOpen, FileText, CheckCircle2, Loader2, ArrowRight 
+} from 'lucide-react';
+import { useSupabaseBatches, submitApplicationSupabase } from '../../hooks/useSupabaseData';
 
 /**
- * SignupForm — Branded registration form.
- * Includes full name, email, password with confirmation, and terms acceptance.
- * 
- * TODO: Connect to backend registration API
- * TODO: Add email verification flow
+ * SignupForm — Public Admissions & Student Registration Form
+ *
+ * Directly persists candidate applications into Supabase PostgreSQL (public.admissions_applications)
+ * with dynamic batch/intake selection from public.batches.
  */
 export function SignupForm() {
-  const navigate = useNavigate();
+  const { batches, isLoading: isBatchesLoading } = useSupabaseBatches();
+
   const [formData, setFormData] = useState({
-    fullName: '',
+    name: '',
     email: '',
-    password: '',
-    confirmPassword: '',
-    acceptTerms: false,
+    phone: '',
+    cohort_id: '',
+    format: 'online',
+    prior_islamic_education: '',
+    statement_of_intent: '',
   });
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirm, setShowConfirm] = useState(false);
+
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState({});
+  const [isSubmitted, setIsSubmitted] = useState(false);
+  const [submittedData, setSubmittedData] = useState(null);
 
-  // --- Password strength indicator ---
-  const getPasswordStrength = (password) => {
-    if (!password) return { level: 0, label: '', color: '' };
-    let score = 0;
-    if (password.length >= 6) score++;
-    if (password.length >= 10) score++;
-    if (/[A-Z]/.test(password)) score++;
-    if (/[0-9]/.test(password)) score++;
-    if (/[^A-Za-z0-9]/.test(password)) score++;
+  // Filter batches to active/enrolling ones only
+  const activeBatches = (batches || []).filter(
+    (b) => b.status === 'enrolling' || b.status === 'active'
+  );
 
-    if (score <= 1) return { level: 1, label: 'Weak', color: 'bg-red-400' };
-    if (score <= 2) return { level: 2, label: 'Fair', color: 'bg-amber-400' };
-    if (score <= 3) return { level: 3, label: 'Good', color: 'bg-primary-400' };
-    return { level: 4, label: 'Strong', color: 'bg-primary-600' };
-  };
-
-  const passwordStrength = getPasswordStrength(formData.password);
-
-  // --- Form validation ---
   const validate = () => {
     const newErrors = {};
-    if (!formData.fullName.trim()) {
-      newErrors.fullName = 'Full name is required';
-    } else if (formData.fullName.trim().length < 2) {
-      newErrors.fullName = 'Name must be at least 2 characters';
+    if (!formData.name.trim()) {
+      newErrors.name = 'Full name is required';
+    } else if (formData.name.trim().length < 2) {
+      newErrors.name = 'Name must be at least 2 characters';
     }
-    if (!formData.email) {
-      newErrors.email = 'Email is required';
+
+    if (!formData.email.trim()) {
+      newErrors.email = 'Email address is required';
     } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
-      newErrors.email = 'Please enter a valid email';
+      newErrors.email = 'Please enter a valid email address';
     }
-    if (!formData.password) {
-      newErrors.password = 'Password is required';
-    } else if (formData.password.length < 8) {
-      newErrors.password = 'Password must be at least 8 characters';
+
+    if (!formData.phone.trim()) {
+      newErrors.phone = 'Phone / WhatsApp number is required';
+    } else if (formData.phone.trim().length < 7) {
+      newErrors.phone = 'Please provide a valid contact number';
     }
-    if (!formData.confirmPassword) {
-      newErrors.confirmPassword = 'Please confirm your password';
-    } else if (formData.password !== formData.confirmPassword) {
-      newErrors.confirmPassword = 'Passwords do not match';
+
+    const selectedBatch = formData.cohort_id || (activeBatches[0]?.id || 'foundations_sem1');
+    if (!selectedBatch) {
+      newErrors.cohort_id = 'Please select an intake batch';
     }
-    if (!formData.acceptTerms) {
-      newErrors.acceptTerms = 'You must accept the terms and conditions';
-    }
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
-  };
-
-  // --- Form submission ---
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!validate()) return;
-
-    setIsLoading(true);
-    // TODO: Replace with actual API call
-    // Example: const response = await api.auth.register(formData);
-    setTimeout(() => {
-      setIsLoading(false);
-      navigate('/dashboard');
-    }, 1500);
   };
 
   const handleChange = (field, value) => {
@@ -93,203 +72,274 @@ export function SignupForm() {
     }
   };
 
-  // --- Reusable input renderer ---
-  const renderInput = ({ id, label, type, value, placeholder, icon: Icon, error, autoComplete, showToggle, isVisible, onToggle }) => (
-    <div>
-      <label htmlFor={id} className="block text-sm font-medium text-ink-700 mb-1.5">
-        {label}
-      </label>
-      <div className="relative">
-        <Icon className="absolute left-3 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-ink-400" />
-        <input
-          id={id}
-          type={showToggle ? (isVisible ? 'text' : 'password') : type}
-          value={value}
-          onChange={(e) => handleChange(id, e.target.value)}
-          placeholder={placeholder}
-          className={`
-            w-full pl-10 ${showToggle ? 'pr-12' : 'pr-4'} py-3 rounded-xl border bg-white text-ink-900
-            placeholder:text-ink-400 text-sm
-            focus:outline-none focus:ring-2 focus:ring-primary-500/30 focus:border-primary-500
-            transition-all duration-200
-            ${error ? 'border-red-400 ring-1 ring-red-200' : 'border-sand-200 hover:border-sand-300'}
-          `}
-          autoComplete={autoComplete}
-          aria-invalid={!!error}
-          aria-describedby={error ? `${id}-error` : undefined}
-        />
-        {showToggle && (
-          <button
-            type="button"
-            onClick={onToggle}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-400 hover:text-ink-600 transition-colors"
-            aria-label={isVisible ? 'Hide password' : 'Show password'}
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!validate()) return;
+
+    setIsLoading(true);
+
+    const chosenCohortId = formData.cohort_id || activeBatches[0]?.id || 'foundations_sem1';
+    const chosenBatch = activeBatches.find((b) => b.id === chosenCohortId);
+    const chosenPathway = chosenBatch?.pathway_id || 'foundations';
+
+    try {
+      const res = await submitApplicationSupabase({
+        name: formData.name.trim(),
+        email: formData.email.trim().toLowerCase(),
+        phone: formData.phone.trim(),
+        pathway_id: chosenPathway,
+        cohort_id: chosenCohortId,
+        format: formData.format,
+        prior_islamic_education: formData.prior_islamic_education.trim() || 'No formal prior study',
+        statement_of_intent: formData.statement_of_intent.trim() || 'Desire to seek sacred knowledge',
+      });
+
+      if (!res.success && res.error) {
+        setErrors({ form: res.error });
+        setIsLoading(false);
+        return;
+      }
+
+      setSubmittedData({
+        ...formData,
+        batchName: chosenBatch?.name || 'Selected Intake Batch',
+      });
+      setIsSubmitted(true);
+    } catch (err) {
+      setErrors({ form: err.message || 'Failed to submit application. Please try again.' });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  if (isSubmitted) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="bg-white rounded-2xl p-6 sm:p-8 text-center space-y-5 border border-sand-200 shadow-sm"
+      >
+        <div className="w-16 h-16 bg-emerald-100 text-emerald-800 rounded-full flex items-center justify-center mx-auto">
+          <CheckCircle2 className="w-9 h-9" />
+        </div>
+
+        <div className="space-y-2">
+          <h3 className="font-heading text-2xl font-bold text-ink-900">
+            Application Submitted!
+          </h3>
+          <p className="text-sm text-ink-600 max-w-md mx-auto">
+            JazakAllahu Khayran, <strong className="text-ink-900">{submittedData?.name}</strong>. Your registration for{' '}
+            <strong className="text-primary-900">{submittedData?.batchName}</strong> has been received into our admissions review queue.
+          </p>
+        </div>
+
+        <div className="bg-sand-50 rounded-xl p-4 text-xs text-ink-600 text-left space-y-1.5 border border-sand-200/80">
+          <div className="flex justify-between">
+            <span className="text-ink-400">Application Status:</span>
+            <span className="font-bold text-amber-800 bg-amber-100/80 px-2 py-0.5 rounded-full">UNDER REVIEW</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-ink-400">Email:</span>
+            <span className="font-medium text-ink-800">{submittedData?.email}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-ink-400">Preferred Mode:</span>
+            <span className="font-medium text-ink-800 capitalize">{submittedData?.format}</span>
+          </div>
+        </div>
+
+        <p className="text-xs text-ink-500">
+          Our admissions committee will contact you with interview details and onboarding instructions within 1–2 business days.
+        </p>
+
+        <div className="pt-2">
+          <Link
+            to="/login"
+            className="inline-flex items-center justify-center gap-2 w-full py-3 px-4 rounded-xl bg-primary-900 hover:bg-primary-800 text-white text-sm font-semibold transition-colors"
           >
-            {isVisible ? <EyeOff className="w-4.5 h-4.5" /> : <Eye className="w-4.5 h-4.5" />}
-          </button>
-        )}
-      </div>
-      {error && (
-        <motion.p
-          id={`${id}-error`}
-          className="text-red-500 text-xs mt-1.5"
-          initial={{ opacity: 0, y: -5 }}
-          animate={{ opacity: 1, y: 0 }}
-        >
-          {error}
-        </motion.p>
-      )}
-    </div>
-  );
+            <span>Proceed to Sign In</span>
+            <ArrowRight size={16} />
+          </Link>
+        </div>
+      </motion.div>
+    );
+  }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4" noValidate>
-      {/* Full Name */}
-      {renderInput({
-        id: 'fullName',
-        label: 'Full Name',
-        type: 'text',
-        value: formData.fullName,
-        placeholder: 'Enter your full name',
-        icon: User,
-        error: errors.fullName,
-        autoComplete: 'name',
-      })}
-
-      {/* Email */}
-      {renderInput({
-        id: 'email',
-        label: 'Email Address',
-        type: 'email',
-        value: formData.email,
-        placeholder: 'you@example.com',
-        icon: Mail,
-        error: errors.email,
-        autoComplete: 'email',
-      })}
-
-      {/* Password */}
-      {renderInput({
-        id: 'password',
-        label: 'Password',
-        type: 'password',
-        value: formData.password,
-        placeholder: 'Create a strong password',
-        icon: Lock,
-        error: errors.password,
-        autoComplete: 'new-password',
-        showToggle: true,
-        isVisible: showPassword,
-        onToggle: () => setShowPassword(!showPassword),
-      })}
-
-      {/* Password strength indicator */}
-      {formData.password && (
-        <motion.div
-          initial={{ opacity: 0, height: 0 }}
-          animate={{ opacity: 1, height: 'auto' }}
-          className="space-y-1.5"
-        >
-          <div className="flex gap-1">
-            {[1, 2, 3, 4].map((i) => (
-              <div
-                key={i}
-                className={`h-1 flex-1 rounded-full transition-colors duration-300 ${
-                  i <= passwordStrength.level ? passwordStrength.color : 'bg-sand-200'
-                }`}
-              />
-            ))}
-          </div>
-          <p className="text-xs text-ink-500">
-            Password strength: <span className="font-medium">{passwordStrength.label}</span>
-          </p>
-        </motion.div>
+    <form onSubmit={handleSubmit} className="space-y-4 text-xs text-ink-700" noValidate>
+      {errors.form && (
+        <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-xs font-medium">
+          {errors.form}
+        </div>
       )}
 
-      {/* Confirm Password */}
-      {renderInput({
-        id: 'confirmPassword',
-        label: 'Confirm Password',
-        type: 'password',
-        value: formData.confirmPassword,
-        placeholder: 'Re-enter your password',
-        icon: Lock,
-        error: errors.confirmPassword,
-        autoComplete: 'new-password',
-        showToggle: true,
-        isVisible: showConfirm,
-        onToggle: () => setShowConfirm(!showConfirm),
-      })}
-
-      {/* Terms & Conditions */}
+      {/* Full Name */}
       <div>
-        <label className="flex items-start gap-2.5 cursor-pointer group">
-          <input
-            type="checkbox"
-            checked={formData.acceptTerms}
-            onChange={(e) => handleChange('acceptTerms', e.target.checked)}
-            className="w-4 h-4 mt-0.5 rounded border-sand-300 text-primary-600 
-                       focus:ring-primary-500 focus:ring-offset-0 cursor-pointer"
-          />
-          <span className="text-sm text-ink-600 leading-tight">
-            I agree to the{' '}
-            <Link to="/terms" className="text-primary-600 hover:text-primary-800 font-medium underline">
-              Terms of Service
-            </Link>{' '}
-            and{' '}
-            <Link to="/privacy" className="text-primary-600 hover:text-primary-800 font-medium underline">
-              Privacy Policy
-            </Link>
-          </span>
+        <label className="block text-xs font-semibold text-ink-700 mb-1">
+          Full Name <span className="text-red-500">*</span>
         </label>
-        {errors.acceptTerms && (
-          <motion.p
-            className="text-red-500 text-xs mt-1.5 ml-6"
-            initial={{ opacity: 0, y: -5 }}
-            animate={{ opacity: 1, y: 0 }}
-          >
-            {errors.acceptTerms}
-          </motion.p>
-        )}
+        <div className="relative">
+          <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-400" />
+          <input
+            type="text"
+            value={formData.name}
+            onChange={(e) => handleChange('name', e.target.value)}
+            placeholder="e.g. Zaid Haris"
+            className={`w-full pl-9 pr-3 py-2.5 rounded-xl border bg-white text-ink-900 placeholder:text-ink-400 text-xs focus:outline-none focus:ring-2 focus:ring-primary-500/30 ${
+              errors.name ? 'border-red-400' : 'border-sand-200 hover:border-sand-300'
+            }`}
+          />
+        </div>
+        {errors.name && <p className="text-red-500 text-[11px] mt-1">{errors.name}</p>}
+      </div>
+
+      {/* Contact Grid: Email & Phone */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs font-semibold text-ink-700 mb-1">
+            Email Address <span className="text-red-500">*</span>
+          </label>
+          <div className="relative">
+            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-400" />
+            <input
+              type="email"
+              value={formData.email}
+              onChange={(e) => handleChange('email', e.target.value)}
+              placeholder="candidate@example.com"
+              className={`w-full pl-9 pr-3 py-2.5 rounded-xl border bg-white text-ink-900 placeholder:text-ink-400 text-xs focus:outline-none focus:ring-2 focus:ring-primary-500/30 ${
+                errors.email ? 'border-red-400' : 'border-sand-200 hover:border-sand-300'
+              }`}
+            />
+          </div>
+          {errors.email && <p className="text-red-500 text-[11px] mt-1">{errors.email}</p>}
+        </div>
+
+        <div>
+          <label className="block text-xs font-semibold text-ink-700 mb-1">
+            WhatsApp / Phone <span className="text-red-500">*</span>
+          </label>
+          <div className="relative">
+            <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-400" />
+            <input
+              type="tel"
+              value={formData.phone}
+              onChange={(e) => handleChange('phone', e.target.value)}
+              placeholder="+92 300 1234567"
+              className={`w-full pl-9 pr-3 py-2.5 rounded-xl border bg-white text-ink-900 placeholder:text-ink-400 text-xs focus:outline-none focus:ring-2 focus:ring-primary-500/30 ${
+                errors.phone ? 'border-red-400' : 'border-sand-200 hover:border-sand-300'
+              }`}
+            />
+          </div>
+          {errors.phone && <p className="text-red-500 text-[11px] mt-1">{errors.phone}</p>}
+        </div>
+      </div>
+
+      {/* Program Batch & Intake Selection */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs font-semibold text-ink-700 mb-1">
+            Academic Batch / Intake <span className="text-red-500">*</span>
+          </label>
+          <div className="relative">
+            <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-400" />
+            <select
+              value={formData.cohort_id || (activeBatches[0]?.id || '')}
+              onChange={(e) => handleChange('cohort_id', e.target.value)}
+              className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-sand-200 bg-white text-ink-900 text-xs focus:outline-none focus:ring-2 focus:ring-primary-500/30 font-medium"
+            >
+              {isBatchesLoading && <option>Loading available batches...</option>}
+              {activeBatches.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
+              {!isBatchesLoading && activeBatches.length === 0 && (
+                <option value="foundations_sem1">Ilm Foundations — Fall 2026</option>
+              )}
+            </select>
+          </div>
+          {errors.cohort_id && <p className="text-red-500 text-[11px] mt-1">{errors.cohort_id}</p>}
+        </div>
+
+        <div>
+          <label className="block text-xs font-semibold text-ink-700 mb-1">
+            Preferred Learning Format
+          </label>
+          <div className="relative">
+            <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-400" />
+            <select
+              value={formData.format}
+              onChange={(e) => handleChange('format', e.target.value)}
+              className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-sand-200 bg-white text-ink-900 text-xs focus:outline-none focus:ring-2 focus:ring-primary-500/30 font-medium"
+            >
+              <option value="online">Live Online (Google Meet)</option>
+              <option value="onsite">Onsite Campus (Lahore DHA)</option>
+              <option value="hybrid">Hybrid (Both)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {/* Prior Islamic Education */}
+      <div>
+        <label className="block text-xs font-semibold text-ink-700 mb-1">
+          Prior Islamic Studies Background
+        </label>
+        <div className="relative">
+          <BookOpen className="absolute left-3 top-3 w-4 h-4 text-ink-400" />
+          <textarea
+            rows={2}
+            value={formData.prior_islamic_education}
+            onChange={(e) => handleChange('prior_islamic_education', e.target.value)}
+            placeholder="Briefly describe any prior Quranic, Arabic, or Madrasah studies (optional)..."
+            className="w-full pl-9 pr-3 py-2 rounded-xl border border-sand-200 bg-white text-ink-900 placeholder:text-ink-400 text-xs focus:outline-none focus:ring-2 focus:ring-primary-500/30"
+          />
+        </div>
+      </div>
+
+      {/* Statement of Intent */}
+      <div>
+        <label className="block text-xs font-semibold text-ink-700 mb-1">
+          Statement of Intent / Goals
+        </label>
+        <div className="relative">
+          <FileText className="absolute left-3 top-3 w-4 h-4 text-ink-400" />
+          <textarea
+            rows={2}
+            value={formData.statement_of_intent}
+            onChange={(e) => handleChange('statement_of_intent', e.target.value)}
+            placeholder="What is your primary intention or goal for joining this program?"
+            className="w-full pl-9 pr-3 py-2 rounded-xl border border-sand-200 bg-white text-ink-900 placeholder:text-ink-400 text-xs focus:outline-none focus:ring-2 focus:ring-primary-500/30"
+          />
+        </div>
       </div>
 
       {/* Submit Button */}
       <motion.button
         type="submit"
         disabled={isLoading}
-        className={`
-          w-full py-3 px-6 rounded-xl font-semibold text-sm
-          flex items-center justify-center gap-2
-          transition-all duration-300 mt-2
-          ${isLoading
-            ? 'bg-primary-700 cursor-not-allowed'
-            : 'bg-primary-900 hover:bg-primary-800 active:bg-primary-950 hover:shadow-elevated'
-          }
-          text-white focus:outline-none focus:ring-2 focus:ring-primary-500/50 focus:ring-offset-2
-        `}
+        className={`w-full py-3 px-6 rounded-xl font-semibold text-xs flex items-center justify-center gap-2 transition-all duration-300 mt-2 ${
+          isLoading
+            ? 'bg-primary-700 cursor-not-allowed text-white'
+            : 'bg-primary-900 hover:bg-primary-800 active:bg-primary-950 text-white shadow-xs cursor-pointer'
+        }`}
         whileTap={{ scale: isLoading ? 1 : 0.98 }}
       >
         {isLoading ? (
           <>
             <Loader2 className="w-4 h-4 animate-spin" />
-            Creating account...
+            <span>Submitting Application...</span>
           </>
         ) : (
-          <>
-            <UserPlus className="w-4 h-4" />
-            Create Account
-          </>
+          <span>Submit Admissions Application &rarr;</span>
         )}
       </motion.button>
 
-      {/* Login link */}
-      <p className="text-center text-sm text-ink-500 mt-6">
-        Already have an account?{' '}
-        <Link
-          to="/login"
-          className="text-primary-600 hover:text-primary-800 font-semibold transition-colors"
-        >
-          Sign in
+      {/* Sign In link */}
+      <p className="text-center text-xs text-ink-500 pt-2">
+        Already an enrolled student?{' '}
+        <Link to="/login" className="text-primary-800 hover:underline font-bold">
+          Sign In
         </Link>
       </p>
     </form>

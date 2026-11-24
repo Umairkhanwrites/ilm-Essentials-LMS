@@ -49,11 +49,12 @@ export default function App() {
           {/* Default entry point: direct to /login if unauthenticated */}
           <Route path="/" element={<RootRoute />} />
 
-          {/* Dedicated Login Endpoints */}
+          {/* Dedicated Login & Admissions Endpoints */}
           <Route path="/login" element={<Login />} />
           <Route path="/student/login" element={<Login />} />
           <Route path="/admin/login" element={<AdminLogin />} />
-          <Route path="/signup" element={<Navigate to="/login" replace />} />
+          <Route path="/signup" element={<Signup />} />
+          <Route path="/apply" element={<Signup />} />
           <Route path="/forgot-password" element={<Navigate to="/login" replace />} />
 
           {/* Protected Student Routes */}

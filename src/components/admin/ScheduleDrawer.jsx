@@ -114,6 +114,8 @@ export default function ScheduleDrawer({
   const [customNote, setCustomNote] = useState('');
   const [allowConflictOverride, setAllowConflictOverride] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [saveError, setSaveError] = useState(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Sync state whenever initialSlot or isOpen changes
   useEffect(() => {
@@ -284,7 +286,7 @@ export default function ScheduleDrawer({
     setTimeout(() => setCopiedLink(false), 2000);
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
 
     if (conflictResult.hasConflict && !allowConflictOverride) {
@@ -317,8 +319,21 @@ export default function ScheduleDrawer({
         }
       : null;
 
-    onSaveSlot(payload, notificationPayload);
-    onClose();
+    setIsSaving(true);
+    setSaveError(null);
+
+    try {
+      const result = await onSaveSlot(payload, notificationPayload);
+      if (result && result.success === false) {
+        setSaveError(result.error);
+        return;
+      }
+      onClose();
+    } catch (err) {
+      setSaveError(err.message);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const selectedChannelsCount = Object.values(channels).filter(Boolean).length;
@@ -359,6 +374,17 @@ export default function ScheduleDrawer({
 
           {/* Form Body */}
           <form id="schedule-form" onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-5 text-xs">
+            
+            {/* Supabase 4-Axis Conflict Trigger Warning Banner */}
+            {saveError && (
+              <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl flex items-start gap-2.5 text-rose-800 text-xs animate-shake">
+                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-semibold text-rose-900">Database Conflict Warning</p>
+                  <p className="mt-0.5 leading-relaxed">{saveError}</p>
+                </div>
+              </div>
+            )}
             
             {/* Section 1: Course & Instructor */}
             <div className="space-y-3">

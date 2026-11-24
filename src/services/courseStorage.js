@@ -33,6 +33,8 @@ import {
   onSnapshot,
 } from 'firebase/firestore';
 import { db, adminAuth } from './firebase.js';
+import { supabase, isSupabaseConfigured } from './supabase.js';
+import { sanitizeNoBase64 } from '../utils/imageCompression.js';
 
 const STORAGE_KEY_COURSES = 'ilm_admin_courses';
 const STORAGE_KEY_DETAILS = 'ilm_course_details_map';
@@ -387,9 +389,13 @@ export async function saveStudent(studentData) {
 
   uid = uid || `std_${Date.now()}`;
 
+  const sanitizedAvatar = sanitizeNoBase64(studentData.avatar || studentData.avatar_url || existing?.avatar || existing?.avatar_url || '', '');
+
   const record = {
     ...existing,
     ...studentData,
+    avatar: sanitizedAvatar || existing?.avatar || '',
+    avatar_url: sanitizedAvatar || existing?.avatar_url || '',
     id: uid,
     uid: uid,
     email: targetEmail,
@@ -404,26 +410,93 @@ export async function saveStudent(studentData) {
   };
 
   // 2. Persist to Cloud Firestore (never store plaintext password)
-  const { password: _omittedPassword, ...firestoreRecord } = record;
+  const { password: _omittedPassword, ...safeRecord } = record;
   try {
     const studentDocRef = doc(db, 'students', uid);
     await setDoc(studentDocRef, {
-      ...firestoreRecord,
+      ...safeRecord,
       updatedAt: serverTimestamp(),
     }, { merge: true });
   } catch (fsErr) {
     console.warn('Failed to save student to Firestore:', fsErr.message || fsErr);
   }
 
-  // 3. Update local cache
+  // 3. Update local cache (never store plaintext password in localStorage)
   const exists = Boolean(existing);
-  const updated = exists ? current.map((s) => (s.id === uid ? record : s)) : [record, ...current];
+  const updated = exists ? current.map((s) => (s.id === uid ? safeRecord : s)) : [safeRecord, ...current];
   try {
     localStorage.setItem(STORAGE_KEY_STUDENTS, JSON.stringify(updated));
   } catch (err) {
     console.error('Failed to save student to localStorage:', err);
   }
-  return record;
+
+  // 4. Synchronize to Supabase PostgreSQL (creates auth user first to satisfy foreign key)
+  if (isSupabaseConfigured && !existing?.id && targetEmail) {
+    try {
+      const studentPayload = {
+        email: targetEmail,
+        password: password,
+        name: safeRecord.name,
+        phone: safeRecord.phone,
+        format: safeRecord.format,
+        cohort_id: safeRecord.program?.includes('Foundation') ? 'foundations_sem1' : 'cohort_2026',
+      };
+
+      let provisionedStudent = null;
+
+      // In production, invoke Supabase Edge Function directly
+      if (typeof import.meta !== 'undefined' && import.meta.env?.PROD) {
+        const { data, error } = await supabase.functions.invoke('provision-student', {
+          body: studentPayload,
+        });
+        if (!error && data?.student) {
+          provisionedStudent = data.student;
+        } else if (error) {
+          console.warn('Edge function provision note:', error.message);
+        }
+      } else {
+        // In local development, use Vite dev server API middleware
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+        const res = await fetch('/api/admin/provision-student', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify(studentPayload),
+        });
+
+        if (res.ok) {
+          const json = await res.json();
+          if (json.student) provisionedStudent = json.student;
+        }
+      }
+
+      if (provisionedStudent?.id) {
+        uid = provisionedStudent.id;
+        safeRecord.id = uid;
+        // Update local cache with real auth UUID
+        const reUpdated = updated.map((s) => (s.email === targetEmail ? { ...s, id: uid } : s));
+        localStorage.setItem(STORAGE_KEY_STUDENTS, JSON.stringify(reUpdated));
+      }
+    } catch (provisionErr) {
+      console.warn('Student provision API note:', provisionErr.message);
+    }
+  } else if (isSupabaseConfigured && existing?.id) {
+    try {
+      supabase.from('students').update({
+        name: safeRecord.name,
+        phone: safeRecord.phone || '+92 300 0000000',
+        format: safeRecord.format === 'onsite' ? 'onsite' : 'online',
+        is_video_restricted: Boolean(safeRecord.isVideoRestricted),
+        ...(sanitizedAvatar ? { avatar_url: sanitizedAvatar } : {}),
+      }).eq('id', existing.id).catch((e) => console.warn('Supabase student update note:', e));
+    } catch (sbErr) {
+      console.warn('Failed to update student in Supabase:', sbErr.message);
+    }
+  }
+  return { ...safeRecord, temporaryPassword: rawPassword || undefined };
 }
 
 /**
@@ -477,6 +550,12 @@ export async function deleteStudent(id) {
     console.warn('Failed to delete student from Firestore:', e);
   }
 
+  if (isSupabaseConfigured) {
+    try {
+      supabase.from('students').delete().eq('id', id).catch((e) => console.warn('Supabase student delete note:', e));
+    } catch (e) {}
+  }
+
   return updated;
 }
 
@@ -521,13 +600,17 @@ export function saveInstructor(instructorData) {
   const id = instructorData.id || `inst_${Date.now()}`;
   const existing = current.find((i) => i.id === id);
 
+  const defaultAvatar = 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=200&q=80';
+  const rawAvatar = instructorData.avatar || existing?.avatar || defaultAvatar;
+  const sanitizedAvatar = sanitizeNoBase64(rawAvatar, defaultAvatar);
+
   const record = {
     ...existing,
     ...instructorData,
     id,
     status: instructorData.status || 'Active',
     joinedDate: instructorData.joinedDate || (existing?.joinedDate ?? new Date().toISOString().split('T')[0]),
-    avatar: instructorData.avatar || (existing?.avatar ?? 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=200&q=80'),
+    avatar: sanitizedAvatar,
     assignedCourses: Array.isArray(instructorData.assignedCourses)
       ? instructorData.assignedCourses
       : (existing?.assignedCourses || []),
@@ -1416,6 +1499,22 @@ export function saveCourse(courseData) {
     progress: 0,
   });
 
+  if (isSupabaseConfigured) {
+    try {
+      supabase.from('courses').upsert({
+        id: newCourseRecord.id,
+        pathway_id: newCourseRecord.category === 'intensives' ? 'intensives' : newCourseRecord.category === 'electives' ? 'electives' : 'foundations',
+        instructor_id: 'inst_001',
+        title: newCourseRecord.title,
+        slug: newCourseRecord.id.toLowerCase().replace(/_/g, '-'),
+        description: newCourseRecord.subtitle || newCourseRecord.title,
+        format: newCourseRecord.format === 'on-site' ? 'onsite' : newCourseRecord.format === 'hybrid' ? 'hybrid' : 'online',
+        level: 'Beginner',
+        status: newCourseRecord.status?.toLowerCase() === 'upcoming' ? 'upcoming' : 'active',
+      }, { onConflict: 'id' }).catch((e) => console.warn('Supabase course upsert note:', e));
+    } catch (e) {}
+  }
+
   return newCourseRecord;
 }
 
@@ -1426,7 +1525,25 @@ export function saveCourseDetail(id, details) {
   try {
     const rawMap = localStorage.getItem(STORAGE_KEY_DETAILS);
     const map = rawMap ? JSON.parse(rawMap) : {};
-    map[id] = details;
+
+    // Sanitize reading_notes to block Base64 payload bloat in database/storage
+    const sanitizedDetails = {
+      ...details,
+      modules: Array.isArray(details?.modules)
+        ? details.modules.map((mod) => ({
+            ...mod,
+            lessons: Array.isArray(mod?.lessons)
+              ? mod.lessons.map((les) => ({
+                  ...les,
+                  reading_notes: sanitizeNoBase64(les.reading_notes || les.readingNotes || ''),
+                  readingNotes: sanitizeNoBase64(les.readingNotes || les.reading_notes || ''),
+                }))
+              : mod?.lessons,
+          }))
+        : details?.modules,
+    };
+
+    map[id] = sanitizedDetails;
     localStorage.setItem(STORAGE_KEY_DETAILS, JSON.stringify(map));
   } catch (err) {
     console.error('Failed to save course detail map:', err);
@@ -1757,6 +1874,13 @@ export function deleteCourse(id) {
   } catch (err) {
     console.error('Failed to delete course from localStorage:', err);
   }
+
+  if (isSupabaseConfigured) {
+    try {
+      supabase.from('courses').delete().eq('id', id).catch((e) => console.warn('Supabase course delete note:', e));
+    } catch (e) {}
+  }
+
   return updated;
 }
 
@@ -2134,6 +2258,21 @@ export function checkScheduleConflict(proposedSlot, existingSlots = null, exclud
         type: 'cohort',
         title: 'Cohort Schedule Overlap',
         message: `Students in "${slot.cohortName}" already have "${slot.courseTitle}" scheduled on ${day} (${timeRangeStr}).`,
+        conflictingSlot: slot,
+      });
+    }
+
+    // 4. Online Link Conflict (Same Meet/Zoom link used for two different classes at the same time)
+    if (
+      proposedSlot.meetLink &&
+      slot.meetLink &&
+      proposedSlot.courseId !== slot.courseId &&
+      proposedSlot.meetLink.trim().toLowerCase() === slot.meetLink.trim().toLowerCase()
+    ) {
+      conflicts.push({
+        type: 'meet_link',
+        title: 'Online Link Conflict',
+        message: `Meeting link is already assigned to "${slot.courseTitle}" on ${day} (${timeRangeStr}).`,
         conflictingSlot: slot,
       });
     }
@@ -2814,9 +2953,16 @@ export function getDailyQuotes() {
  */
 export function getTodaysQuote() {
   const allQuotes = getDailyQuotes();
-  const activeQuotes = allQuotes.filter((q) => q.active !== false);
-  if (activeQuotes.length === 0) {
-    return defaultQuotesList[0];
+  const activeQuotes = (allQuotes || []).filter((q) => q && q.active !== false);
+  if (!activeQuotes || activeQuotes.length === 0) {
+    return (defaultQuotesList && defaultQuotesList[0]) || {
+      id: 'q_default',
+      text: 'Seek knowledge from the cradle to the grave.',
+      source: 'Islamic Proverb',
+      type: 'wisdom',
+      active: true,
+      pinned: false,
+    };
   }
 
   // 1. Check if an admin pinned a specific quote
@@ -2825,12 +2971,12 @@ export function getTodaysQuote() {
     return pinnedQuote;
   }
 
-  // 2. Deterministic rotation based on day of year
+  // 2. Deterministic rotation based on day of year (safe modulo)
   const today = new Date();
   const dayOfYear = Math.floor(
     (today - new Date(today.getFullYear(), 0, 0)) / (1000 * 60 * 60 * 24)
   );
-  return activeQuotes[dayOfYear % activeQuotes.length];
+  return activeQuotes[Math.abs(dayOfYear) % activeQuotes.length];
 }
 
 /**
@@ -3855,16 +4001,38 @@ export function saveAllAttendanceSessions(sessions) {
 }
 
 /**
- * Calculate accurate live attendance rate for a student across all recorded sessions
+ * Calculate accurate live attendance rate for a student across all recorded sessions.
+ * Accounts for student's enrollment cutoff date so late-joining students are not unfairly
+ * penalized for sessions held prior to their enrollment.
  */
-export function calculateStudentAttendanceStats(studentId, sessions = null) {
+export function calculateStudentAttendanceStats(studentId, sessions = null, enrolledDate = null) {
   const allSessions = sessions || getAttendanceSessions();
   let totalSessions = 0;
   let presentCount = 0;
   let lateCount = 0;
   let absentCount = 0;
 
+  // Resolve student's enrollment date cutoff if not explicitly provided
+  let studentCutoff = enrolledDate;
+  if (!studentCutoff) {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY_STUDENTS);
+      if (stored) {
+        const students = JSON.parse(stored);
+        const st = Array.isArray(students) ? students.find((s) => s.id === studentId) : null;
+        if (st?.enrolledDate || st?.joinedDate) {
+          studentCutoff = st.enrolledDate || st.joinedDate;
+        }
+      }
+    } catch (e) {}
+  }
+
   for (const session of allSessions) {
+    // If student enrolled after this session was held, do not penalize them
+    if (studentCutoff && session.date && session.date < studentCutoff) {
+      continue;
+    }
+
     if (session.records && session.records[studentId] !== undefined) {
       totalSessions++;
       const status = session.records[studentId];
@@ -4548,11 +4716,11 @@ export function getStudentCourseAccessOverrides(userOrIdentifier, courseId = nul
   });
 
   const map = {};
-  const now = Date.now();
+  const now = getSynchronizedNow();
 
   studentOverrides.forEach((override) => {
     if (override.status === 'granted') {
-      // Check 7-day expiration
+      // Check 7-day expiration (tamper-proof server synchronized clock)
       if (override.durationType === '7_days' && override.expiresAt && now > override.expiresAt) {
         // Expired grant -> ignore
         return;
@@ -4569,7 +4737,7 @@ export function getStudentCourseAccessOverrides(userOrIdentifier, courseId = nul
  */
 export function getActiveAccessOverridesCount() {
   const all = getAllLessonAccessOverrides();
-  const now = Date.now();
+  const now = getSynchronizedNow();
   return all.filter((o) => {
     if (o.status === 'default') return false;
     if (o.status === 'granted' && o.durationType === '7_days' && o.expiresAt && now > overrideExpires(o)) {

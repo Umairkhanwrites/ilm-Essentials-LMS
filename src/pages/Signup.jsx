@@ -8,8 +8,8 @@ import SignupForm from '../components/auth/SignupForm';
 export function Signup() {
   return (
     <AuthLayout
-      title="Begin Your Journey"
-      subtitle="Create an account to start learning with Ilm Essentials"
+      title="Admissions & Registration"
+      subtitle="Apply for upcoming intakes in Ilm Foundations & Intensives"
     >
       <SignupForm />
     </AuthLayout>

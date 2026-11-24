@@ -33,6 +33,11 @@ import {
   setBulkLessonAccess,
   getActiveAccessOverridesCount,
 } from '../../services/courseStorage';
+import {
+  useSupabaseAccessOverrides,
+  setLessonAccessOverrideSupabase,
+} from '../../hooks/useSupabaseData';
+import { isSupabaseConfigured } from '../../services/supabase';
 
 /**
  * Minimalist Custom Dropdown
@@ -184,6 +189,15 @@ export default function LectureAccessSection({ onShowToast }) {
   const [lessonOverrides, setLessonOverrides] = useState([]);
   const [totalOverridesCount, setTotalOverridesCount] = useState(0);
 
+  // Live Supabase Overrides Hook
+  const { overrides: sbOverrides, overridesMap: sbOverridesMap, refetch: refetchSbOverrides } = useSupabaseAccessOverrides(selectedCourseId);
+
+  useEffect(() => {
+    if (Array.isArray(sbOverrides) && sbOverrides.length > 0) {
+      setTotalOverridesCount(sbOverrides.length);
+    }
+  }, [sbOverrides]);
+
   // Active course details with modules & lessons
   const activeCourse = useMemo(() => {
     if (!selectedCourseId) return null;
@@ -274,14 +288,38 @@ export default function LectureAccessSection({ onShowToast }) {
     return courseLessons.find((l) => l.id === selectedLessonId) || courseLessons[0] || null;
   }, [courseLessons, selectedLessonId]);
 
-  // Map of studentId -> override record
+  // Map of studentId -> override record (merges Supabase live overrides with local cache)
   const overridesMap = useMemo(() => {
     const map = {};
     lessonOverrides.forEach((o) => {
       map[o.studentId] = o;
     });
+
+    if (sbOverridesMap) {
+      Object.values(sbOverridesMap).forEach((o) => {
+        const matchesLesson =
+          !selectedLessonId ||
+          o.lesson_id === selectedLessonId ||
+          o.lessonTitle === activeLesson?.title;
+
+        if (matchesLesson) {
+          const mappedKey = o.student_id;
+          map[mappedKey] = {
+            id: o.id,
+            studentId: o.student_id,
+            studentName: o.studentName,
+            studentEmail: o.studentEmail,
+            lessonId: o.lesson_id,
+            status: o.effectiveStatus || o.status,
+            expiresAt: o.expires_at,
+            durationType: o.expires_at ? '7_days' : 'lifetime',
+            reason: o.reason,
+          };
+        }
+      });
+    }
     return map;
-  }, [lessonOverrides]);
+  }, [lessonOverrides, sbOverridesMap, selectedLessonId, activeLesson]);
 
   // Filter students based on search and status
   const filteredStudents = useMemo(() => {
@@ -294,7 +332,7 @@ export default function LectureAccessSection({ onShowToast }) {
 
       if (!matchesSearch) return false;
 
-      const override = overridesMap[std.id];
+      const override = overridesMap[std.id] || overridesMap[std.email?.toLowerCase()];
       const status = override?.status || 'default';
 
       if (statusFilter === 'granted') return status === 'granted';
@@ -305,9 +343,28 @@ export default function LectureAccessSection({ onShowToast }) {
     });
   }, [allStudents, studentSearchQuery, overridesMap, statusFilter]);
 
-  // Handle single student access change
+  // Handle single student access change (direct Supabase sync)
   const handleAccessChange = async (student, newStatus, durationType = '7_days', customReason = '') => {
     if (!activeLesson || !activeCourse) return;
+
+    if (isSupabaseConfigured) {
+      try {
+        await setLessonAccessOverrideSupabase({
+          studentId: student.id,
+          studentEmail: student.email,
+          courseId: activeCourse.id,
+          lessonId: activeLesson.id,
+          lessonTitle: activeLesson.title,
+          status: newStatus,
+          durationType,
+          reason: customReason,
+          adminName: 'Administrator',
+        });
+        if (refetchSbOverrides) await refetchSbOverrides();
+      } catch (sbErr) {
+        console.warn('Supabase access override notice:', sbErr);
+      }
+    }
 
     await setStudentLessonAccess({
       studentId: student.id,
@@ -337,10 +394,31 @@ export default function LectureAccessSection({ onShowToast }) {
     }
   };
 
-  // Bulk actions for all visible students
+  // Bulk actions for all visible students (direct Supabase sync)
   const handleBulkAction = async (newStatus, durationType = '7_days', reason = '') => {
     if (!activeLesson || !activeCourse || filteredStudents.length === 0) return;
     setIsCohortMenuOpen(false);
+
+    if (isSupabaseConfigured) {
+      try {
+        for (const std of filteredStudents) {
+          await setLessonAccessOverrideSupabase({
+            studentId: std.id,
+            studentEmail: std.email,
+            courseId: activeCourse.id,
+            lessonId: activeLesson.id,
+            lessonTitle: activeLesson.title,
+            status: newStatus,
+            durationType,
+            reason,
+            adminName: 'Administrator',
+          });
+        }
+        if (refetchSbOverrides) await refetchSbOverrides();
+      } catch (sbErr) {
+        console.warn('Supabase bulk access override notice:', sbErr);
+      }
+    }
 
     await setBulkLessonAccess({
       students: filteredStudents,

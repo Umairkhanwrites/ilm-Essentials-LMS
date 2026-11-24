@@ -1,24 +1,17 @@
 /**
  * AuthContext — Centralized Authentication & Role-Based Access Control (RBAC)
  *
- * Integrated with Firebase Authentication and Cloud Firestore:
- * - Strict credential verification (no auto-hydration or loose password fallbacks)
- * - Cloud Firestore profile synchronization
- * - Reactive session persistence via onAuthStateChanged
+ * Integrated with Supabase Authentication & PostgreSQL:
+ * - Direct authentication with Supabase Auth (supabase.auth.signInWithPassword)
+ * - Automatic bearer token attachment for Row-Level Security (RLS) policies
+ * - Reactive session persistence via supabase.auth.onAuthStateChange
  * - Role-based isolation between Student, Admin, and Instructor portals
+ * - 12-hour silent auto-logout window for secure academic sessions
  */
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import {
-  signInWithEmailAndPassword,
-  signOut as firebaseSignOut,
-  onAuthStateChanged,
-  updatePassword as firebaseUpdatePassword,
-} from 'firebase/auth';
-import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
-import { auth, db } from '../services/firebase';
-import { seedBaselineAccounts, updateStudentPassword } from '../services/courseStorage';
-import { demoCredentials, adminStudentsList } from '../data/mockData';
+import { supabase, isSupabaseConfigured } from '../services/supabase.js';
+import { demoCredentials, adminStudentsList } from '../data/mockData.js';
 
 const AuthContext = createContext(null);
 
@@ -61,56 +54,52 @@ export function AuthProvider({ children }) {
     return null;
   });
 
-  // Seed baseline accounts into Firebase Auth & Firestore in the background
+  // Listen to Supabase Auth state changes
   useEffect(() => {
-    seedBaselineAccounts().catch((err) => {
-      console.warn('Baseline account seeding note:', err.message);
-    });
-  }, []);
+    if (!isSupabaseConfigured) return;
 
-  // Listen to Firebase Auth state changes
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
-      if (fbUser) {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (session?.user) {
         try {
-          const studentSnap = await getDoc(doc(db, 'students', fbUser.uid));
-          if (studentSnap.exists()) {
-            const data = studentSnap.data();
-            setUser((prev) => ({
-              ...(prev || {}),
-              id: fbUser.uid,
-              uid: fbUser.uid,
-              name: data.name || 'Student',
-              email: fbUser.email,
-              role: 'student',
-              program: data.program || 'Ilm Foundations',
-              semester: data.semester || 'Semester 1',
-              format: data.format || 'online',
-              mustChangePassword: Boolean(data.mustChangePassword),
-            }));
-            return;
-          }
+          const { data: profile } = await supabase
+            .from('students')
+            .select('*')
+            .eq('id', session.user.id)
+            .maybeSingle();
 
-          const userSnap = await getDoc(doc(db, 'users', fbUser.uid));
-          if (userSnap.exists()) {
-            const data = userSnap.data();
-            setUser((prev) => ({
-              ...(prev || {}),
-              id: fbUser.uid,
-              uid: fbUser.uid,
-              name: data.name || 'Administrator',
-              email: fbUser.email,
-              role: data.role || 'admin',
-            }));
-            return;
-          }
+          const detectedRole =
+            profile?.role ||
+            session.user.app_metadata?.role ||
+            session.user.user_metadata?.role ||
+            (session.user.email?.includes('admin') ? 'admin' : 'student');
+
+          setUser((prev) => ({
+            ...(prev || {}),
+            id: session.user.id,
+            uid: session.user.id,
+            name: profile?.name || session.user.user_metadata?.name || (detectedRole === 'admin' ? 'Administrator' : 'Student'),
+            email: session.user.email,
+            role: detectedRole,
+            program: 'Ilm Foundations',
+            semester: 'Semester 1',
+            format: profile?.format || 'online',
+            cohort_id: profile?.cohort_id || 'foundations_sem1',
+            isVideoRestricted: Boolean(profile?.is_video_restricted),
+          }));
         } catch (err) {
-          console.warn('Error synchronizing Firebase user profile:', err);
+          console.warn('Error synchronizing Supabase user profile:', err);
         }
+      } else if (event === 'SIGNED_OUT') {
+        setUser(null);
+        try {
+          localStorage.removeItem(STORAGE_KEY_USER);
+        } catch (e) {}
       }
     });
 
-    return () => unsubscribe();
+    return () => {
+      subscription?.unsubscribe();
+    };
   }, []);
 
   // Keep localStorage synchronized
@@ -131,9 +120,11 @@ export function AuthProvider({ children }) {
    */
   const logout = useCallback(async () => {
     try {
-      await firebaseSignOut(auth);
+      if (isSupabaseConfigured) {
+        await supabase.auth.signOut();
+      }
     } catch (e) {
-      console.warn('Firebase signout note:', e);
+      console.warn('Supabase signout note:', e);
     }
     setUser(null);
     try {
@@ -175,7 +166,7 @@ export function AuthProvider({ children }) {
 
   /**
    * Log in with credentials and expected role
-   * Enforces strict Firebase Authentication.
+   * Enforces strict Supabase Authentication with verified fallbacks.
    *
    * @param {string} email
    * @param {string} password
@@ -198,183 +189,166 @@ export function AuthProvider({ children }) {
       };
     }
 
-    // 1. Authenticate with Firebase Authentication
-    try {
-      const userCredential = await signInWithEmailAndPassword(auth, cleanEmail, cleanPass);
-      const fbUser = userCredential.user;
+    // 1. Authenticate with Supabase Auth
+    if (isSupabaseConfigured) {
+      try {
+        const { data: authData, error: authErr } = await supabase.auth.signInWithPassword({
+          email: cleanEmail,
+          password: cleanPass,
+        });
 
-      let detectedRole = 'student';
-      let profileData = {};
+        if (!authErr && authData?.user) {
+          const sbUser = authData.user;
 
-      // Retrieve student metadata
-      const studentSnap = await getDoc(doc(db, 'students', fbUser.uid));
-      if (studentSnap.exists()) {
-        profileData = studentSnap.data();
-        detectedRole = profileData.role || 'student';
-      } else {
-        // Fallback to baseline student data if Firestore doc is syncing
-        const baselineStudent = adminStudentsList.find(
-          (s) => (s.email || '').toLowerCase().trim() === cleanEmail
-        );
-        if (baselineStudent) {
-          detectedRole = 'student';
-          profileData = {
-            name: baselineStudent.name,
-            email: baselineStudent.email,
-            program: baselineStudent.program || 'Ilm Foundations',
-            semester: baselineStudent.semester || 'Semester 1',
-            role: 'student',
-          };
-          try {
-            await setDoc(doc(db, 'students', fbUser.uid), {
-              ...profileData,
-              id: fbUser.uid,
-              uid: fbUser.uid,
-              enrolledDate: '2026-11-13',
-              createdAt: serverTimestamp(),
-            }, { merge: true });
-          } catch (e) {}
-        } else {
-          // Retrieve admin/staff metadata
-          const userSnap = await getDoc(doc(db, 'users', fbUser.uid));
-          if (userSnap.exists()) {
-            profileData = userSnap.data();
-            detectedRole = profileData.role || 'admin';
-          } else if (cleanEmail === 'admin@ilmessentials.pk' || cleanEmail.includes('admin')) {
-            detectedRole = 'admin';
-            profileData = { name: 'Administrator', email: cleanEmail };
+          // Retrieve student profile from public.students
+          const { data: profile } = await supabase
+            .from('students')
+            .select('*')
+            .eq('id', sbUser.id)
+            .maybeSingle();
+
+          const detectedRole =
+            profile?.role ||
+            sbUser.app_metadata?.role ||
+            sbUser.user_metadata?.role ||
+            (cleanEmail === demoCredentials.admin.email.toLowerCase() ? 'admin' : 'student');
+
+          // Enforce role isolation
+          if (expectedRole && detectedRole !== expectedRole) {
+            await supabase.auth.signOut();
+            return {
+              success: false,
+              error: `Unauthorized portal. This login is strictly for ${expectedRole} accounts.`,
+            };
           }
+
+          const authenticatedUser = {
+            id: sbUser.id,
+            uid: sbUser.id,
+            name: profile?.name || sbUser.user_metadata?.name || (detectedRole === 'admin' ? 'Faculty Administrator' : 'Student'),
+            email: sbUser.email,
+            role: detectedRole,
+            program: 'Ilm Foundations',
+            semester: 'Semester 1',
+            format: profile?.format || 'online',
+            cohort_id: profile?.cohort_id || 'foundations_sem1',
+            isVideoRestricted: Boolean(profile?.is_video_restricted),
+            mustChangePassword: false,
+            ...sessionMeta,
+          };
+
+          setUser(authenticatedUser);
+          return { success: true, user: authenticatedUser };
         }
+      } catch (sbErr) {
+        console.warn('Supabase auth attempt note:', sbErr.message);
       }
+    }
 
-      // Enforce role isolation
-      if (expectedRole && detectedRole !== expectedRole) {
-        await firebaseSignOut(auth);
-        return {
-          success: false,
-          error: `Unauthorized portal. This login is strictly for ${expectedRole} accounts.`,
-        };
-      }
-
-      const authenticatedUser = {
-        id: fbUser.uid,
-        uid: fbUser.uid,
-        name: profileData.name || (detectedRole === 'admin' ? 'Administrator' : 'Student'),
-        email: fbUser.email,
-        role: detectedRole,
-        program: profileData.program || 'Ilm Foundations',
-        semester: profileData.semester || 'Semester 1',
-        format: profileData.format || 'online',
-        mustChangePassword: Boolean(profileData.mustChangePassword),
+    // 2. Verified fallback check for baseline student accounts
+    const baselineMatch = adminStudentsList.find(
+      (s) => (s.email || '').toLowerCase().trim() === cleanEmail &&
+             s.password && s.password.trim() === cleanPass
+    );
+    if (expectedRole === 'student' && baselineMatch) {
+      const studentUser = {
+        id: baselineMatch.id,
+        uid: baselineMatch.id,
+        name: baselineMatch.name,
+        email: baselineMatch.email,
+        role: 'student',
+        program: baselineMatch.program || 'Ilm Foundations',
+        semester: baselineMatch.semester || 'Semester 1',
+        format: baselineMatch.format || 'online',
+        mustChangePassword: false,
         ...sessionMeta,
       };
-
-      setUser(authenticatedUser);
-      return { success: true, user: authenticatedUser };
-    } catch (fbErr) {
-      // 2. Verified fallback check for baseline student accounts
-      const baselineMatch = adminStudentsList.find(
-        (s) => (s.email || '').toLowerCase().trim() === cleanEmail &&
-               s.password && s.password.trim() === cleanPass
-      );
-      if (expectedRole === 'student' && baselineMatch) {
-        const studentUser = {
-          id: baselineMatch.id,
-          name: baselineMatch.name,
-          email: baselineMatch.email,
-          role: 'student',
-          program: baselineMatch.program || 'Ilm Foundations',
-          semester: baselineMatch.semester || 'Semester 1',
-          mustChangePassword: false,
-          ...sessionMeta,
-        };
-        setUser(studentUser);
-        return { success: true, user: studentUser };
-      }
-
-      // 3. Fallback check for demo accounts
-      const isDemoAdmin =
-        expectedRole === 'admin' &&
-        cleanEmail === demoCredentials.admin.email.toLowerCase() &&
-        (cleanPass === demoCredentials.admin.password || cleanPass === 'adminpassword');
-
-      if (isDemoAdmin) {
-        const adminUser = {
-          id: 'adm_001',
-          name: demoCredentials.admin.name,
-          email: demoCredentials.admin.email,
-          role: 'admin',
-          ...sessionMeta,
-        };
-        setUser(adminUser);
-        return { success: true, user: adminUser };
-      }
-
-      const isDemoStudent =
-        expectedRole === 'student' &&
-        (cleanEmail === demoCredentials.student.email.toLowerCase() ||
-          cleanEmail === demoCredentials.student.alternateEmail?.toLowerCase()) &&
-        (cleanPass === demoCredentials.student.password || cleanPass === 'student123');
-
-      if (isDemoStudent) {
-        const studentUser = {
-          id: 'usr_001',
-          name: demoCredentials.student.name,
-          email: demoCredentials.student.email,
-          role: 'student',
-          ...sessionMeta,
-        };
-        setUser(studentUser);
-        return { success: true, user: studentUser };
-      }
-
-      // Instructor check
-      const isDemoInstructor =
-        (cleanEmail === demoCredentials.instructor?.email?.toLowerCase() ||
-          cleanEmail === demoCredentials.instructor?.alternateEmail?.toLowerCase()) &&
-        (cleanPass === demoCredentials.instructor?.password || cleanPass === 'instructor123');
-
-      if (isDemoInstructor) {
-        const instUser = {
-          id: 'inst_demo',
-          name: demoCredentials.instructor.name,
-          email: demoCredentials.instructor.email,
-          role: 'instructor',
-          title: 'Senior Scholar & Course Instructor',
-          avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=200&q=80',
-          ...sessionMeta,
-        };
-        setUser(instUser);
-        return { success: true, user: instUser };
-      }
-
-      // 3. Strict Rejection: Random or invalid credentials reject cleanly
-      console.warn('Authentication rejected:', cleanEmail, fbErr.code || fbErr.message);
-      return {
-        success: false,
-        error: 'Invalid email or password. Please verify your credentials and try again.',
-      };
+      setUser(studentUser);
+      return { success: true, user: studentUser };
     }
+
+    // 3. Fallback check for demo admin
+    const isDemoAdmin =
+      expectedRole === 'admin' &&
+      cleanEmail === demoCredentials.admin.email.toLowerCase() &&
+      (cleanPass === demoCredentials.admin.password || cleanPass === 'adminpassword');
+
+    if (isDemoAdmin) {
+      const adminUser = {
+        id: 'adm_001',
+        uid: 'adm_001',
+        name: demoCredentials.admin.name,
+        email: demoCredentials.admin.email,
+        role: 'admin',
+        ...sessionMeta,
+      };
+      setUser(adminUser);
+      return { success: true, user: adminUser };
+    }
+
+    // Fallback check for demo student
+    const isDemoStudent =
+      expectedRole === 'student' &&
+      (cleanEmail === demoCredentials.student.email.toLowerCase() ||
+        cleanEmail === demoCredentials.student.alternateEmail?.toLowerCase()) &&
+      (cleanPass === demoCredentials.student.password || cleanPass === 'student123');
+
+    if (isDemoStudent) {
+      const studentUser = {
+        id: 'usr_001',
+        uid: 'usr_001',
+        name: demoCredentials.student.name,
+        email: demoCredentials.student.email,
+        role: 'student',
+        program: 'Ilm Foundations',
+        semester: 'Semester 1',
+        ...sessionMeta,
+      };
+      setUser(studentUser);
+      return { success: true, user: studentUser };
+    }
+
+    // Fallback check for demo instructor
+    const isDemoInstructor =
+      (cleanEmail === demoCredentials.instructor?.email?.toLowerCase() ||
+        cleanEmail === demoCredentials.instructor?.alternateEmail?.toLowerCase()) &&
+      (cleanPass === demoCredentials.instructor?.password || cleanPass === 'instructor123');
+
+    if (isDemoInstructor) {
+      const instUser = {
+        id: 'inst_demo',
+        uid: 'inst_demo',
+        name: demoCredentials.instructor.name,
+        email: demoCredentials.instructor.email,
+        role: 'instructor',
+        title: 'Senior Scholar & Course Instructor',
+        avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=200&q=80',
+        ...sessionMeta,
+      };
+      setUser(instUser);
+      return { success: true, user: instUser };
+    }
+
+    // Strict Rejection: Random or invalid credentials reject cleanly
+    return {
+      success: false,
+      error: 'Invalid email or password. Please verify your credentials and try again.',
+    };
   }, []);
 
   /**
-   * Set new permanent password and clear mustChangePassword
+   * Set new permanent password
    */
   const changePassword = useCallback(async (newPassword) => {
-    if (auth.currentUser) {
+    if (isSupabaseConfigured) {
       try {
-        await firebaseUpdatePassword(auth.currentUser, newPassword);
-        await updateDoc(doc(db, 'students', auth.currentUser.uid), {
-          mustChangePassword: false,
-          updatedAt: serverTimestamp(),
-        });
+        await supabase.auth.updateUser({ password: newPassword });
       } catch (e) {
-        console.warn('Failed to update password in Firebase Auth/Firestore:', e);
+        console.warn('Failed to update password in Supabase Auth:', e);
       }
     }
 
     if (user && user.id) {
-      await updateStudentPassword(user.id, newPassword);
       const updated = {
         ...user,
         mustChangePassword: false,

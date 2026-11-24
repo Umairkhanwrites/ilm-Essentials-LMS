@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import Layout from '../components/layout/Layout';
 import { getLibraryItems } from '../services/courseStorage';
+import { useSupabaseLibrary, resolveLibraryPdfUrl } from '../hooks/useSupabaseData';
 
 /**
  * ELibrary Page — Digital library for course materials and Islamic texts.
@@ -22,6 +23,36 @@ export function ELibrary() {
   const [libraryList, setLibraryList] = useState(() => getLibraryItems());
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState('All');
+
+  // Reactive Supabase e-Library items
+  const { items: supabaseItems } = useSupabaseLibrary();
+
+  // Combine Supabase catalog items with local fallback
+  const combinedList = useMemo(() => {
+    if (Array.isArray(supabaseItems) && supabaseItems.length > 0) {
+      const mappedSb = supabaseItems.map((sb) => ({
+        id: sb.id,
+        title: sb.title,
+        titleArabic: sb.title_arabic,
+        author: sb.author,
+        category: sb.category,
+        type: sb.type,
+        language: sb.language,
+        pages: sb.pages,
+        storagePath: sb.storage_path,
+        downloadUrl: sb.storage_path,
+        externalUrl: sb.storage_path,
+        fileSize: sb.file_size_bytes ? `${(sb.file_size_bytes / (1024 * 1024)).toFixed(1)} MB` : null,
+        isDownloadAllowed: sb.is_download_allowed,
+        featured: sb.featured,
+        description: sb.title_arabic ? `${sb.title_arabic} — Canonical reference work` : '',
+      }));
+      const sbTitles = new Set(mappedSb.map((i) => i.title?.toLowerCase()));
+      const remainingLocal = libraryList.filter((loc) => !sbTitles.has(loc.title?.toLowerCase()));
+      return [...mappedSb, ...remainingLocal];
+    }
+    return libraryList;
+  }, [supabaseItems, libraryList]);
 
   // Synchronize dynamically with Admin dashboard updates
   useEffect(() => {
@@ -40,12 +71,12 @@ export function ELibrary() {
   // Compute dynamic category list from existing items
   const categories = useMemo(() => {
     const defaultCats = ['Tafsir', 'Hadith', 'Fiqh', 'Seerah', 'Arabic', 'Tazkiyah'];
-    const dynamicCats = libraryList.map((i) => i.category).filter(Boolean);
+    const dynamicCats = combinedList.map((i) => i.category).filter(Boolean);
     const combined = Array.from(new Set([...defaultCats, ...dynamicCats]));
     return ['All', ...combined];
-  }, [libraryList]);
+  }, [combinedList]);
 
-  const filteredItems = libraryList.filter((item) => {
+  const filteredItems = combinedList.filter((item) => {
     const matchesCategory = activeCategory === 'All' || item.category === activeCategory;
     const q = searchQuery.toLowerCase();
     const matchesSearch =
@@ -55,23 +86,31 @@ export function ELibrary() {
     return matchesCategory && matchesSearch;
   });
 
-  const featuredItems = libraryList.filter((item) => item.featured);
+  const featuredItems = combinedList.filter((item) => item.featured);
 
-  const handleDownload = (item) => {
-    if (item.downloadUrl) {
-      window.open(item.downloadUrl, '_blank', 'noopener,noreferrer');
-    } else {
-      alert(`Resource "${item.title}" is available for on-demand reading. Contact administration for direct PDF downloads.`);
+  // Flexible resolver supporting external CDN (0 egress) or Supabase signed URLs
+  const handleDownload = async (item) => {
+    const rawTarget = item.storagePath || item.storage_path || item.downloadUrl;
+    if (rawTarget) {
+      const resolved = await resolveLibraryPdfUrl(rawTarget);
+      if (resolved) {
+        window.open(resolved, '_blank', 'noopener,noreferrer');
+        return;
+      }
     }
+    alert(`Resource "${item.title}" is available for on-demand reading. Contact administration for direct PDF downloads.`);
   };
 
-  const handleReadOnline = (item) => {
-    const targetUrl = item.externalUrl || item.downloadUrl;
-    if (targetUrl) {
-      window.open(targetUrl, '_blank', 'noopener,noreferrer');
-    } else {
-      alert(`Online reading link for "${item.title}" will be made available shortly by faculty.`);
+  const handleReadOnline = async (item) => {
+    const rawTarget = item.storagePath || item.storage_path || item.externalUrl || item.downloadUrl;
+    if (rawTarget) {
+      const resolved = await resolveLibraryPdfUrl(rawTarget);
+      if (resolved) {
+        window.open(resolved, '_blank', 'noopener,noreferrer');
+        return;
+      }
     }
+    alert(`Online reading link for "${item.title}" will be made available shortly by faculty.`);
   };
 
   return (

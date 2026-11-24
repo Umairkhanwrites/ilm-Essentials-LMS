@@ -16,6 +16,7 @@ import { Quote, BookOpen, Sparkles } from 'lucide-react';
 import { currentUser } from '../../data/mockData';
 import { getTodaysQuote } from '../../services/courseStorage';
 import { useAuth } from '../../context/AuthContext';
+import { useSupabaseQuotes } from '../../hooks/useSupabaseData';
 
 /**
  * Formats a Date into a readable string like "Monday, November 3, 2026"
@@ -33,23 +34,38 @@ function formatDate(date) {
 
 export default function WelcomeSection() {
   const { user } = useAuth();
-  const [quote, setQuote] = useState(() => getTodaysQuote());
   const today = useMemo(() => formatDate(new Date()), []);
 
-  // Listen to admin quote updates in real-time
-  useEffect(() => {
-    const handleUpdate = () => {
-      setQuote(getTodaysQuote());
-    };
+  // Reactive Supabase Quotes
+  const { quotes: sbQuotes } = useSupabaseQuotes(false);
 
-    window.addEventListener('ilm-quotes-updated', handleUpdate);
-    window.addEventListener('storage', handleUpdate);
+  // Compute daily quote with pinned priority & safe divide-by-zero rotation
+  const quote = useMemo(() => {
+    const activeList = Array.isArray(sbQuotes) && sbQuotes.length > 0
+      ? sbQuotes.filter((q) => q && q.active !== false)
+      : [];
 
-    return () => {
-      window.removeEventListener('ilm-quotes-updated', handleUpdate);
-      window.removeEventListener('storage', handleUpdate);
-    };
-  }, []);
+    // Fallback if no active Supabase quotes exist (strict divide-by-zero guard)
+    if (activeList.length === 0) {
+      const local = getTodaysQuote();
+      return local || {
+        text: 'The seeking of knowledge is obligatory upon every Muslim.',
+        source: 'Sunan Ibn Majah 224',
+        type: 'hadith',
+      };
+    }
+
+    // 1. Pinned quote priority
+    const pinned = activeList.find((q) => q.pinned);
+    if (pinned) return pinned;
+
+    // 2. Safe deterministic rotation based on day of year (divide-by-zero guarded)
+    const now = new Date();
+    const startOfYear = new Date(now.getFullYear(), 0, 0);
+    const dayOfYear = Math.floor((now - startOfYear) / (1000 * 60 * 60 * 24));
+    const safeIndex = Math.abs(dayOfYear) % activeList.length;
+    return activeList[safeIndex];
+  }, [sbQuotes]);
 
   return (
     <motion.section

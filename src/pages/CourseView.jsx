@@ -55,6 +55,8 @@ import {
   getStudentCourseAccessOverrides,
   getStudentCourseAttendance,
 } from '../services/courseStorage';
+import { evaluateLessonPlaybackAccess } from '../services/accessEngine';
+import { useSupabaseAccessOverrides, useSupabaseInvoices } from '../hooks/useSupabaseData';
 import { useAuth } from '../context/AuthContext';
 
 export default function CourseView() {
@@ -113,6 +115,10 @@ export default function CourseView() {
     return user ? getStudentCourseAccessOverrides(user, course.id) : {};
   });
 
+  // Live Supabase Overrides & Invoices Hooks
+  const { overridesMap: sbOverridesMap } = useSupabaseAccessOverrides(course?.id);
+  const { invoices: sbInvoices } = useSupabaseInvoices(user?.id);
+
   useEffect(() => {
     if (user) {
       setAccessOverrides(getStudentCourseAccessOverrides(user, course.id));
@@ -129,7 +135,27 @@ export default function CourseView() {
     return () => window.removeEventListener('ilm-lesson-access-updated', handleUpdate);
   }, [user, course.id]);
 
-  // Sequential Lesson Progression Rule + Admin Granular Overrides
+  // Combine local overrides with live Supabase overrides
+  const effectiveOverrides = useMemo(() => {
+    const merged = { ...accessOverrides };
+    if (sbOverridesMap && user?.id) {
+      Object.values(sbOverridesMap).forEach((o) => {
+        const matchesUser = o.student_id === user.id ||
+                            (user.email && o.studentEmail?.toLowerCase() === user.email.toLowerCase());
+        if (matchesUser) {
+          merged[o.lesson_id] = {
+            status: o.effectiveStatus || o.status,
+            durationType: o.expires_at ? '7_days' : 'lifetime',
+            expiresAt: o.expires_at ? new Date(o.expires_at).getTime() : null,
+            reason: o.reason,
+          };
+        }
+      });
+    }
+    return merged;
+  }, [accessOverrides, sbOverridesMap, user]);
+
+  // 4-Tier Access Engine: Sequential Lesson Progression + Live Admin Overrides + Tuition Ledger Check
   const { unlockedLessonIds, lockedLessonReasons, overrideDetails } = useMemo(() => {
     const unlocked = new Set();
     const reasons = {};
@@ -138,49 +164,40 @@ export default function CourseView() {
 
     for (let i = 0; i < allLessons.length; i++) {
       const les = allLessons[i];
-      const override = accessOverrides[les.id];
+      const override = effectiveOverrides[les.id];
 
-      // 1. Check if admin force-locked this lesson for the student
-      if (override?.status === 'locked') {
-        reasons[les.id] = override.reason || '';
-        details[les.id] = { type: 'locked', reason: override.reason || '' };
-        canUnlock = Boolean(les.completed);
-        continue;
-      }
+      const accessResult = evaluateLessonPlaybackAccess({
+        user,
+        course,
+        lesson: les,
+        accessOverride: override,
+        invoices: sbInvoices,
+        isPrerequisiteMet: canUnlock,
+      });
 
-      // 2. Check if admin force-granted access (7-day or lifetime)
-      if (override?.status === 'granted') {
-        const isExpired = override.durationType === '7_days' && override.expiresAt && Date.now() > override.expiresAt;
-        if (!isExpired) {
-          unlocked.add(les.id);
-          details[les.id] = {
-            type: 'granted',
-            durationType: override.durationType,
-            expiresAt: override.expiresAt,
-            expiryDateFormatted: override.expiryDateFormatted,
-          };
-          canUnlock = Boolean(les.completed);
-          continue;
-        }
-      }
-
-      // 3. Fallback to standard sequential progression
-      if (i === 0) {
-        unlocked.add(les.id);
+      if (!accessResult.allowed) {
+        const lockedReason = accessResult.reason || 'Lesson Restricted';
+        reasons[les.id] = lockedReason;
+        details[les.id] = {
+          type: accessResult.isOverrideLocked ? 'locked' : accessResult.isFeeLocked ? 'fee_locked' : 'prereq_locked',
+          reason: lockedReason,
+        };
         canUnlock = Boolean(les.completed);
       } else {
-        const prev = allLessons[i - 1];
-        if (canUnlock) {
-          unlocked.add(les.id);
-          canUnlock = Boolean(les.completed);
-        } else {
-          reasons[les.id] = `Complete "${prev.title}" to unlock this lesson.`;
+        unlocked.add(les.id);
+        if (accessResult.overrideInfo) {
+          details[les.id] = {
+            type: 'granted',
+            durationType: accessResult.overrideInfo.durationType,
+            expiresAt: accessResult.overrideInfo.expiresAt || accessResult.overrideInfo.expires_at,
+          };
         }
+        canUnlock = Boolean(les.completed);
       }
     }
 
     return { unlockedLessonIds: unlocked, lockedLessonReasons: reasons, overrideDetails: details };
-  }, [allLessons, accessOverrides]);
+  }, [allLessons, effectiveOverrides, user, course, sbInvoices]);
 
   // Default accessible lesson: earliest incomplete lesson that is unlocked
   const defaultLesson = useMemo(() => {
