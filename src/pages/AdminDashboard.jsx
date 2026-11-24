@@ -8087,57 +8087,47 @@ export default function AdminDashboard() {
 
         {/* CREATE / EDIT ACADEMIC PATHWAY MODAL */}
         {isPathwayModalOpen && (
-          <div className="fixed inset-0 bg-primary-950/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-sand-200">
-              <div className="px-6 py-5 bg-sand-50/80 border-b border-sand-200 flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <div className="h-8 w-8 rounded-xl bg-primary-100 flex items-center justify-center text-primary-900">
-                    <Compass size={18} />
-                  </div>
-                  <div>
-                    <h3 className="font-heading font-bold text-ink-900 text-base">
-                      {editingPathway ? 'Edit Academic Pathway' : 'Create New Academic Pathway'}
-                    </h3>
-                    <p className="text-xs text-ink-500">
-                      Define curriculum track name and program structure
-                    </p>
-                  </div>
-                </div>
+          <div className="fixed inset-0 bg-primary-950/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full overflow-hidden border border-sand-200 animate-in fade-in zoom-in-95 duration-150">
+              <div className="px-5 py-4 border-b border-sand-100 flex items-center justify-between">
+                <h3 className="font-heading font-bold text-ink-900 text-sm">
+                  {editingPathway ? 'Edit Pathway' : 'New Academic Pathway'}
+                </h3>
                 <button
                   type="button"
                   onClick={() => setIsPathwayModalOpen(false)}
-                  className="p-1.5 rounded-lg text-ink-400 hover:text-ink-700 hover:bg-sand-200/50 transition-colors cursor-pointer"
+                  className="p-1 rounded-lg text-ink-400 hover:text-ink-700 hover:bg-sand-100 transition-colors cursor-pointer"
                 >
-                  <X size={18} />
+                  <X size={16} />
                 </button>
               </div>
 
-              <form onSubmit={handleSavePathwaySubmit} className="p-6 space-y-4">
+              <form onSubmit={handleSavePathwaySubmit} className="p-5 space-y-4">
                 {pathwayFormError && (
-                  <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 font-medium">
+                  <div className="p-2.5 rounded-lg bg-red-50 border border-red-200 text-xs text-red-700 font-medium">
                     {pathwayFormError}
                   </div>
                 )}
 
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-ink-700 mb-1.5">
-                    Pathway Name *
+                  <label className="block text-xs font-semibold text-ink-600 mb-1">
+                    Pathway Name
                   </label>
                   <input
                     type="text"
                     value={pathwayFormData.name}
                     onChange={(e) => setPathwayFormData({ ...pathwayFormData, name: e.target.value })}
-                    placeholder="e.g. Classical Arabic & Sarf Immersion"
+                    placeholder="e.g. Ilm Foundations"
                     required
-                    className="w-full px-3.5 py-2.5 text-xs sm:text-sm border border-sand-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-600 font-medium text-ink-900 bg-white"
+                    className="w-full px-3 py-2 text-xs sm:text-sm border border-sand-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-600 font-medium text-ink-900 bg-white"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-ink-700 mb-1.5">
-                    Program Structure *
+                  <label className="block text-xs font-semibold text-ink-600 mb-1.5">
+                    Structure
                   </label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <div className="grid grid-cols-2 p-1 bg-sand-100/90 rounded-xl border border-sand-200/80">
                     <button
                       type="button"
                       onClick={() =>
@@ -8148,20 +8138,14 @@ export default function AdminDashboard() {
                           semesters: pathwayFormData.semesters || 2,
                         })
                       }
-                      className={`p-3 rounded-xl border text-left cursor-pointer transition-all ${
+                      className={`py-1.5 px-3 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                         pathwayFormData.programStructure === 'multi_semester' || pathwayFormData.type === 'cohort'
-                          ? 'border-primary-900 bg-primary-50/70 ring-2 ring-primary-500/20'
-                          : 'border-sand-200 bg-white hover:bg-sand-50/60'
+                          ? 'bg-white text-ink-900 shadow-2xs font-bold'
+                          : 'text-ink-500 hover:text-ink-800'
                       }`}
                     >
-                      <div className="font-bold text-xs text-ink-900 flex items-center gap-1.5">
-                        🎓 Multi-Semester Track
-                      </div>
-                      <p className="text-[11px] text-ink-500 mt-1 leading-snug">
-                        Organized into sequential semesters (e.g. Ilm Foundations)
-                      </p>
+                      Multi-Semester
                     </button>
-
                     <button
                       type="button"
                       onClick={() =>
@@ -8172,74 +8156,49 @@ export default function AdminDashboard() {
                           semesters: 0,
                         })
                       }
-                      className={`p-3 rounded-xl border text-left cursor-pointer transition-all ${
+                      className={`py-1.5 px-3 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                         pathwayFormData.programStructure !== 'multi_semester' && pathwayFormData.type !== 'cohort'
-                          ? 'border-primary-900 bg-primary-50/70 ring-2 ring-primary-500/20'
-                          : 'border-sand-200 bg-white hover:bg-sand-50/60'
+                          ? 'bg-white text-ink-900 shadow-2xs font-bold'
+                          : 'text-ink-500 hover:text-ink-800'
                       }`}
                     >
-                      <div className="font-bold text-xs text-ink-900 flex items-center gap-1.5">
-                        ⚡ Modular / Non-Semester Track
-                      </div>
-                      <p className="text-[11px] text-ink-500 mt-1 leading-snug">
-                        Collection of standalone courses (e.g. Ilm Intensives, Electives)
-                      </p>
+                      Modular Track
                     </button>
                   </div>
                 </div>
 
                 {(pathwayFormData.programStructure === 'multi_semester' || pathwayFormData.type === 'cohort') && (
-                  <div className="p-3.5 bg-sand-50 border border-sand-200 rounded-xl space-y-2">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-center">
-                      <div>
-                        <label className="block text-xs font-bold uppercase tracking-wider text-ink-700 mb-1">
-                          Number of Semesters
-                        </label>
-                        <input
-                          type="number"
-                          min="1"
-                          max="8"
-                          value={pathwayFormData.semesters || 2}
-                          onChange={(e) =>
-                            setPathwayFormData({
-                              ...pathwayFormData,
-                              semesters: Math.max(1, Math.min(8, Number(e.target.value) || 2)),
-                            })
-                          }
-                          className="w-full px-3 py-1.5 text-xs border border-sand-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20 font-bold text-ink-900"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold uppercase tracking-wider text-ink-500 mb-1">
-                          Generated Semesters
-                        </label>
-                        <div className="text-xs font-bold text-primary-900 py-1">
-                          {Array.from(
-                            { length: pathwayFormData.semesters || 2 },
-                            (_, i) => `Semester ${i + 1}`
-                          ).join(' • ')}
-                        </div>
-                      </div>
-                    </div>
-                    <p className="text-[11px] text-ink-500">
-                      You can also dynamically add or remove semesters directly on the pathway card anytime.
-                    </p>
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-sand-50/80 border border-sand-200/70">
+                    <span className="text-xs font-semibold text-ink-700">Number of Semesters</span>
+                    <input
+                      type="number"
+                      min="1"
+                      max="8"
+                      value={pathwayFormData.semesters || 2}
+                      onChange={(e) =>
+                        setPathwayFormData({
+                          ...pathwayFormData,
+                          semesters: Math.max(1, Math.min(8, Number(e.target.value) || 2)),
+                        })
+                      }
+                      className="w-16 px-2.5 py-1 text-center text-xs font-bold border border-sand-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                    />
                   </div>
                 )}
 
-                <div className="pt-3 flex items-center justify-end gap-2 border-t border-sand-200">
+                <div className="pt-2 flex items-center justify-end gap-2 border-t border-sand-100">
                   <button
                     type="button"
                     onClick={() => setIsPathwayModalOpen(false)}
-                    className="px-4 py-2 rounded-xl text-xs font-bold text-ink-600 hover:bg-sand-100 transition-colors cursor-pointer"
+                    className="px-3.5 py-1.5 rounded-lg text-xs font-medium text-ink-600 hover:bg-sand-100 transition-colors cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    className="px-5 py-2 rounded-xl bg-primary-900 hover:bg-primary-800 text-white text-xs font-bold shadow-xs hover:shadow transition-colors cursor-pointer"
+                    className="px-4 py-1.5 rounded-lg bg-primary-900 hover:bg-primary-800 text-white text-xs font-bold shadow-2xs transition-colors cursor-pointer"
                   >
-                    {editingPathway ? 'Update Pathway' : 'Save Pathway'}
+                    {editingPathway ? 'Update Pathway' : 'Create Pathway'}
                   </button>
                 </div>
               </form>
