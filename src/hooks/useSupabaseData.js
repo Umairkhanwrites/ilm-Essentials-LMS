@@ -518,6 +518,7 @@ export function useSupabaseBatches() {
         .select(`
           *,
           pathway:pathways(*),
+          course:courses(id, title, category, thumbnail_url),
           course_instructors:batch_course_instructors(
             id,
             course_id,
@@ -1357,6 +1358,157 @@ export async function updateApplicationStatusSupabase(applicationId, status, con
     return { success: true, data };
   } catch (err) {
     console.error('Failed to update application status in Supabase:', err);
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Mutation: Create or update an Academic Pathway Intake / Batch
+ * Supports both bundled program cohorts (e.g. Ilm Foundations) and standalone course intakes (e.g. Ilm Intensives)
+ */
+export async function savePathwayIntakeSupabase(intakeData) {
+  if (!isSupabaseConfigured) return { success: false, error: 'Supabase not configured' };
+  try {
+    const batchId = (intakeData.id || intakeData.code || '').trim().toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+    if (!batchId) throw new Error('A unique Batch ID / Code is required');
+
+    const payload = {
+      id: batchId,
+      pathway_id: intakeData.pathway_id || 'foundations',
+      name: (intakeData.name || '').trim(),
+      cohort_group: (intakeData.cohort_group || batchId).trim(),
+      semester: intakeData.semester ? parseInt(intakeData.semester, 10) : 1,
+      course_id: intakeData.course_id || null,
+      start_date: intakeData.start_date || null,
+      end_date: intakeData.end_date || null,
+      tuition_fee: intakeData.tuition_fee !== undefined && intakeData.tuition_fee !== '' && intakeData.tuition_fee !== null ? parseInt(intakeData.tuition_fee, 10) : null,
+      status: intakeData.status || 'active',
+    };
+
+    const { data, error } = await supabase
+      .from('batches')
+      .upsert(payload)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    // Handle course instructor overrides if provided
+    if (intakeData.instructors && Array.isArray(intakeData.instructors) && intakeData.instructors.length > 0) {
+      const instructorRows = intakeData.instructors
+        .filter(item => item.course_id && item.instructor_id)
+        .map(item => ({
+          cohort_id: batchId,
+          course_id: item.course_id,
+          instructor_id: item.instructor_id,
+        }));
+
+      if (instructorRows.length > 0) {
+        const { error: instErr } = await supabase
+          .from('batch_course_instructors')
+          .upsert(instructorRows, { onConflict: 'cohort_id,course_id' });
+        if (instErr) console.warn('Warning: Failed to assign some batch instructors:', instErr);
+      }
+    } else if (intakeData.course_id && intakeData.instructor_id) {
+      // Single course instructor assignment (e.g. for Intensives)
+      const { error: singleInstErr } = await supabase
+        .from('batch_course_instructors')
+        .upsert({
+          cohort_id: batchId,
+          course_id: intakeData.course_id,
+          instructor_id: intakeData.instructor_id,
+        }, { onConflict: 'cohort_id,course_id' });
+      if (singleInstErr) console.warn('Warning: Failed to assign intensive instructor:', singleInstErr);
+    }
+
+    return { success: true, data };
+  } catch (err) {
+    console.error('Failed to save pathway intake in Supabase:', err);
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Mutation: Advance a cohort to its next semester (e.g. Semester 1 -> Semester 2)
+ * Creates the new semester intake row, links courses for that semester, auto-enrolls existing students,
+ * updates students' active cohort_id, and optionally creates next semester invoices.
+ */
+export async function advanceBatchSemesterSupabase({
+  fromBatchId,
+  targetSemester,
+  newBatchId,
+  newBatchName,
+  startDate,
+  endDate,
+  tuitionFee,
+  status = 'active',
+  autoEnrollStudents = true,
+  issueInvoice = true,
+  studentIds = null,
+}) {
+  if (!isSupabaseConfigured) return { success: false, error: 'Supabase not configured' };
+  try {
+    const cleanNewBatchId = (newBatchId || '').trim().toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+    if (!cleanNewBatchId) throw new Error('New Batch ID is required.');
+
+    const rpcParams = {
+      p_from_batch_id: fromBatchId,
+      p_new_batch_id: cleanNewBatchId,
+      p_new_batch_name: (newBatchName || '').trim(),
+      p_target_semester: parseInt(targetSemester, 10) || 2,
+      p_start_date: startDate || null,
+      p_end_date: endDate || null,
+      p_tuition_fee: tuitionFee !== undefined && tuitionFee !== '' && tuitionFee !== null ? parseInt(tuitionFee, 10) : null,
+      p_status: status || 'active',
+      p_auto_enroll: autoEnrollStudents,
+      p_issue_invoice: issueInvoice,
+      p_student_ids: studentIds && Array.isArray(studentIds) && studentIds.length > 0 ? studentIds : null,
+    };
+
+    const { data, error } = await supabase.rpc('advance_batch_semester', rpcParams);
+
+    if (error) throw error;
+
+    return {
+      success: true,
+      batchId: cleanNewBatchId,
+      enrolledCount: data?.students_advanced_count || 0,
+      coursesCount: data?.target_courses_count || 0,
+      invoicesIssued: data?.invoices_issued || 0,
+      data,
+    };
+  } catch (err) {
+    console.error('Failed to advance batch semester in Supabase via RPC:', err);
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Mutation: Delete an Academic Pathway Intake / Batch
+ * Blocked if students are active in the batch to preserve academic records.
+ */
+export async function deletePathwayIntakeSupabase(batchId) {
+  if (!isSupabaseConfigured) return { success: false, error: 'Supabase not configured' };
+  try {
+    const { count: studentCount, error: countErr } = await supabase
+      .from('students')
+      .select('id', { count: 'exact', head: true })
+      .eq('cohort_id', batchId);
+
+    if (countErr) throw countErr;
+    if (studentCount > 0) {
+      throw new Error(`Cannot delete batch '${batchId}' because it has ${studentCount} active student(s) linked to it. Please archive the batch instead.`);
+    }
+
+    const { error } = await supabase
+      .from('batches')
+      .delete()
+      .eq('id', batchId);
+
+    if (error) throw error;
+    return { success: true };
+  } catch (err) {
+    console.error('Failed to delete pathway intake in Supabase:', err);
     return { success: false, error: err.message };
   }
 }
