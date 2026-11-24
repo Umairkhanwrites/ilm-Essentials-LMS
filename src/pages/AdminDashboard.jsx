@@ -1825,10 +1825,12 @@ export default function AdminDashboard() {
       subtitle: '',
       description: '',
       type: 'cohort',
+      programStructure: 'multi_semester',
       duration: '8 Months (2 Semesters)',
       semesters: 2,
       tuitionModel: 'bundled',
       defaultTuitionFee: 30000,
+      semesterFee: 30000,
       color: 'emerald',
       icon: 'GraduationCap',
     });
@@ -1838,15 +1840,18 @@ export default function AdminDashboard() {
 
   const handleOpenEditPathway = (p) => {
     setEditingPathway(p);
+    const isMultiSem = p.programStructure === 'multi_semester' || p.type === 'cohort' || Number(p.semesters) > 1;
     setPathwayFormData({
       name: p.name || '',
       subtitle: p.subtitle || '',
       description: p.description || '',
-      type: p.type || 'cohort',
+      type: p.type || (isMultiSem ? 'cohort' : 'modular'),
+      programStructure: p.programStructure || (isMultiSem ? 'multi_semester' : 'course_group'),
       duration: p.duration || '8 Weeks',
-      semesters: p.semesters || 1,
-      tuitionModel: p.tuitionModel || 'per_course',
-      defaultTuitionFee: p.defaultTuitionFee || 0,
+      semesters: p.semesters || (isMultiSem ? 2 : 0),
+      tuitionModel: p.tuitionModel || (isMultiSem ? 'bundled' : 'per_course'),
+      defaultTuitionFee: p.defaultTuitionFee || p.semesterFee || (isMultiSem ? 30000 : 0),
+      semesterFee: p.semesterFee || p.defaultTuitionFee || (isMultiSem ? 30000 : null),
       color: p.color || 'emerald',
       icon: p.icon || 'GraduationCap',
     });
@@ -1861,9 +1866,14 @@ export default function AdminDashboard() {
       return;
     }
     const slug = editingPathway?.slug || pathwayFormData.name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-');
+    const isMultiSem = pathwayFormData.programStructure === 'multi_semester' || pathwayFormData.type === 'cohort';
+    const feeVal = Number(pathwayFormData.defaultTuitionFee) || Number(pathwayFormData.semesterFee) || 30000;
     const payload = {
       ...(editingPathway || {}),
       ...pathwayFormData,
+      defaultTuitionFee: isMultiSem ? feeVal : (pathwayFormData.defaultTuitionFee || 0),
+      semesterFee: isMultiSem ? feeVal : null,
+      tuitionModel: isMultiSem ? 'bundled' : 'per_course',
       slug,
       id: editingPathway?.id || slug,
     };
@@ -8168,21 +8178,50 @@ export default function AdminDashboard() {
                 </div>
 
                 {(pathwayFormData.programStructure === 'multi_semester' || pathwayFormData.type === 'cohort') && (
-                  <div className="flex items-center justify-between p-3 rounded-xl bg-sand-50/80 border border-sand-200/70">
-                    <span className="text-xs font-semibold text-ink-700">Number of Semesters</span>
-                    <input
-                      type="number"
-                      min="1"
-                      max="8"
-                      value={pathwayFormData.semesters || 2}
-                      onChange={(e) =>
-                        setPathwayFormData({
-                          ...pathwayFormData,
-                          semesters: Math.max(1, Math.min(8, Number(e.target.value) || 2)),
-                        })
-                      }
-                      className="w-16 px-2.5 py-1 text-center text-xs font-bold border border-sand-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20"
-                    />
+                  <div className="space-y-2.5 p-3 rounded-xl bg-sand-50/80 border border-sand-200/70">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-ink-700">Number of Semesters</span>
+                      <input
+                        type="number"
+                        min="1"
+                        max="8"
+                        value={pathwayFormData.semesters || 2}
+                        onChange={(e) =>
+                          setPathwayFormData({
+                            ...pathwayFormData,
+                            semesters: Math.max(1, Math.min(8, Number(e.target.value) || 2)),
+                          })
+                        }
+                        className="w-16 px-2.5 py-1 text-center text-xs font-bold border border-sand-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between pt-2 border-t border-sand-200/60">
+                      <div>
+                        <span className="text-xs font-semibold text-ink-700 block">Semester Fee (PKR)</span>
+                        <span className="text-[10px] text-ink-400">Fixed for all courses in this track</span>
+                      </div>
+                      <div className="relative">
+                        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[11px] font-bold text-ink-400">
+                          PKR
+                        </span>
+                        <input
+                          type="number"
+                          step="1000"
+                          min="0"
+                          value={pathwayFormData.defaultTuitionFee ?? 30000}
+                          onChange={(e) =>
+                            setPathwayFormData({
+                              ...pathwayFormData,
+                              defaultTuitionFee: Number(e.target.value) || 0,
+                              semesterFee: Number(e.target.value) || 0,
+                            })
+                          }
+                          placeholder="30000"
+                          className="w-28 pl-10 pr-2.5 py-1 text-right text-xs font-bold border border-sand-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20 font-mono"
+                        />
+                      </div>
+                    </div>
                   </div>
                 )}
 

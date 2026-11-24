@@ -286,8 +286,13 @@ export default function CreateCourse() {
       setPathwayFormError('Pathway name is required.');
       return;
     }
+    const isMultiSem = pathwayForm.programStructure === 'multi_semester' || pathwayForm.type === 'cohort';
+    const feeVal = Number(pathwayForm.defaultTuitionFee) || Number(pathwayForm.semesterFee) || 30000;
     const created = savePathway({
       ...pathwayForm,
+      defaultTuitionFee: isMultiSem ? feeVal : (pathwayForm.defaultTuitionFee || 0),
+      semesterFee: isMultiSem ? feeVal : null,
+      tuitionModel: isMultiSem ? 'bundled' : 'per_course',
       slug: pathwayForm.name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-'),
     });
     const refreshed = getAllPathways();
@@ -295,7 +300,8 @@ export default function CreateCourse() {
     setFormData((prev) => ({
       ...prev,
       category: created.slug || created.id,
-      semester: created.programStructure === 'multi_semester' ? 'Semester 1' : '',
+      fee: isMultiSem ? `PKR ${feeVal.toLocaleString()}` : prev.fee,
+      semester: isMultiSem ? 'Semester 1' : '',
     }));
     setIsPathwayModalOpen(false);
     setPathwayForm({
@@ -308,6 +314,7 @@ export default function CreateCourse() {
       semesters: 2,
       tuitionModel: 'bundled',
       defaultTuitionFee: 30000,
+      semesterFee: 30000,
       color: 'emerald',
       icon: 'GraduationCap',
     });
@@ -489,20 +496,29 @@ export default function CreateCourse() {
     const selectedPathway = pathways.find((p) => (p.slug || p.id) === formData.category);
     if (!selectedPathway) return;
 
-    // Preserve custom fee or supply sensible default
+    const isMultiSem = selectedPathway.programStructure === 'multi_semester' || selectedPathway.type === 'cohort' || Number(selectedPathway.semesters) > 1;
+
     setFormData((prev) => {
+      if (isMultiSem) {
+        const semesterFeeVal = selectedPathway.semesterFee || selectedPathway.defaultTuitionFee || 30000;
+        return {
+          ...prev,
+          fee: `PKR ${Number(semesterFeeVal).toLocaleString()}`,
+          capacity: prev.capacity || 150,
+        };
+      }
       const cleanFee = prev.fee && !prev.fee.startsWith('Included in') && prev.fee !== 'Ilm Foundations'
         ? prev.fee
-        : (selectedPathway.defaultTuitionFee ? `PKR ${selectedPathway.defaultTuitionFee.toLocaleString()}` : 'PKR 30,000');
+        : (selectedPathway.defaultTuitionFee ? `PKR ${selectedPathway.defaultTuitionFee.toLocaleString()}` : 'PKR 12,000');
       return {
         ...prev,
         fee: cleanFee,
-        capacity: prev.capacity || (selectedPathway.slug === 'foundations' ? 150 : 100),
+        capacity: prev.capacity || 100,
       };
     });
 
     // Auto-select students matching this pathway's program name
-    if (selectedPathway.slug === 'foundations' || selectedPathway.type === 'cohort') {
+    if (isMultiSem || selectedPathway.slug === 'foundations') {
       const matchingIds = allStudents
         .filter((s) => s.program.toLowerCase().includes(selectedPathway.name.toLowerCase()) || (selectedPathway.slug === 'foundations' && s.program.includes('Foundations')))
         .map((s) => s.id);
@@ -660,7 +676,10 @@ export default function CreateCourse() {
         errors.customInstructorName = 'Instructor name is required';
       }
     } else if (step === 3) {
-      if (formData.category !== 'foundations' && !formData.fee) {
+      const selectedPathway = pathways.find((p) => (p.slug || p.id) === formData.category);
+      const isMultiSem = selectedPathway?.programStructure === 'multi_semester' || selectedPathway?.type === 'cohort' || Number(selectedPathway?.semesters) > 1;
+
+      if (!isMultiSem && !formData.fee) {
         errors.fee = 'Tuition fee is required';
       }
       if (!formData.capacity || Number(formData.capacity) <= 0) {
@@ -1141,7 +1160,10 @@ export default function CreateCourse() {
 
   // Final Submit / Save Course
   const handleFinalSubmit = async (statusOverride) => {
+    const selectedPathway = pathways.find((p) => (p.slug || p.id) === formData.category);
+    const isMultiSem = selectedPathway?.programStructure === 'multi_semester' || selectedPathway?.type === 'cohort' || Number(selectedPathway?.semesters) > 1;
     const isFoundations = formData.category === 'foundations';
+    const semesterFeeVal = selectedPathway?.semesterFee || selectedPathway?.defaultTuitionFee || 30000;
     const isOnline = formData.classCategory === 'online';
     const isOnsite = formData.classCategory === 'onsite';
     const isHybrid = formData.classCategory === 'hybrid';
@@ -1160,10 +1182,13 @@ export default function CreateCourse() {
       instructor: activeInstructor,
       academic_year: Number(formData.academic_year) || 2026,
       year: Number(formData.academic_year) || 2026,
-      // Institutional rule: Foundations courses are bundled into the master certificate
+      // Institutional rule: Multi-semester courses inherit the pathway's semester fee
       fee: isFoundations
         ? 'Ilm Foundations'
-        : (formData.fee.startsWith('PKR') ? formData.fee : `PKR ${formData.fee}`),
+        : (isMultiSem
+            ? (selectedPathway?.name || `PKR ${Number(semesterFeeVal).toLocaleString()}`)
+            : (formData.fee?.startsWith('PKR') ? formData.fee : `PKR ${formData.fee}`)),
+      semester_fee: isMultiSem ? Number(semesterFeeVal) : null,
       // Auto-enrollment rule: Student roster selection
       enrolledStudentIds: selectedStudentIds,
       enrolledCount: selectedStudentIds.length,
@@ -1966,31 +1991,68 @@ export default function CreateCourse() {
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {(() => {
+                    const selectedPathway = pathways.find((p) => (p.slug || p.id) === formData.category);
+                    const isMultiSem = selectedPathway?.programStructure === 'multi_semester' || selectedPathway?.type === 'cohort' || Number(selectedPathway?.semesters) > 1;
+
+                    if (isMultiSem) {
+                      const semesterFeeVal = selectedPathway?.semesterFee || selectedPathway?.defaultTuitionFee || 30000;
+                      return (
+                        <div>
+                          <div className="flex items-center justify-between mb-1.5">
+                            <label className="block text-xs font-bold uppercase tracking-wider text-ink-700">
+                              Semester Tuition Fee (PKR)
+                            </label>
+                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary-900 bg-primary-50 px-2 py-0.5 rounded-md border border-primary-200/80">
+                              <Lock size={11} />
+                              <span>Defined by {selectedPathway?.name || 'Academic Pathway'}</span>
+                            </span>
+                          </div>
+                          <div className="relative">
+                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-xs font-bold text-ink-400">
+                              PKR
+                            </span>
+                            <input
+                              type="text"
+                              value={Number(semesterFeeVal).toLocaleString()}
+                              readOnly
+                              disabled
+                              className="w-full pl-14 pr-4 py-3 border border-sand-200 rounded-xl text-sm font-bold bg-sand-50/90 text-ink-700 cursor-not-allowed select-none shadow-2xs"
+                            />
+                          </div>
+                          <p className="text-[11px] text-ink-500 mt-1.5 flex items-center gap-1">
+                            <span>This fee is defined at the pathway level (PKR {Number(semesterFeeVal).toLocaleString()} / semester) and is not editable per course.</span>
+                          </p>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div>
+                        <label className="block text-xs font-bold uppercase tracking-wider text-ink-700 mb-1.5">
+                          Course Tuition Fee (PKR) *
+                        </label>
+                        <div className="relative">
+                          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-xs font-bold text-ink-500">
+                            PKR
+                          </span>
+                          <input
+                            type="text"
+                            value={formData.fee}
+                            onChange={(e) => updateFormField('fee', e.target.value.replace(/[^0-9,]/g, ''))}
+                            placeholder="12,000"
+                            className="w-full pl-14 pr-4 py-3 border border-sand-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                          />
+                        </div>
+                        {formErrors.fee && <p className="text-red-500 text-xs mt-1">{formErrors.fee}</p>}
+                      </div>
+                    );
+                  })()}
+
                   <div>
                     <label className="block text-xs font-bold uppercase tracking-wider text-ink-700 mb-1.5">
-                      {formData.category === 'foundations'
-                        ? 'Semester Tuition Fee (PKR) *'
-                        : 'Course Tuition Fee (PKR) *'}
+                      Maximum Student Capacity *
                     </label>
-                    <div className="relative">
-                      <span className="absolute left-4 top-1/2 -translate-y-1/2 text-xs font-bold text-ink-500">
-                        PKR
-                      </span>
-                      <input
-                        type="text"
-                        value={formData.fee}
-                        onChange={(e) => updateFormField('fee', e.target.value.replace(/[^0-9,]/g, ''))}
-                        placeholder="30,000"
-                        className="w-full pl-14 pr-4 py-3 border border-sand-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-primary-500/20"
-                      />
-                    </div>
-                    {formErrors.fee && <p className="text-red-500 text-xs mt-1">{formErrors.fee}</p>}
-                  </div>
-
-                    <div>
-                      <label className="block text-xs font-bold uppercase tracking-wider text-ink-700 mb-1.5">
-                        Maximum Student Capacity *
-                      </label>
                       <div className="relative">
                         <span className="absolute left-4 top-1/2 -translate-y-1/2 text-ink-400">
                           <Users size={16} />
@@ -3489,21 +3551,50 @@ export default function CreateCourse() {
                   </div>
 
                   {(pathwayForm.programStructure === 'multi_semester' || pathwayForm.type === 'cohort') && (
-                    <div className="flex items-center justify-between p-3 rounded-xl bg-sand-50/80 border border-sand-200/70">
-                      <span className="text-xs font-semibold text-ink-700">Number of Semesters</span>
-                      <input
-                        type="number"
-                        min="1"
-                        max="8"
-                        value={pathwayForm.semesters || 2}
-                        onChange={(e) =>
-                          setPathwayForm({
-                            ...pathwayForm,
-                            semesters: Math.max(1, Math.min(8, Number(e.target.value) || 2)),
-                          })
-                        }
-                        className="w-16 px-2.5 py-1 text-center text-xs font-bold border border-sand-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20"
-                      />
+                    <div className="space-y-2.5 p-3 rounded-xl bg-sand-50/80 border border-sand-200/70">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold text-ink-700">Number of Semesters</span>
+                        <input
+                          type="number"
+                          min="1"
+                          max="8"
+                          value={pathwayForm.semesters || 2}
+                          onChange={(e) =>
+                            setPathwayForm({
+                              ...pathwayForm,
+                              semesters: Math.max(1, Math.min(8, Number(e.target.value) || 2)),
+                            })
+                          }
+                          className="w-16 px-2.5 py-1 text-center text-xs font-bold border border-sand-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between pt-2 border-t border-sand-200/60">
+                        <div>
+                          <span className="text-xs font-semibold text-ink-700 block">Semester Fee (PKR)</span>
+                          <span className="text-[10px] text-ink-400">Fixed for all courses in this track</span>
+                        </div>
+                        <div className="relative">
+                          <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[11px] font-bold text-ink-400">
+                            PKR
+                          </span>
+                          <input
+                            type="number"
+                            step="1000"
+                            min="0"
+                            value={pathwayForm.defaultTuitionFee ?? 30000}
+                            onChange={(e) =>
+                              setPathwayForm({
+                                ...pathwayForm,
+                                defaultTuitionFee: Number(e.target.value) || 0,
+                                semesterFee: Number(e.target.value) || 0,
+                              })
+                            }
+                            placeholder="30000"
+                            className="w-28 pl-10 pr-2.5 py-1 text-right text-xs font-bold border border-sand-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20 font-mono"
+                          />
+                        </div>
+                      </div>
                     </div>
                   )}
 
