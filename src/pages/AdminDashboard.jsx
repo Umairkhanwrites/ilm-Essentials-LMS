@@ -94,6 +94,7 @@ import FeeInvoiceModal from '../components/admin/FeeInvoiceModal';
 import BillingDrawer from '../components/admin/BillingDrawer';
 import ScheduleDrawer from '../components/admin/ScheduleDrawer';
 import LectureAccessSection from '../components/admin/LectureAccessSection';
+import MinimalDropdown from '../components/admin/MinimalDropdown';
 import IntakeModal from '../components/admin/IntakeModal';
 import YearTabbedCohortView from '../components/admin/YearTabbedCohortView';
 import {
@@ -222,12 +223,17 @@ export default function AdminDashboard() {
 
   // Student search & filter
   const [studentSearch, setStudentSearch] = useState('');
+  const [studentYearFilter, setStudentYearFilter] = useState(2026);
+  const [studentPathwayFilter, setStudentPathwayFilter] = useState('all');
+  const [studentCourseFilter, setStudentCourseFilter] = useState('all');
   const [students, setStudents] = useState(() => getAllStudents());
 
   // Courses filter & persistent state
   const [courseCategoryFilter, setCourseCategoryFilter] = useState('all');
   const [courseYearFilter, setCourseYearFilter] = useState(() => 2026);
   const [attendanceYearFilter, setAttendanceYearFilter] = useState(() => 2026);
+  const [attendancePathwayFilter, setAttendancePathwayFilter] = useState('all');
+  const [attendanceCourseFilter, setAttendanceCourseFilter] = useState('all');
   const [courses, setCourses] = useState(() => getAllCourses());
 
   // Supabase reactive data hooks for Courses, Students, Schedule, Batches and Invoices
@@ -321,20 +327,6 @@ export default function AdminDashboard() {
     email: '',
     format: 'online',
   });
-
-  // Filter students
-  const filteredStudents = useMemo(() => {
-    return students.filter((s) => {
-      const term = studentSearch.toLowerCase();
-      const matchSearch =
-        s.name.toLowerCase().includes(term) ||
-        s.email.toLowerCase().includes(term) ||
-        (s.program && s.program.toLowerCase().includes(term)) ||
-        (s.semester && s.semester.toLowerCase().includes(term)) ||
-        (Array.isArray(s.selectedCourses) && s.selectedCourses.some((c) => c.toLowerCase().includes(term)));
-      return matchSearch;
-    });
-  }, [students, studentSearch]);
 
   // Filter students inside Roster Modal
   const rosterFilteredStudents = useMemo(() => {
@@ -1818,6 +1810,151 @@ export default function AdminDashboard() {
     // Default base seed courses to 2026 so they are present in the primary session
     return Number(targetYear) === 2026;
   };
+
+  // Shared Filter Helpers & Dropdown Options for Students & Attendance
+  const courseMatchesPathway = (course, pathwayId) => {
+    if (!pathwayId || pathwayId === 'all') return true;
+    const activePathway = pathways.find((p) => p.id === pathwayId || p.slug === pathwayId);
+    const cat = (course.category || '').toLowerCase();
+    const prog = (course.program || '').toLowerCase();
+    const sub = (course.subtitle || '').toLowerCase();
+    const pathId = (course.pathwayId || course.pathway_id || '').toLowerCase();
+    const targetId = pathwayId.toLowerCase();
+    const targetSlug = (activePathway?.slug || pathwayId).toLowerCase();
+    const targetName = (activePathway?.name || '').toLowerCase();
+
+    return (
+      cat === targetId ||
+      cat === targetSlug ||
+      pathId === targetId ||
+      pathId === targetSlug ||
+      (targetName && prog.includes(targetName)) ||
+      (targetSlug && sub.includes(targetSlug)) ||
+      (targetName && sub.includes(targetName))
+    );
+  };
+
+  const sharedAcademicYearOptions = useMemo(() => [
+    { value: 'all', label: 'All Years' },
+    ...pathwayCalendarYears.map((yr) => ({ value: yr, label: String(yr) })),
+  ], [pathwayCalendarYears]);
+
+  const sharedPathwayOptions = useMemo(() => [
+    { value: 'all', label: 'All Programs' },
+    ...pathways.map((p) => ({ value: p.id, label: p.name })),
+  ], [pathways]);
+
+  const studentFilterCourses = useMemo(() => {
+    return courses.filter((c) => {
+      const matchYear = studentYearFilter === 'all' || matchesCourseYear(c, studentYearFilter);
+      const matchPathway = courseMatchesPathway(c, studentPathwayFilter);
+      return matchYear && matchPathway;
+    });
+  }, [courses, studentYearFilter, studentPathwayFilter, pathways]);
+
+  const studentCourseOptions = useMemo(() => [
+    { value: 'all', label: 'All Courses' },
+    ...studentFilterCourses.map((c) => ({
+      value: c.id,
+      label: c.title,
+      sublabel: c.semester || (c.category === 'foundations' ? 'Foundations' : 'Intensive'),
+    })),
+  ], [studentFilterCourses]);
+
+  const attendanceFilterCourses = useMemo(() => {
+    return courses.filter((c) => {
+      const matchYear = attendanceYearFilter === 'all' || matchesCourseYear(c, attendanceYearFilter);
+      const matchPathway = courseMatchesPathway(c, attendancePathwayFilter);
+      return matchYear && matchPathway;
+    });
+  }, [courses, attendanceYearFilter, attendancePathwayFilter, pathways]);
+
+  const attendanceCourseOptions = useMemo(() => [
+    { value: 'all', label: 'All Courses' },
+    ...attendanceFilterCourses.map((c) => ({
+      value: c.id,
+      label: c.title,
+      sublabel: c.semester || (c.category === 'foundations' ? 'Foundations' : 'Intensive'),
+    })),
+  ], [attendanceFilterCourses]);
+
+  useEffect(() => {
+    if (studentCourseFilter !== 'all' && !studentFilterCourses.some((c) => c.id === studentCourseFilter)) {
+      setStudentCourseFilter('all');
+    }
+  }, [studentFilterCourses, studentCourseFilter]);
+
+  useEffect(() => {
+    if (attendanceCourseFilter !== 'all' && !attendanceFilterCourses.some((c) => c.id === attendanceCourseFilter)) {
+      setAttendanceCourseFilter('all');
+    }
+  }, [attendanceFilterCourses, attendanceCourseFilter]);
+
+  // Filter students by Year, Program, Course & Search
+  const filteredStudents = useMemo(() => {
+    const selectedCourseObj =
+      studentCourseFilter !== 'all'
+        ? courses.find((c) => c.id === studentCourseFilter)
+        : null;
+    const enrolledInCourseSet = selectedCourseObj
+      ? new Set(getCourseEnrolledStudentIds(selectedCourseObj.id, selectedCourseObj.category))
+      : null;
+
+    const activePathway =
+      studentPathwayFilter !== 'all'
+        ? pathways.find((p) => p.id === studentPathwayFilter || p.slug === studentPathwayFilter)
+        : null;
+
+    return students.filter((s) => {
+      if (studentYearFilter !== 'all') {
+        const stdYear =
+          s.academicYear ||
+          s.year ||
+          (s.enrolledDate && /^\d{4}/.test(s.enrolledDate) ? Number(s.enrolledDate.slice(0, 4)) : 2026);
+        if (Number(stdYear) !== Number(studentYearFilter)) return false;
+      }
+
+      if (studentPathwayFilter !== 'all') {
+        const stdProg = (s.program || '').toLowerCase();
+        const targetId = studentPathwayFilter.toLowerCase();
+        const targetSlug = (activePathway?.slug || studentPathwayFilter).toLowerCase();
+        const targetName = (activePathway?.name || '').toLowerCase();
+        const matchesProg =
+          stdProg === targetId ||
+          stdProg === targetSlug ||
+          (targetName && stdProg.includes(targetName)) ||
+          (targetSlug && stdProg.includes(targetSlug));
+
+        const matchesCourseInPathway = studentFilterCourses.some((c) =>
+          getCourseEnrolledStudentIds(c.id, c.category).includes(s.id)
+        );
+        if (!matchesProg && !matchesCourseInPathway) return false;
+      }
+
+      if (enrolledInCourseSet && !enrolledInCourseSet.has(s.id)) {
+        return false;
+      }
+
+      const term = studentSearch.toLowerCase();
+      if (!term) return true;
+      return (
+        s.name.toLowerCase().includes(term) ||
+        s.email.toLowerCase().includes(term) ||
+        (s.program && s.program.toLowerCase().includes(term)) ||
+        (s.semester && s.semester.toLowerCase().includes(term)) ||
+        (Array.isArray(s.selectedCourses) && s.selectedCourses.some((c) => c.toLowerCase().includes(term)))
+      );
+    });
+  }, [
+    students,
+    studentSearch,
+    studentYearFilter,
+    studentPathwayFilter,
+    studentCourseFilter,
+    courses,
+    pathways,
+    studentFilterCourses,
+  ]);
 
   // Intake Management State & Handlers
   const [isIntakeModalOpen, setIsIntakeModalOpen] = useState(false);
@@ -3469,23 +3606,54 @@ export default function AdminDashboard() {
                 </div>
               </div>
 
-              {/* Search & Actions Bar */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-end gap-4">
-                <div className="flex items-center gap-3">
-                  <div className="relative w-64 sm:w-72">
+              {/* Filters, Search & Actions Bar */}
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                {/* Academic Year, Program & Course Dropdowns */}
+                <div className="flex items-center gap-2.5 flex-wrap">
+                  <MinimalDropdown
+                    value={studentYearFilter}
+                    onChange={setStudentYearFilter}
+                    options={sharedAcademicYearOptions}
+                    placeholder="Academic Year"
+                    className="w-28 shrink-0"
+                    menuWidth="w-36"
+                    title="Filter by Academic Year"
+                  />
+                  <MinimalDropdown
+                    value={studentPathwayFilter}
+                    onChange={setStudentPathwayFilter}
+                    options={sharedPathwayOptions}
+                    placeholder="All Programs"
+                    className="w-36 shrink-0"
+                    menuWidth="w-52"
+                    title="Filter by Academic Pathway / Program"
+                  />
+                  <MinimalDropdown
+                    value={studentCourseFilter}
+                    onChange={setStudentCourseFilter}
+                    options={studentCourseOptions}
+                    placeholder="All Courses"
+                    className="w-44 shrink-0"
+                    menuWidth="w-64"
+                    title="Filter by Course"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2.5">
+                  <div className="relative w-56 sm:w-64">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-ink-400" />
                     <input
                       type="text"
                       value={studentSearch}
                       onChange={(e) => setStudentSearch(e.target.value)}
                       placeholder="Search students..."
-                      className="w-full pl-9 pr-4 py-2 rounded-xl border border-sand-200 text-xs focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+                      className="w-full h-9 pl-9 pr-4 py-2 rounded-xl border border-sand-200 text-xs focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
                     />
                   </div>
                   <button
                     type="button"
                     onClick={handleOpenAddStudent}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-primary-900 hover:bg-primary-800 text-white text-xs font-bold transition-all shadow-sm cursor-pointer whitespace-nowrap"
+                    className="inline-flex items-center gap-1.5 h-9 px-3.5 py-2 rounded-xl bg-primary-900 hover:bg-primary-800 text-white text-xs font-bold transition-all shadow-sm cursor-pointer whitespace-nowrap"
                   >
                     <UserPlus size={14} />
                     Add New Student
@@ -3631,9 +3799,12 @@ export default function AdminDashboard() {
 
           {/* Dedicated Attendance Management Section (Minimal) */}
           {activeTab === 'attendance' && (() => {
-            const attendanceYearCourses = courses.filter(
-              (c) => attendanceYearFilter === 'all' || matchesCourseYear(c, attendanceYearFilter)
-            );
+            const attendanceYearCourses = courses.filter((c) => {
+              const matchYear = attendanceYearFilter === 'all' || matchesCourseYear(c, attendanceYearFilter);
+              const matchPathway = courseMatchesPathway(c, attendancePathwayFilter);
+              const matchCourse = attendanceCourseFilter === 'all' || c.id === attendanceCourseFilter;
+              return matchYear && matchPathway && matchCourse;
+            });
 
             const filteredAttendanceCourses = attendanceYearCourses.filter((c) => {
               return (
@@ -3648,9 +3819,20 @@ export default function AdminDashboard() {
                 (sess.courseTitle || '').toLowerCase().includes(attendanceSectionSearch.toLowerCase()) ||
                 (sess.date || '').includes(attendanceSectionSearch);
               if (!matchSearch) return false;
+
+              const course = courses.find((c) => c.id === sess.courseId);
+
+              if (attendanceCourseFilter !== 'all' && sess.courseId !== attendanceCourseFilter) {
+                return false;
+              }
+              if (attendancePathwayFilter !== 'all') {
+                if (!course || !courseMatchesPathway(course, attendancePathwayFilter)) {
+                  return false;
+                }
+              }
+
               if (attendanceYearFilter === 'all') return true;
               if (sess.date && sess.date.startsWith(String(attendanceYearFilter))) return true;
-              const course = courses.find((c) => c.id === sess.courseId);
               if (course) return matchesCourseYear(course, attendanceYearFilter);
               return false;
             });
@@ -3678,50 +3860,36 @@ export default function AdminDashboard() {
                   </button>
                 </div>
 
-                {/* Academic Year Switcher Menu */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1 pb-3 border-b border-sand-200/80">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-xs font-bold text-ink-500 uppercase tracking-wider mr-1 flex items-center gap-1.5">
-                      <Calendar size={13} className="text-primary-800" />
-                      Academic Year:
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setAttendanceYearFilter('all')}
-                      className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
-                        attendanceYearFilter === 'all'
-                          ? 'bg-primary-950 text-white shadow-xs'
-                          : 'bg-sand-100/90 text-ink-700 hover:bg-sand-200/80 hover:text-ink-900'
-                      }`}
-                    >
-                      <span>All Years</span>
-                    </button>
-                    {pathwayCalendarYears.map((yr) => {
-                      const isSelected = String(attendanceYearFilter) === String(yr);
-                      return (
-                        <button
-                          key={yr}
-                          type="button"
-                          onClick={() => setAttendanceYearFilter(yr)}
-                          className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
-                            isSelected
-                              ? 'bg-primary-950 text-white shadow-xs'
-                              : 'bg-sand-100/90 text-ink-700 hover:bg-sand-200/80 hover:text-ink-900'
-                          }`}
-                        >
-                          <span>{yr}</span>
-                        </button>
-                      );
-                    })}
-                    <button
-                      type="button"
-                      onClick={handleAddNewAcademicYear}
-                      className="px-2.5 py-1.5 rounded-xl text-xs font-bold border border-dashed border-sand-300 hover:border-primary-600 text-ink-600 hover:text-primary-950 hover:bg-sand-50 transition-all flex items-center gap-1 cursor-pointer"
-                      title="Add new academic year"
-                    >
-                      <Plus size={12} />
-                      <span>Add Year</span>
-                    </button>
+                {/* Minimal Year, Program & Course Filter Bar */}
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-1 pb-3 border-b border-sand-200/80">
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    <MinimalDropdown
+                      value={attendanceYearFilter}
+                      onChange={setAttendanceYearFilter}
+                      options={sharedAcademicYearOptions}
+                      placeholder="Academic Year"
+                      className="w-28 shrink-0"
+                      menuWidth="w-36"
+                      title="Filter by Academic Year"
+                    />
+                    <MinimalDropdown
+                      value={attendancePathwayFilter}
+                      onChange={setAttendancePathwayFilter}
+                      options={sharedPathwayOptions}
+                      placeholder="All Programs"
+                      className="w-36 shrink-0"
+                      menuWidth="w-52"
+                      title="Filter by Academic Pathway / Program"
+                    />
+                    <MinimalDropdown
+                      value={attendanceCourseFilter}
+                      onChange={setAttendanceCourseFilter}
+                      options={attendanceCourseOptions}
+                      placeholder="All Courses"
+                      className="w-44 shrink-0"
+                      menuWidth="w-64"
+                      title="Filter by Course"
+                    />
                   </div>
                   <div className="text-xs text-ink-500 font-medium shrink-0 whitespace-nowrap">
                     Attendance for{' '}
