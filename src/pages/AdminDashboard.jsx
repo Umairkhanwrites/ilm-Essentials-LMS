@@ -4458,99 +4458,99 @@ export default function AdminDashboard() {
               {/* VIEW 2: COURSE INVOICES & TUITION (LEGACY) */}
               {activeFeeView === 'invoices' && (
                 <div className="bg-white rounded-2xl border border-sand-200 p-6 space-y-6 shadow-xs">
-              {/* Fee KPI Cards */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="p-4 rounded-xl bg-sand-50 border border-sand-200">
-                  <span className="text-xs text-ink-500 font-semibold uppercase tracking-wider block">Total Billed Tuition</span>
-                  <div className="text-2xl font-bold font-heading text-ink-900 mt-1">
+              {/* Fee KPI Cards - Minimal Brand Theme */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
+                <div className="p-4 rounded-2xl bg-sand-50/70 border border-sand-200/90">
+                  <span className="text-[11px] text-ink-500 font-semibold uppercase tracking-wider block">Total Billed Tuition</span>
+                  <div className="text-xl font-bold font-heading text-ink-900 mt-1">
                     PKR {feeSummary.totalBilled.toLocaleString()}
                   </div>
-                  <span className="text-[11px] text-ink-500">Across all enrolled tracks</span>
+                  <span className="text-[10px] text-ink-400">Across all enrolled tracks</span>
                 </div>
 
-                <div className="p-4 rounded-xl bg-emerald-50/70 border border-emerald-200">
-                  <span className="text-xs text-emerald-800 font-semibold uppercase tracking-wider block">Revenue Collected</span>
-                  <div className="text-2xl font-bold font-heading text-emerald-900 mt-1">
+                <div className="p-4 rounded-2xl bg-sand-50/70 border border-sand-200/90">
+                  <span className="text-[11px] text-ink-500 font-semibold uppercase tracking-wider block">Revenue Collected</span>
+                  <div className="text-xl font-bold font-heading text-[#0B3324] mt-1">
                     PKR {feeSummary.totalCollected.toLocaleString()}
                   </div>
-                  <span className="text-[11px] text-emerald-700">Cleared &amp; verified</span>
+                  <span className="text-[10px] text-emerald-800 font-medium">Cleared &amp; verified</span>
                 </div>
 
-                <div className="p-4 rounded-xl bg-amber-50/70 border border-amber-200">
-                  <span className="text-xs text-amber-800 font-semibold uppercase tracking-wider block">Outstanding Receivables</span>
-                  <div className="text-2xl font-bold font-heading text-amber-900 mt-1">
+                <div className="p-4 rounded-2xl bg-sand-50/70 border border-sand-200/90">
+                  <span className="text-[11px] text-ink-500 font-semibold uppercase tracking-wider block">Outstanding Receivables</span>
+                  <div className="text-xl font-bold font-heading text-ink-900 mt-1">
                     PKR {feeSummary.totalOutstanding.toLocaleString()}
                   </div>
-                  <span className="text-[11px] text-amber-700">Pending &amp; installment balances</span>
+                  <span className="text-[10px] text-amber-800 font-medium">Pending &amp; installment balances</span>
                 </div>
 
-                <div className="p-4 rounded-xl bg-red-50/70 border border-red-200">
-                  <span className="text-xs text-red-800 font-semibold uppercase tracking-wider block">Overdue Accounts</span>
-                  <div className="text-2xl font-bold font-heading text-red-900 mt-1">
+                <div className="p-4 rounded-2xl bg-sand-50/70 border border-sand-200/90">
+                  <span className="text-[11px] text-ink-500 font-semibold uppercase tracking-wider block">Overdue Accounts</span>
+                  <div className="text-xl font-bold font-heading text-red-700 mt-1">
                     {feeSummary.overdueCount} {feeSummary.overdueCount === 1 ? 'Account' : 'Accounts'}
                   </div>
-                  <span className="text-[11px] text-red-700">Requires follow-up</span>
+                  <span className="text-[10px] text-red-600 font-medium">Requires follow-up</span>
                 </div>
               </div>
 
-              {/* Filters, Search Bar & View Mode Toggle */}
-              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pt-2">
-                <div className="relative flex-1 max-w-md">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-ink-400" />
+              {/* Minimal Filters, Search Bar & View Mode Toggle */}
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pt-1">
+                <div className="relative flex-1 max-w-sm">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-ink-400" />
                   <input
                     type="text"
                     value={feeSearch}
                     onChange={(e) => setFeeSearch(e.target.value)}
-                    placeholder="Search by student name, email, invoice #, or program..."
-                    className="w-full pl-9 pr-4 py-2 rounded-xl border border-sand-200 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+                    placeholder="Search student, email, invoice #..."
+                    className="w-full pl-8 pr-3 py-1.5 rounded-xl border border-sand-200 bg-sand-50/50 text-xs text-ink-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-sand-300 transition-colors"
                   />
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2.5">
-                  {/* Status Filters */}
-                  <div className="flex items-center gap-1.5 overflow-x-auto">
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* Refined Segmented Status Filters */}
+                  <div className="flex items-center gap-0.5 bg-sand-100/80 p-0.5 rounded-xl border border-sand-200/60 overflow-x-auto">
                     {['all', 'Paid', 'Partial', 'Pending', 'Overdue', 'Waived'].map((status) => (
                       <button
                         key={status}
                         onClick={() => setFeeStatusFilter(status)}
-                        className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold capitalize transition-colors cursor-pointer ${
+                        className={`px-2.5 py-1 rounded-lg text-xs font-semibold capitalize transition-all cursor-pointer ${
                           feeStatusFilter === status
-                            ? 'bg-primary-900 text-white'
-                            : 'bg-sand-100 text-ink-600 hover:bg-sand-200'
+                            ? 'bg-white text-ink-900 font-bold shadow-2xs'
+                            : 'text-ink-600 hover:text-ink-900'
                         }`}
                       >
-                        {status === 'all' ? 'All Statuses' : status}
+                        {status === 'all' ? 'All' : status}
                       </button>
                     ))}
                   </div>
 
-                  {/* View Mode Toggle: All Invoices (Flat View) vs Grouped by Student */}
-                  <div className="flex items-center gap-1 p-1 bg-sand-100 rounded-xl border border-sand-200 shrink-0">
+                  {/* Refined View Mode Toggle */}
+                  <div className="flex items-center gap-0.5 p-0.5 bg-sand-100/80 rounded-xl border border-sand-200/60 shrink-0">
                     <button
                       type="button"
                       onClick={() => setTableViewMode('flat')}
-                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                         tableViewMode === 'flat'
-                          ? 'bg-[#0B3324] text-white shadow-xs'
+                          ? 'bg-white text-[#0B3324] font-bold shadow-2xs'
                           : 'text-ink-600 hover:text-ink-900'
                       }`}
                     >
-                      <List size={13} />
-                      <span>All Invoices (Flat)</span>
-                      <span className="text-[10px] font-semibold opacity-80">({filteredFees.length})</span>
+                      <List size={12} />
+                      <span>Flat</span>
+                      <span className="text-[10px] opacity-70 font-normal">({filteredFees.length})</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => setTableViewMode('grouped')}
-                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                         tableViewMode === 'grouped'
-                          ? 'bg-[#0B3324] text-white shadow-xs'
+                          ? 'bg-white text-[#0B3324] font-bold shadow-2xs'
                           : 'text-ink-600 hover:text-ink-900'
                       }`}
                     >
-                      <Users size={13} />
-                      <span>Grouped by Student</span>
-                      <span className="text-[10px] font-semibold opacity-80">({groupedStudents.length})</span>
+                      <Users size={12} />
+                      <span>Grouped</span>
+                      <span className="text-[10px] opacity-70 font-normal">({groupedStudents.length})</span>
                     </button>
                   </div>
                 </div>
@@ -4635,22 +4635,17 @@ export default function AdminDashboard() {
                             </td>
 
                             <td className="py-2.5 px-2 text-xs">
-                              <div className="font-semibold text-ink-800">{fee.program}</div>
+                              <div className="font-semibold text-ink-900">{fee.program}</div>
                               <div className="text-[11px] text-ink-500">
                                 {fee.semester || (isSemester ? 'Semester 1' : 'Modular Course')}
                               </div>
-                              <span className={`inline-block mt-0.5 text-[10px] font-medium px-1.5 py-0.2 rounded ${
-                                isSemester ? 'bg-primary-50 text-primary-800 border border-primary-200/60' : 'bg-amber-50 text-amber-800 border border-amber-200/60'
-                              }`}>
-                                {isSemester ? 'Semester Track' : 'Individual Course'}
-                              </span>
                             </td>
 
                             <td className="py-2.5 px-2 text-xs">
                               <div className="font-bold text-ink-900">
                                 PKR {fee.totalAmount?.toLocaleString()}
                               </div>
-                              {hasDiscount ? (
+                              {hasDiscount && (
                                 <div className="mt-1 flex flex-col gap-0.5">
                                   <span className="text-[10px] text-ink-400 line-through">
                                     Base: PKR {baseFee.toLocaleString()}
@@ -4664,8 +4659,6 @@ export default function AdminDashboard() {
                                       : `-PKR ${fee.discountAmount?.toLocaleString()}`}
                                   </span>
                                 </div>
-                              ) : (
-                                <span className="text-[10px] text-ink-400">Standard Tuition</span>
                               )}
                             </td>
 

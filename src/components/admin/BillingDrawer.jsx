@@ -62,6 +62,8 @@ export default function BillingDrawer({
 
   // Active view inside the drawer: 'invoice' (specific course) or 'overview' (all courses summary)
   const [activeTabMode, setActiveTabMode] = useState('invoice');
+  // Internal navigation tab for active course: 'payment' (Payment & Ledger) | 'installments' (Planner) | 'discount' (Concessions)
+  const [drawerNavTab, setDrawerNavTab] = useState('payment');
 
   // Multi-course invoices list (falls back to [feeRecord] if none provided)
   const studentInvoices = useMemo(() => {
@@ -117,6 +119,7 @@ export default function BillingDrawer({
     setIsConcessionUnlocked(false);
     setDiscountSuccessMsg('');
     setActiveTabMode('invoice');
+    setDrawerNavTab('payment');
   }, [feeRecord.id]);
 
   // Real-time calculation of discount and net payable
@@ -579,7 +582,7 @@ export default function BillingDrawer({
           {/* MULTI-COURSE ENROLLMENT SWITCHER STRIP (If >1 course)*/}
           {/* ==================================================== */}
           {studentInvoices.length > 1 && (
-            <div className="pt-2.5 border-t border-white/10 flex items-center gap-1.5 overflow-x-auto pb-0.5 no-scrollbar scroll-smooth">
+            <div className="pt-2.5 border-t border-white/10 flex items-center gap-1.5 overflow-x-auto pb-0.5 scroll-smooth [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
               <span className="text-[10px] uppercase font-bold tracking-wider text-emerald-300 shrink-0 mr-1 flex items-center gap-1">
                 <Layers size={11} />
                 <span>Programs ({studentInvoices.length}):</span>
@@ -647,16 +650,16 @@ export default function BillingDrawer({
         </div>
 
         {/* ======================================================== */}
-        {/* B. STICKY 4-METRIC LIVE FINANCIAL SUMMARY STRIP          */}
+        {/* B. STICKY 4-METRIC LIVE FINANCIAL SUMMARY STRIP (Minimal) */}
         {/* ======================================================== */}
-        <div className="bg-white border-b border-[#EFECE6] px-6 py-3.5 shadow-2xs shrink-0">
+        <div className="bg-[#FAF8F5] border-b border-sand-200 px-6 py-3 shrink-0">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
             {/* 1. Base Tuition */}
             <div className="border-r border-sand-200/80 pr-3">
-              <span className="text-[10px] uppercase font-bold tracking-wider text-ink-400 block">
+              <span className="text-[10px] uppercase font-bold tracking-wider text-ink-500 block">
                 {activeTabMode === 'overview' ? 'Combined Tuition' : 'Base Tuition'}
               </span>
-              <span className="text-sm font-bold text-ink-800">
+              <span className="text-sm font-bold text-ink-900 mt-0.5 block">
                 PKR {(activeTabMode === 'overview' ? combinedSummary.totalBilled : baseFee).toLocaleString()}
               </span>
             </div>
@@ -664,7 +667,7 @@ export default function BillingDrawer({
             {/* 2. Scholarship / Discount */}
             <div className="border-r border-sand-200/80 pr-3">
               <div className="flex items-center justify-between">
-                <span className="text-[10px] uppercase font-bold tracking-wider text-ink-400 block">
+                <span className="text-[10px] uppercase font-bold tracking-wider text-ink-500 block">
                   Concession / Aid
                 </span>
                 {calculatedDiscount > 0 && activeTabMode !== 'overview' && (
@@ -677,73 +680,97 @@ export default function BillingDrawer({
                   </span>
                 )}
               </div>
-              <span className="text-sm font-bold text-emerald-700">
+              <span className="text-sm font-bold text-emerald-800 mt-0.5 block">
                 - PKR {(activeTabMode === 'overview' ? 0 : calculatedDiscount).toLocaleString()}
               </span>
             </div>
 
             {/* 3. Net Payable */}
             <div className="border-r border-sand-200/80 pr-3">
-              <span className="text-[10px] uppercase font-bold tracking-wider text-ink-400 block">
+              <span className="text-[10px] uppercase font-bold tracking-wider text-ink-500 block">
                 {activeTabMode === 'overview' ? 'Total Collected' : 'Net Payable'}
               </span>
-              <span className="text-sm font-extrabold text-[#0B3324]">
+              <span className="text-sm font-extrabold text-[#0B3324] mt-0.5 block">
                 PKR {(activeTabMode === 'overview' ? combinedSummary.totalPaid : netPayable).toLocaleString()}
               </span>
             </div>
 
-            {/* 4. Remaining Balance & Progress Bar */}
+            {/* 4. Remaining Balance & Status */}
             <div>
               <div className="flex items-center justify-between">
-                <span className="text-[10px] uppercase font-bold tracking-wider text-ink-400 block">
+                <span className="text-[10px] uppercase font-bold tracking-wider text-ink-500 block">
                   {activeTabMode === 'overview' ? 'Combined Remaining' : 'Remaining Due'}
                 </span>
                 <span className="text-[10px] font-semibold text-ink-500">
                   {activeTabMode === 'overview' ? combinedSummary.percentOverall : percentPaid}% Paid
                 </span>
               </div>
-              <div className="flex items-baseline gap-1">
+              <div className="flex items-center gap-1.5 mt-0.5">
                 <span
                   className={`text-sm font-extrabold ${
                     (activeTabMode === 'overview' ? combinedSummary.totalDue : remainingBalance) === 0
-                      ? 'text-emerald-700'
+                      ? 'text-emerald-800'
                       : 'text-ink-900'
                   }`}
                 >
                   PKR {(activeTabMode === 'overview' ? combinedSummary.totalDue : remainingBalance).toLocaleString()}
                 </span>
                 {(activeTabMode === 'overview' ? combinedSummary.totalDue : remainingBalance) === 0 && (
-                  <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1 rounded">
+                  <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100/70 border border-emerald-200 px-2 py-0.5 rounded-full">
                     Settled
                   </span>
                 )}
                 {activeTabMode !== 'overview' && (feeRecord.hasCreditRefund || creditRefundDelta > 0) && (
                   <span className="text-[10px] font-bold text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded border border-amber-300" title="Excess payment over adjusted tuition">
-                    Credit / Refund: PKR {(feeRecord.creditRefundAmount || creditRefundDelta).toLocaleString()}
+                    Refund: PKR {(feeRecord.creditRefundAmount || creditRefundDelta).toLocaleString()}
                   </span>
                 )}
-              </div>
-              {/* Mini linear progress */}
-              <div className="w-full bg-sand-200 h-1.5 rounded-full overflow-hidden mt-1">
-                <div
-                  className={`h-full rounded-full transition-all duration-300 ${
-                    (activeTabMode === 'overview' ? combinedSummary.percentOverall : percentPaid) >= 100
-                      ? 'bg-emerald-600'
-                      : (activeTabMode === 'overview' ? combinedSummary.percentOverall : percentPaid) > 0
-                      ? 'bg-emerald-500'
-                      : 'bg-sand-400'
-                  }`}
-                  style={{
-                    width: `${activeTabMode === 'overview' ? combinedSummary.percentOverall : percentPaid}%`,
-                  }}
-                />
               </div>
             </div>
           </div>
         </div>
 
         {/* ======================================================== */}
-        {/* C. SCROLLABLE DRAWER BODY (12-Col Responsive Grid)       */}
+        {/* SUB-NAVIGATION BAR (For Active Course Invoice)          */}
+        {/* ======================================================== */}
+        {activeTabMode === 'invoice' && (
+          <div className="bg-[#FAF8F5] border-b border-sand-200/80 px-6 py-2.5 flex items-center justify-between shrink-0">
+            <div className="inline-flex items-center p-0.5 bg-sand-200/70 rounded-xl border border-sand-300/50">
+              {[
+                { id: 'payment', label: 'Payment & Ledger', icon: DollarSign },
+                { id: 'installments', label: 'Installment Plan', icon: Split },
+                { id: 'discount', label: 'Scholarship & Aid', icon: Tag },
+              ].map((tab) => {
+                const Icon = tab.icon;
+                const isActive = drawerNavTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setDrawerNavTab(tab.id)}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      isActive
+                        ? 'bg-white text-[#0B3324] shadow-xs'
+                        : 'text-ink-600 hover:text-ink-900'
+                    }`}
+                  >
+                    <Icon size={13} className={isActive ? 'text-[#0B3324]' : 'text-ink-500'} />
+                    <span>{tab.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="text-[11px] text-ink-500 hidden sm:flex items-center">
+              <span className="font-semibold text-ink-700">{feeRecord.program}</span>
+              <span className="mx-1.5 text-sand-400">•</span>
+              <span>{feeRecord.invoiceNo}</span>
+            </div>
+          </div>
+        )}
+
+        {/* ======================================================== */}
+        {/* C. SCROLLABLE DRAWER BODY                                */}
         {/* ======================================================== */}
         {activeTabMode === 'overview' ? (
           /* ====================================================== */
@@ -877,176 +904,604 @@ export default function BillingDrawer({
           /* ====================================================== */
           /* INVOICE TAB: SPECIFIC COURSE INVOICE LEDGER & ACTIONS  */
           /* ====================================================== */
-          <div className="flex-1 overflow-y-auto p-6 space-y-6 lg:space-y-0 lg:grid lg:grid-cols-12 lg:gap-6 bg-[#F9F8F6]">
-            {/* ==================================================== */}
-            {/* LEFT COLUMN: 7 Columns (Concessions + Installments)   */}
-            {/* ==================================================== */}
-            <div className="lg:col-span-7 space-y-5">
-              {/* -------------------------------------------------- */}
-              {/* CARD 1: TUITION DISCOUNT & SCHOLARSHIP             */}
-              {/* -------------------------------------------------- */}
-              <div className="bg-white rounded-2xl p-5 border border-[#EFECE6] shadow-xs space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="p-1.5 rounded-lg bg-emerald-50 text-primary-900">
-                      <Tag size={15} />
+          <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-[#FAF8F5]">
+            {/* ---------------------------------------------------- */}
+            {/* TAB 1: PAYMENT & LEDGER                              */}
+            {/* ---------------------------------------------------- */}
+            {drawerNavTab === 'payment' && (
+              <div className="space-y-6">
+                {/* 1. PAYMENT CAPTURE / SETTLED VOUCHER CARD */}
+                {isFullySettled ? (
+                  <div className="bg-white rounded-2xl p-6 border border-sand-200/90 shadow-xs text-center space-y-3">
+                    <div className="h-12 w-12 mx-auto rounded-full bg-emerald-50 text-[#0B3324] border border-emerald-200 flex items-center justify-center">
+                      <CheckCircle2 size={24} />
                     </div>
                     <div>
-                      <h3 className="font-bold text-xs text-ink-900 uppercase tracking-wider">
-                        Tuition Discount &amp; Scholarship
-                      </h3>
-                      <p className="text-[11px] text-ink-500">
-                        Grant student-specific financial aid, waivers, or merit concessions.
+                      <h4 className="font-bold text-sm text-ink-900">
+                        Invoice Fully Settled
+                      </h4>
+                      <p className="text-xs text-ink-600 mt-1 max-w-md mx-auto">
+                        PKR {netPayable.toLocaleString()} received in full. All installment milestones and fees are completely cleared.
                       </p>
                     </div>
-                  </div>
-
-                  {isFullySettled && !isConcessionUnlocked && (
-                    <button
-                      type="button"
-                      onClick={() => setIsConcessionUnlocked(true)}
-                      className="inline-flex items-center gap-1 text-[11px] font-bold text-ink-600 hover:text-ink-900 bg-sand-100 hover:bg-sand-200 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
-                    >
-                      <Unlock size={12} />
-                      <span>Unlock to Edit Concession</span>
-                    </button>
-                  )}
-                </div>
-
-                {isFullySettled && !isConcessionUnlocked ? (
-                  <div className="p-3.5 bg-emerald-50/60 border border-emerald-200/80 rounded-xl text-xs text-emerald-900 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <CheckCircle2 size={16} className="text-emerald-700 shrink-0" />
-                      <span>Invoice is fully settled. Concession settings are locked to protect accounting consistency.</span>
+                    <div className="pt-2 flex items-center justify-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => onOpenOfficialReceipt(feeRecord)}
+                        className="inline-flex items-center justify-center gap-1.5 py-2 px-5 rounded-xl bg-[#0B3324] hover:bg-[#072419] text-white font-bold text-xs shadow-xs transition-colors cursor-pointer"
+                      >
+                        <Download size={14} />
+                        <span>Download Official Receipt (PDF)</span>
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setIsConcessionUnlocked(true)}
-                      className="text-[11px] font-bold underline text-emerald-900 hover:text-emerald-950 ml-2 shrink-0 cursor-pointer"
-                    >
-                      Modify Anyway
-                    </button>
                   </div>
                 ) : (
-                  <form onSubmit={handleApplyDiscount} className="space-y-3.5 text-xs">
-                    {isPaidExceedsNewNet && (
-                      <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 flex items-start gap-2">
-                        <AlertTriangle size={15} className="text-amber-600 shrink-0 mt-0.5" />
+                  <div className="bg-white rounded-2xl p-6 border border-sand-200/90 shadow-xs space-y-4">
+                    <div className="flex items-center justify-between border-b border-sand-200/70 pb-3">
+                      <div className="flex items-center gap-2">
+                        <div className="p-1.5 rounded-lg bg-emerald-50 text-[#0B3324]">
+                          <DollarSign size={15} />
+                        </div>
                         <div>
-                          <span className="font-bold block">Retroactive Scholarship / Concession Notice:</span>
-                          <span>
-                            Student has already paid PKR {currentPaid.toLocaleString()}, which exceeds the new Net Payable amount of PKR {netPayable.toLocaleString()}. Applying this concession will zero out remaining unpaid installments and flag an overpayment credit / refund of PKR {creditRefundDelta.toLocaleString()}.
-                          </span>
+                          <h3 className="font-bold text-xs text-ink-900 uppercase tracking-wider">
+                            Record Tuition Payment
+                          </h3>
+                          <p className="text-[11px] text-ink-500">
+                            Offline bank transfers, Raast, or campus cash.
+                          </p>
                         </div>
                       </div>
-                    )}
+                    </div>
 
-                    {discountSuccessMsg && (
-                      <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-primary-900 text-xs flex items-center gap-1.5 font-medium">
-                        <CheckCircle2 size={14} className="text-emerald-600" />
-                        <span>{discountSuccessMsg}</span>
+                    {/* MULTI-COURSE PAYMENT OPTION CHECKBOX */}
+                    {unpaidInvoices.length > 1 && (
+                      <div className="p-3 bg-emerald-50/70 border border-emerald-200/80 rounded-xl space-y-1.5">
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={isMultiPaymentMode}
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              setIsMultiPaymentMode(checked);
+                              if (checked) {
+                                handleAutoDistributeMultiPayment();
+                              }
+                            }}
+                            className="rounded text-primary-900 focus:ring-emerald-600 h-4 w-4 cursor-pointer"
+                          />
+                          <span className="text-xs font-bold text-emerald-950">
+                            Apply payment across multiple unpaid courses
+                          </span>
+                        </label>
+                        <p className="text-[11px] text-primary-900 leading-snug">
+                          Combine a single bank transfer across {unpaidInvoices.length} outstanding invoices with linked audit records.
+                        </p>
                       </div>
                     )}
 
-                    <div className="grid grid-cols-2 gap-2">
-                      {[
-                        { id: 'none', label: 'Standard', desc: 'No concession (0% off)' },
-                        { id: 'fixed', label: 'Fixed PKR Off', desc: 'Custom PKR amount' },
-                        { id: 'percentage', label: 'Percentage (%)', desc: '1% to 100% off' },
-                        { id: 'waiver', label: 'Full Scholarship', desc: '100% Tuition waiver' },
-                      ].map((opt) => (
-                        <button
-                          type="button"
-                          key={opt.id}
-                          onClick={() => setDiscountType(opt.id)}
-                          className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all ${
-                            discountType === opt.id
-                              ? 'border-[#0B3324] bg-emerald-50/60 ring-2 ring-emerald-600/20'
-                              : 'border-[#EFECE6] bg-white hover:bg-sand-50/60'
-                          }`}
-                        >
-                          <div className="font-bold text-xs text-ink-900">{opt.label}</div>
-                          <div className="text-[10px] text-ink-500">{opt.desc}</div>
-                        </button>
-                      ))}
-                    </div>
+                    {/* COMBINED MULTI-COURSE PAYMENT FORM */}
+                    {isMultiPaymentMode ? (
+                      <form onSubmit={handleRecordMultiPaymentSubmit} className="space-y-3.5 text-xs">
+                        {paymentError && (
+                          <div className="p-2.5 bg-red-50 border border-red-200 rounded-xl text-red-800 text-[11px] flex items-center gap-1.5">
+                            <AlertCircle size={14} className="shrink-0 text-red-600" />
+                            <span>{paymentError}</span>
+                          </div>
+                        )}
 
-                    {(discountType === 'fixed' || discountType === 'percentage') && (
-                      <div className="grid grid-cols-2 gap-3 pt-1">
+                        {paymentSuccessMsg && (
+                          <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-primary-900 text-xs flex items-center gap-1.5 font-medium">
+                            <CheckCircle2 size={14} className="text-emerald-600" />
+                            <span>{paymentSuccessMsg}</span>
+                          </div>
+                        )}
+
+                        {/* Total Transaction Amount */}
                         <div>
-                          <label className="text-[11px] font-bold text-ink-700 block mb-1">
-                            {discountType === 'fixed' ? 'Discount Amount (PKR) *' : 'Percentage Off (%) *'}
-                          </label>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="text-[11px] font-bold text-ink-700 block">
+                              Total Transfer Amount (PKR) *
+                            </label>
+                            <span className="text-[10px] text-ink-500">
+                              Combined Due: PKR {combinedSummary.totalDue.toLocaleString()}
+                            </span>
+                          </div>
                           <input
                             type="number"
                             required
                             min="1"
-                            max={discountType === 'fixed' ? baseFee : 100}
-                            value={discountValue}
-                            onChange={(e) => setDiscountValue(e.target.value)}
+                            max={combinedSummary.totalDue}
+                            value={multiTotalAmount}
+                            onChange={(e) => setMultiTotalAmount(e.target.value)}
                             className="w-full px-3 py-1.5 text-xs border border-sand-300 rounded-xl bg-white font-bold focus:outline-none focus:ring-2 focus:ring-emerald-600/20"
                           />
                         </div>
-                        <div>
-                          <label className="text-[11px] font-bold text-ink-700 block mb-1">
-                            Calculated Deduction
-                          </label>
-                          <div className="px-3 py-1.5 text-xs bg-sand-100 rounded-xl font-bold text-primary-900 border border-sand-200">
-                            - PKR {calculatedDiscount.toLocaleString()}
+
+                        {/* Course Invoices Allocation Breakdown */}
+                        <div className="space-y-2 p-3 bg-sand-50 rounded-xl border border-sand-200">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-bold text-ink-800 uppercase tracking-wider">
+                              Allocate to Invoices
+                            </span>
+                            <button
+                              type="button"
+                              onClick={handleAutoDistributeMultiPayment}
+                              className="text-[10px] font-bold text-primary-800 hover:text-primary-950 underline cursor-pointer"
+                            >
+                              Auto-Distribute
+                            </button>
+                          </div>
+
+                          {unpaidInvoices.map((inv) => (
+                            <div key={inv.id} className="p-2.5 bg-white rounded-lg border border-sand-200 space-y-1">
+                              <div className="flex items-center justify-between text-[11px]">
+                                <span className="font-bold text-ink-900 truncate max-w-[200px]">
+                                  {inv.program}
+                                </span>
+                                <span className="text-ink-500 text-[10px]">
+                                  Due: PKR {inv.balance?.toLocaleString()}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] text-ink-400">
+                                  {inv.invoiceNo}:
+                                </span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max={inv.balance}
+                                  value={multiAllocations[inv.id] ?? 0}
+                                  onChange={(e) => {
+                                    const val = Math.max(0, Math.min(inv.balance, Number(e.target.value) || 0));
+                                    setMultiAllocations({ ...multiAllocations, [inv.id]: val });
+                                  }}
+                                  className="w-full px-2 py-1 text-xs font-bold border border-sand-300 rounded-md focus:outline-none focus:ring-1 focus:ring-emerald-600"
+                                />
+                              </div>
+                            </div>
+                          ))}
+
+                          {/* Allocation check bar */}
+                          <div className="pt-1 flex items-center justify-between text-[11px]">
+                            <span className="text-ink-600">Total Allocated:</span>
+                            <span
+                              className={`font-bold ${
+                                isMultiAllocationMatched ? 'text-emerald-700' : 'text-amber-700'
+                              }`}
+                            >
+                              PKR {multiAllocationsSum.toLocaleString()} / PKR {(Number(multiTotalAmount) || 0).toLocaleString()}
+                            </span>
                           </div>
                         </div>
-                      </div>
-                    )}
 
-                    {discountType !== 'none' && (
-                      <div className="grid grid-cols-2 gap-3">
+                        {/* Common Transaction Fields */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <label className="text-[11px] font-bold text-ink-700 block mb-1">
+                              Payment Channel / Method
+                            </label>
+                            <select
+                              value={paymentMethod}
+                              onChange={(e) => setPaymentMethod(e.target.value)}
+                              className="w-full px-2.5 py-1.5 text-xs bg-white border border-sand-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-600/20"
+                            >
+                              <option value="Bank Transfer (Meezan Bank)">Bank Transfer (Meezan Bank)</option>
+                              <option value="Raast Instant Transfer">Raast Instant Transfer</option>
+                              <option value="HBL Online Banking">HBL Online Banking</option>
+                              <option value="Cash at DHA Campus">Cash at DHA Lahore Campus</option>
+                              <option value="Credit/Debit Card (Online)">Credit/Debit Card (Online)</option>
+                            </select>
+                          </div>
+
+                          <div>
+                            <label className="text-[11px] font-bold text-ink-700 block mb-1">
+                              TRX / Reference ID
+                            </label>
+                            <input
+                              type="text"
+                              value={transactionRef}
+                              onChange={(e) => setTransactionRef(e.target.value)}
+                              placeholder="TRX-123456"
+                              className="w-full px-2.5 py-1.5 text-xs border border-sand-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-emerald-600/20"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <label className="text-[11px] font-bold text-ink-700 block mb-1">
+                              Date
+                            </label>
+                            <input
+                              type="date"
+                              value={paymentDate}
+                              onChange={(e) => setPaymentDate(e.target.value)}
+                              className="w-full px-2.5 py-1.5 text-xs border border-sand-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-emerald-600/20"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[11px] font-bold text-ink-700 block mb-1">
+                              Remarks / Notes
+                            </label>
+                            <input
+                              type="text"
+                              value={paymentNotes}
+                              onChange={(e) => setPaymentNotes(e.target.value)}
+                              placeholder="e.g. Combined transfer"
+                              className="w-full px-2.5 py-1.5 text-xs border border-sand-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-emerald-600/20"
+                            />
+                          </div>
+                        </div>
+
                         <div>
                           <label className="text-[11px] font-bold text-ink-700 block mb-1">
-                            Reason / Concession Code *
+                            Deposit Slip / Screenshot
+                          </label>
+                          <input
+                            type="file"
+                            ref={fileInputRef}
+                            onChange={handleFileUpload}
+                            accept="image/*,.pdf"
+                            className="hidden"
+                          />
+                          {proofAttachment ? (
+                            <div className="p-2.5 bg-sand-100 rounded-xl border border-sand-300 flex items-center justify-between">
+                              <div className="flex items-center gap-2 truncate">
+                                <FileText size={16} className="text-primary-800 shrink-0" />
+                                <div className="truncate">
+                                  <span className="font-semibold text-ink-900 block truncate">
+                                    {proofAttachment.name}
+                                  </span>
+                                  <span className="text-[10px] text-ink-500">{proofAttachment.size}</span>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setProofAttachment(null)}
+                                className="p-1 text-ink-400 hover:text-red-600 transition-colors"
+                              >
+                                <X size={14} />
+                              </button>
+                            </div>
+                          ) : (
+                            <div
+                              onClick={() => fileInputRef.current?.click()}
+                              className="border border-dashed border-sand-300 hover:border-emerald-600/40 rounded-xl p-3 text-center cursor-pointer transition-colors bg-sand-50/50 hover:bg-emerald-50/20"
+                            >
+                              <UploadCloud size={18} className="mx-auto text-ink-400 mb-1" />
+                              <span className="text-[11px] font-bold text-ink-700 block">
+                                Attach Transfer Slip / Screenshot
+                              </span>
+                              <span className="text-[10px] text-ink-400">PNG, JPG, PDF up to 5MB</span>
+                            </div>
+                          )}
+                        </div>
+
+                        <button
+                          type="submit"
+                          disabled={!isMultiAllocationMatched}
+                          className="w-full py-2.5 px-4 rounded-xl bg-[#0B3324] hover:bg-[#072419] text-white font-bold text-xs shadow-sm transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed mt-1"
+                        >
+                          Confirm &amp; Record Combined Payment
+                        </button>
+                      </form>
+                    ) : (
+                      /* SINGLE INVOICE PAYMENT CAPTURE FORM */
+                      <form onSubmit={handleRecordPaymentSubmit} className="space-y-3.5 text-xs">
+                        {paymentError && (
+                          <div className="p-2.5 bg-red-50 border border-red-200 rounded-xl text-red-800 text-[11px] flex items-center gap-1.5">
+                            <AlertCircle size={14} className="shrink-0 text-red-600" />
+                            <span>{paymentError}</span>
+                          </div>
+                        )}
+
+                        {paymentSuccessMsg && (
+                          <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-primary-900 text-xs flex items-center gap-1.5 font-medium">
+                            <CheckCircle2 size={14} className="text-emerald-600" />
+                            <span>{paymentSuccessMsg}</span>
+                          </div>
+                        )}
+
+                        {Array.isArray(feeRecord.installments) && feeRecord.installments.length > 0 && (
+                          <div>
+                            <label className="text-[11px] font-bold text-ink-700 block mb-1">
+                              Apply Toward Installment
+                            </label>
+                            <select
+                              value={selectedInstallmentId}
+                              onChange={handleInstallmentSelectChange}
+                              className="w-full px-2.5 py-1.5 text-xs bg-white border border-sand-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-600/20"
+                            >
+                              <option value="">General Balance / Lump-Sum Payment</option>
+                              {feeRecord.installments.map((inst) => (
+                                <option key={inst.id} value={inst.id}>
+                                  {inst.title} — PKR {inst.amount?.toLocaleString()} ({inst.status})
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <div className="flex items-center justify-between mb-1">
+                              <label className="text-[11px] font-bold text-ink-700 block">
+                                Payment Amount (PKR) *
+                              </label>
+                              <span className="text-[10px] text-ink-500">
+                                Max: PKR {remainingBalance.toLocaleString()}
+                              </span>
+                            </div>
+                            <input
+                              type="number"
+                              required
+                              min="1"
+                              max={remainingBalance}
+                              value={paymentAmount}
+                              onChange={(e) => setPaymentAmount(e.target.value)}
+                              className="w-full px-3 py-1.5 text-xs border border-sand-300 rounded-xl bg-white font-bold focus:outline-none focus:ring-2 focus:ring-emerald-600/20"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="text-[11px] font-bold text-ink-700 block mb-1">
+                              Payment Channel / Method
+                            </label>
+                            <select
+                              value={paymentMethod}
+                              onChange={(e) => setPaymentMethod(e.target.value)}
+                              className="w-full px-2.5 py-1.5 text-xs bg-white border border-sand-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-600/20"
+                            >
+                              <option value="Bank Transfer (Meezan Bank)">Bank Transfer (Meezan Bank)</option>
+                              <option value="Raast Instant Transfer">Raast Instant Transfer</option>
+                              <option value="HBL Online Banking">HBL Online Banking</option>
+                              <option value="Cash at DHA Campus">Cash at DHA Lahore Campus</option>
+                              <option value="Credit/Debit Card (Online)">Credit/Debit Card (Online)</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <label className="text-[11px] font-bold text-ink-700 block mb-1">
+                              TRX / Reference ID
+                            </label>
+                            <input
+                              type="text"
+                              value={transactionRef}
+                              onChange={(e) => setTransactionRef(e.target.value)}
+                              placeholder="TRX-123456"
+                              className="w-full px-2.5 py-1.5 text-xs border border-sand-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-emerald-600/20"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[11px] font-bold text-ink-700 block mb-1">
+                              Date
+                            </label>
+                            <input
+                              type="date"
+                              value={paymentDate}
+                              onChange={(e) => setPaymentDate(e.target.value)}
+                              className="w-full px-2.5 py-1.5 text-xs border border-sand-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-emerald-600/20"
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="text-[11px] font-bold text-ink-700 block mb-1">
+                            Remarks / Accounts Notes
                           </label>
                           <input
                             type="text"
-                            required
-                            value={discountReason}
-                            onChange={(e) => setDiscountReason(e.target.value)}
-                            placeholder="e.g. Need-Based Financial Aid"
-                            className="w-full px-3 py-1.5 text-xs border border-sand-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-emerald-600/20"
+                            value={paymentNotes}
+                            onChange={(e) => setPaymentNotes(e.target.value)}
+                            placeholder="e.g. Verified by campus accounts officer"
+                            className="w-full px-2.5 py-1.5 text-xs border border-sand-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-emerald-600/20"
                           />
                         </div>
+
                         <div>
                           <label className="text-[11px] font-bold text-ink-700 block mb-1">
-                            Approved Authority
+                            Deposit Proof / Transfer Screenshot
                           </label>
                           <input
-                            type="text"
-                            value={approvedBy}
-                            onChange={(e) => setApprovedBy(e.target.value)}
-                            placeholder="e.g. Faculty Dean"
-                            className="w-full px-3 py-1.5 text-xs border border-sand-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-emerald-600/20"
+                            type="file"
+                            ref={fileInputRef}
+                            onChange={handleFileUpload}
+                            accept="image/*,.pdf"
+                            className="hidden"
                           />
+                          {proofAttachment ? (
+                            <div className="p-2.5 bg-sand-100 rounded-xl border border-sand-300 flex items-center justify-between">
+                              <div className="flex items-center gap-2 truncate">
+                                <FileText size={16} className="text-primary-800 shrink-0" />
+                                <div className="truncate">
+                                  <span className="font-semibold text-ink-900 block truncate">
+                                    {proofAttachment.name}
+                                  </span>
+                                  <span className="text-[10px] text-ink-500">{proofAttachment.size}</span>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setProofAttachment(null)}
+                                className="p-1 text-ink-400 hover:text-red-600 transition-colors"
+                              >
+                                <X size={14} />
+                              </button>
+                            </div>
+                          ) : (
+                            <div
+                              onClick={() => fileInputRef.current?.click()}
+                              className="border border-dashed border-sand-300 hover:border-emerald-600/40 rounded-xl p-3 text-center cursor-pointer transition-colors bg-sand-50/50 hover:bg-emerald-50/20"
+                            >
+                              <UploadCloud size={18} className="mx-auto text-ink-400 mb-1" />
+                              <span className="text-[11px] font-bold text-ink-700 block">
+                                Attach Transfer Slip / Screenshot
+                              </span>
+                              <span className="text-[10px] text-ink-400">PNG, JPG, PDF up to 5MB</span>
+                            </div>
+                          )}
                         </div>
-                      </div>
-                    )}
 
-                    <div className="pt-2 flex items-center justify-end">
+                        <button
+                          type="submit"
+                          className="w-full py-2.5 px-4 rounded-xl bg-[#0B3324] hover:bg-[#072419] text-white font-bold text-xs shadow-sm transition-all cursor-pointer mt-1"
+                        >
+                          Confirm &amp; Record Payment
+                        </button>
+                      </form>
+                    )}
+                  </div>
+                )}
+
+                {/* 2. MILESTONE INSTALLMENTS SUMMARY CARD (If exists) */}
+                {Array.isArray(feeRecord.installments) && feeRecord.installments.length > 0 && (
+                  <div className="bg-white rounded-2xl p-5 border border-sand-200/90 shadow-xs space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <Split size={14} className="text-ink-600" />
+                        <h3 className="font-bold text-xs text-ink-900 uppercase tracking-wider">
+                          Installment Milestones
+                        </h3>
+                      </div>
                       <button
-                        type="submit"
-                        className="px-4 py-1.5 rounded-xl bg-[#0B3324] hover:bg-[#072419] text-white font-bold text-xs shadow-xs transition-colors cursor-pointer"
+                        type="button"
+                        onClick={() => setDrawerNavTab('installments')}
+                        className="text-[11px] font-bold text-[#0B3324] hover:text-[#072419] underline cursor-pointer"
                       >
-                        Save Concession
+                        Configure Plan →
                       </button>
                     </div>
-                  </form>
-                )}
-              </div>
 
-              {/* -------------------------------------------------- */}
-              {/* CARD 2: SEMESTER FEE INSTALLMENT PLANNER           */}
-              {/* -------------------------------------------------- */}
-              <div className="bg-white rounded-2xl p-5 border border-[#EFECE6] shadow-xs space-y-4">
-                <div className="flex items-center justify-between">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {feeRecord.installments.map((inst, idx) => {
+                        const isPaid = inst.status === 'Paid';
+                        return (
+                          <div
+                            key={inst.id || idx}
+                            className={`p-3 rounded-xl border ${
+                              isPaid
+                                ? 'bg-sand-50/70 border-sand-200'
+                                : 'bg-white border-sand-200/90'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-xs font-bold text-ink-900">{inst.title}</span>
+                              <span
+                                className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                  isPaid
+                                    ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                                    : 'bg-sand-100 text-ink-700'
+                                }`}
+                              >
+                                {inst.status}
+                              </span>
+                            </div>
+                            <div className="text-sm font-bold text-[#0B3324]">
+                              PKR {inst.amount?.toLocaleString()}
+                            </div>
+                            <div className="text-[11px] text-ink-500 mt-0.5">
+                              Due: {inst.dueDate}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* 3. PAYMENT LEDGER & AUDIT TRAIL CARD */}
+                <div className="bg-white rounded-2xl p-5 border border-sand-200/90 shadow-xs space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <Clock size={15} className="text-ink-600" />
+                      <h3 className="font-bold text-xs text-ink-900 uppercase tracking-wider">
+                        Payment Ledger &amp; Audit Trail
+                      </h3>
+                    </div>
+                    <span className="text-[10px] font-bold text-ink-500 bg-sand-100 px-2 py-0.5 rounded-full">
+                      {(feeRecord.paymentHistory || []).length} Records
+                    </span>
+                  </div>
+
+                  {Array.isArray(feeRecord.paymentHistory) && feeRecord.paymentHistory.length > 0 ? (
+                    <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                      {feeRecord.paymentHistory.map((item, idx) => (
+                        <div
+                          key={item.id || idx}
+                          className="p-3 bg-sand-50/70 border border-sand-200/80 rounded-xl text-xs space-y-1 hover:border-sand-300 transition-colors"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-ink-900 text-[11px]">
+                              {item.transactionRef || `TRX-${idx + 1}`}
+                            </span>
+                            <span className="font-bold text-primary-900 text-xs">
+                              + PKR {Number(item.amount)?.toLocaleString()}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center justify-between text-[11px] text-ink-500">
+                            <span>{item.method || 'Bank Transfer'}</span>
+                            <span>{item.date}</span>
+                          </div>
+
+                          {item.notes && (
+                            <div className="text-[10px] text-ink-600 italic bg-white/60 p-1 rounded border border-sand-200/50">
+                              &ldquo;{item.notes}&rdquo;
+                            </div>
+                          )}
+
+                          <div className="pt-1.5 flex items-center justify-between border-t border-sand-200/60 mt-1">
+                            <button
+                              type="button"
+                              onClick={() => onOpenOfficialReceipt(feeRecord)}
+                              className="inline-flex items-center gap-1 text-[10px] font-semibold text-primary-800 hover:text-primary-950 cursor-pointer"
+                            >
+                              <Receipt size={11} />
+                              <span>Voucher Receipt</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (
+                                  window.confirm(
+                                    `Are you sure you want to void payment ${item.transactionRef || ''} of PKR ${Number(
+                                      item.amount
+                                    )?.toLocaleString()}? This will safely re-open the outstanding balance.`
+                                  )
+                                ) {
+                                  onVoidPayment(feeRecord.id, item.id);
+                                }
+                              }}
+                              className="inline-flex items-center gap-1 text-[10px] font-semibold text-red-600 hover:text-red-800 cursor-pointer"
+                              title="Void / reverse this payment entry"
+                            >
+                              <Trash2 size={11} />
+                              <span>Void Entry</span>
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="py-6 text-center text-xs text-ink-400 border border-dashed border-sand-200 rounded-xl">
+                      No payment transactions recorded for this invoice yet.
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ---------------------------------------------------- */}
+            {/* TAB 2: SEMESTER FEE INSTALLMENT PLANNER              */}
+            {/* ---------------------------------------------------- */}
+            {drawerNavTab === 'installments' && (
+              <div className="bg-white rounded-2xl p-6 border border-sand-200/90 shadow-xs space-y-4">
+                <div className="flex items-center justify-between border-b border-sand-200/70 pb-3">
                   <div className="flex items-center gap-2">
-                    <div className="p-1.5 rounded-lg bg-sky-50 text-sky-800">
+                    <div className="p-1.5 rounded-lg bg-sand-100 text-[#0B3324]">
                       <Split size={15} />
                     </div>
                     <div>
@@ -1060,18 +1515,18 @@ export default function BillingDrawer({
                   </div>
 
                   {isSemesterProgram && (
-                    <span className="text-[10px] font-bold text-sky-800 bg-sky-50 border border-sky-200 px-2 py-0.5 rounded-full">
+                    <span className="text-[10px] font-bold text-[#0B3324] bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
                       Semester Track
                     </span>
                   )}
                 </div>
 
                 {!isSemesterProgram ? (
-                  <div className="p-3.5 bg-amber-50/70 border border-amber-200/80 rounded-xl text-xs text-amber-900 flex items-start gap-2">
-                    <AlertCircle size={15} className="text-amber-700 shrink-0 mt-0.5" />
+                  <div className="p-4 bg-sand-50 border border-sand-200 rounded-xl text-xs text-ink-800 flex items-start gap-2.5">
+                    <AlertCircle size={16} className="text-sand-600 shrink-0 mt-0.5" />
                     <div>
-                      <span className="font-bold block">Modular / Short Course Program:</span>
-                      <span>
+                      <span className="font-bold block text-ink-900">Modular / Short Course Program:</span>
+                      <span className="text-ink-600 text-[11px]">
                         Installment splitting is reserved for structured semester cohorts (such as <em>Ilm Foundations</em>). Students in modular courses (such as <em>Ilm Intensives</em>) are billed upfront per course.
                       </span>
                     </div>
@@ -1089,7 +1544,7 @@ export default function BillingDrawer({
                       <label className="text-[11px] font-bold text-ink-700 block mb-1.5">
                         Schedule Structure
                       </label>
-                      <div className="grid grid-cols-5 gap-1.5 p-1 bg-sand-100 rounded-xl border border-sand-200">
+                      <div className="grid grid-cols-5 gap-1.5 p-1 bg-sand-100 rounded-xl border border-sand-200 max-w-lg">
                         {[
                           { id: '1', label: 'Lump Sum' },
                           { id: '2', label: '2 Parts' },
@@ -1113,7 +1568,7 @@ export default function BillingDrawer({
                       </div>
 
                       {scheduleMode === 'custom' && (
-                        <div className="mt-2.5 flex items-center gap-2 p-2.5 bg-sand-50 rounded-xl border border-sand-200">
+                        <div className="mt-2.5 flex items-center gap-2 p-2.5 bg-sand-50 rounded-xl border border-sand-200 max-w-sm">
                           <span className="text-[11px] font-bold text-ink-700">
                             Custom Part Count (2 to 12):
                           </span>
@@ -1125,7 +1580,7 @@ export default function BillingDrawer({
                             onChange={(e) =>
                               setCustomPartCount(Math.max(2, Math.min(12, Number(e.target.value) || 2)))
                             }
-                            className="w-16 px-2 py-1 text-xs font-bold text-center border border-sand-300 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-sky-500"
+                            className="w-16 px-2 py-1 text-xs font-bold text-center border border-sand-300 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-emerald-600"
                           />
                           <span className="text-[11px] text-ink-500">equal monthly intervals</span>
                         </div>
@@ -1171,21 +1626,21 @@ export default function BillingDrawer({
                           )}
                         </div>
 
-                        <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                        <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
                           {installments.map((inst, idx) => {
                             const isPaid = inst.status === 'Paid';
                             return (
                               <div
                                 key={inst.id || idx}
-                                className={`p-3 rounded-xl border transition-all ${
+                                className={`p-3.5 rounded-xl border transition-all ${
                                   isPaid
                                     ? 'bg-sand-50/80 border-sand-200'
-                                    : 'bg-white border-[#EFECE6] hover:border-sand-300'
+                                    : 'bg-white border-sand-200 hover:border-sand-300'
                                 }`}
                               >
                                 <div className="flex items-center justify-between mb-2">
                                   <div className="flex items-center gap-1.5">
-                                    <span className="font-bold text-ink-900 text-[11px]">
+                                    <span className="font-bold text-ink-900 text-xs">
                                       {inst.title}
                                     </span>
                                     {isPaid && (
@@ -1201,7 +1656,7 @@ export default function BillingDrawer({
                                   <span
                                     className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                                       isPaid
-                                        ? 'bg-primary-50 text-primary-900 border border-primary-200'
+                                        ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
                                         : 'bg-sand-100 text-ink-700'
                                     }`}
                                   >
@@ -1224,7 +1679,7 @@ export default function BillingDrawer({
                                       className={`w-full px-2.5 py-1 text-xs border rounded-lg font-bold ${
                                         isPaid
                                           ? 'bg-sand-100/70 border-sand-200 text-ink-500 cursor-not-allowed'
-                                          : 'bg-white border-sand-300 text-ink-900 focus:outline-none focus:ring-1 focus:ring-sky-500'
+                                          : 'bg-white border-sand-300 text-ink-900 focus:outline-none focus:ring-1 focus:ring-emerald-600'
                                       }`}
                                     />
                                   </div>
@@ -1242,7 +1697,7 @@ export default function BillingDrawer({
                                       className={`w-full px-2.5 py-1 text-xs border rounded-lg ${
                                         isPaid
                                           ? 'bg-sand-100/70 border-sand-200 text-ink-500 cursor-not-allowed'
-                                          : 'bg-white border-sand-300 text-ink-900 focus:outline-none focus:ring-1 focus:ring-sky-500'
+                                          : 'bg-white border-sand-300 text-ink-900 focus:outline-none focus:ring-1 focus:ring-emerald-600'
                                       }`}
                                     />
                                   </div>
@@ -1258,7 +1713,7 @@ export default function BillingDrawer({
                       <button
                         type="submit"
                         disabled={!isInstallmentAllocationMatched}
-                        className="px-4 py-1.5 rounded-xl bg-[#0B3324] hover:bg-[#072419] text-white font-bold text-xs disabled:opacity-40 disabled:cursor-not-allowed shadow-xs transition-colors cursor-pointer"
+                        className="px-5 py-2 rounded-xl bg-[#0B3324] hover:bg-[#072419] text-white font-bold text-xs disabled:opacity-40 disabled:cursor-not-allowed shadow-xs transition-colors cursor-pointer"
                       >
                         Save Installment Plan
                       </button>
@@ -1266,535 +1721,167 @@ export default function BillingDrawer({
                   </form>
                 )}
               </div>
-            </div>
+            )}
 
-            {/* ==================================================== */}
-            {/* RIGHT COLUMN: 5 Columns (Payment Capture & Ledger)   */}
-            {/* ==================================================== */}
-            <div className="lg:col-span-5 space-y-5">
-              {/* -------------------------------------------------- */}
-              {/* CARD 1: RECORD TUITION PAYMENT (Sticky Top)        */}
-              {/* -------------------------------------------------- */}
-              <div className="bg-white rounded-2xl p-5 border border-[#EFECE6] shadow-xs space-y-4">
-                <div className="flex items-center justify-between">
+            {/* ---------------------------------------------------- */}
+            {/* TAB 3: TUITION DISCOUNT & SCHOLARSHIP                */}
+            {/* ---------------------------------------------------- */}
+            {drawerNavTab === 'discount' && (
+              <div className="bg-white rounded-2xl p-6 border border-sand-200/90 shadow-xs space-y-4">
+                <div className="flex items-center justify-between border-b border-sand-200/70 pb-3">
                   <div className="flex items-center gap-2">
-                    <div className="p-1.5 rounded-lg bg-emerald-50 text-primary-900">
-                      <DollarSign size={15} />
+                    <div className="p-1.5 rounded-lg bg-emerald-50 text-[#0B3324]">
+                      <Tag size={15} />
                     </div>
                     <div>
                       <h3 className="font-bold text-xs text-ink-900 uppercase tracking-wider">
-                        Record Tuition Payment
+                        Tuition Discount &amp; Scholarship
                       </h3>
                       <p className="text-[11px] text-ink-500">
-                        Offline bank transfers, Raast, or campus cash.
+                        Grant student-specific financial aid, waivers, or merit concessions.
                       </p>
                     </div>
                   </div>
+
+                  {isFullySettled && !isConcessionUnlocked && (
+                    <button
+                      type="button"
+                      onClick={() => setIsConcessionUnlocked(true)}
+                      className="inline-flex items-center gap-1 text-[11px] font-bold text-ink-600 hover:text-ink-900 bg-sand-100 hover:bg-sand-200 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
+                    >
+                      <Unlock size={12} />
+                      <span>Unlock to Edit Concession</span>
+                    </button>
+                  )}
                 </div>
 
-                {/* MULTI-COURSE PAYMENT OPTION CHECKBOX */}
-                {unpaidInvoices.length > 1 && (
-                  <div className="p-3 bg-emerald-50/70 border border-emerald-200/80 rounded-xl space-y-2">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={isMultiPaymentMode}
-                        onChange={(e) => {
-                          const checked = e.target.checked;
-                          setIsMultiPaymentMode(checked);
-                          if (checked) {
-                            handleAutoDistributeMultiPayment();
-                          }
-                        }}
-                        className="rounded text-primary-900 focus:ring-emerald-600 h-4 w-4 cursor-pointer"
-                      />
-                      <span className="text-xs font-bold text-emerald-950">
-                        Apply payment across multiple unpaid courses
-                      </span>
-                    </label>
-                    <p className="text-[11px] text-primary-900 leading-snug">
-                      Combine a single bank transfer across {unpaidInvoices.length} outstanding invoices with linked audit records.
-                    </p>
-                  </div>
-                )}
-
-                {/* COMBINED MULTI-COURSE PAYMENT FORM */}
-                {isMultiPaymentMode ? (
-                  <form onSubmit={handleRecordMultiPaymentSubmit} className="space-y-3.5 text-xs">
-                    {paymentError && (
-                      <div className="p-2.5 bg-red-50 border border-red-200 rounded-xl text-red-800 text-[11px] flex items-center gap-1.5">
-                        <AlertCircle size={14} className="shrink-0 text-red-600" />
-                        <span>{paymentError}</span>
-                      </div>
-                    )}
-
-                    {paymentSuccessMsg && (
-                      <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-primary-900 text-xs flex items-center gap-1.5 font-medium">
-                        <CheckCircle2 size={14} className="text-emerald-600" />
-                        <span>{paymentSuccessMsg}</span>
-                      </div>
-                    )}
-
-                    {/* Total Transaction Amount */}
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <label className="text-[11px] font-bold text-ink-700 block">
-                          Total Transfer Amount (PKR) *
-                        </label>
-                        <span className="text-[10px] text-ink-500 ">
-                          Combined Due: PKR {combinedSummary.totalDue.toLocaleString()}
-                        </span>
-                      </div>
-                      <input
-                        type="number"
-                        required
-                        min="1"
-                        max={combinedSummary.totalDue}
-                        value={multiTotalAmount}
-                        onChange={(e) => setMultiTotalAmount(e.target.value)}
-                        className="w-full px-3 py-1.5 text-xs border border-sand-300 rounded-xl bg-white font-bold focus:outline-none focus:ring-2 focus:ring-emerald-600/20"
-                      />
-                    </div>
-
-                    {/* Course Invoices Allocation Breakdown */}
-                    <div className="space-y-2 p-3 bg-sand-50 rounded-xl border border-sand-200">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[11px] font-bold text-ink-800 uppercase tracking-wider">
-                          Allocate to Invoices
-                        </span>
-                        <button
-                          type="button"
-                          onClick={handleAutoDistributeMultiPayment}
-                          className="text-[10px] font-bold text-primary-800 hover:text-primary-950 underline cursor-pointer"
-                        >
-                          Auto-Distribute
-                        </button>
-                      </div>
-
-                      {unpaidInvoices.map((inv) => (
-                        <div key={inv.id} className="p-2 bg-white rounded-lg border border-sand-200 space-y-1">
-                          <div className="flex items-center justify-between text-[11px]">
-                            <span className="font-bold text-ink-900 truncate max-w-[170px]">
-                              {inv.program}
-                            </span>
-                            <span className="text-ink-500 text-[10px]">
-                              Due: PKR {inv.balance?.toLocaleString()}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-[10px] text-ink-400">
-                              {inv.invoiceNo}:
-                            </span>
-                            <input
-                              type="number"
-                              min="0"
-                              max={inv.balance}
-                              value={multiAllocations[inv.id] ?? 0}
-                              onChange={(e) => {
-                                const val = Math.max(0, Math.min(inv.balance, Number(e.target.value) || 0));
-                                setMultiAllocations({ ...multiAllocations, [inv.id]: val });
-                              }}
-                              className="w-full px-2 py-1 text-xs font-bold border border-sand-300 rounded-md focus:outline-none focus:ring-1 focus:ring-emerald-600"
-                            />
-                          </div>
-                        </div>
-                      ))}
-
-                      {/* Allocation check bar */}
-                      <div className="pt-1 flex items-center justify-between text-[11px] ">
-                        <span className="text-ink-600">Total Allocated:</span>
-                        <span
-                          className={`font-bold ${
-                            isMultiAllocationMatched ? 'text-emerald-700' : 'text-amber-700'
-                          }`}
-                        >
-                          PKR {multiAllocationsSum.toLocaleString()} / PKR {(Number(multiTotalAmount) || 0).toLocaleString()}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Common Transaction Fields */}
-                    <div>
-                      <label className="text-[11px] font-bold text-ink-700 block mb-1">
-                        Payment Channel / Method
-                      </label>
-                      <select
-                        value={paymentMethod}
-                        onChange={(e) => setPaymentMethod(e.target.value)}
-                        className="w-full px-2.5 py-1.5 text-xs bg-white border border-sand-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-600/20"
-                      >
-                        <option value="Bank Transfer (Meezan Bank)">Bank Transfer (Meezan Bank)</option>
-                        <option value="Raast Instant Transfer">Raast Instant Transfer</option>
-                        <option value="HBL Online Banking">HBL Online Banking</option>
-                        <option value="Cash at DHA Campus">Cash at DHA Lahore Campus</option>
-                        <option value="Credit/Debit Card (Online)">Credit/Debit Card (Online)</option>
-                      </select>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="text-[11px] font-bold text-ink-700 block mb-1">
-                          TRX / Reference ID
-                        </label>
-                        <input
-                          type="text"
-                          value={transactionRef}
-                          onChange={(e) => setTransactionRef(e.target.value)}
-                          placeholder="TRX-123456"
-                          className="w-full px-2.5 py-1.5 text-xs border border-sand-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-emerald-600/20"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[11px] font-bold text-ink-700 block mb-1">
-                          Date
-                        </label>
-                        <input
-                          type="date"
-                          value={paymentDate}
-                          onChange={(e) => setPaymentDate(e.target.value)}
-                          className="w-full px-2.5 py-1.5 text-xs border border-sand-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-emerald-600/20"
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="text-[11px] font-bold text-ink-700 block mb-1">
-                        Remarks / Notes
-                      </label>
-                      <input
-                        type="text"
-                        value={paymentNotes}
-                        onChange={(e) => setPaymentNotes(e.target.value)}
-                        placeholder="e.g. Combined transfer for Semester 1 + Intensive"
-                        className="w-full px-2.5 py-1.5 text-xs border border-sand-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-emerald-600/20"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-[11px] font-bold text-ink-700 block mb-1">
-                        Deposit Slip / Screenshot
-                      </label>
-                      <input
-                        type="file"
-                        ref={fileInputRef}
-                        onChange={handleFileUpload}
-                        accept="image/*,.pdf"
-                        className="hidden"
-                      />
-                      {proofAttachment ? (
-                        <div className="p-2.5 bg-sand-100 rounded-xl border border-sand-300 flex items-center justify-between">
-                          <div className="flex items-center gap-2 truncate">
-                            <FileText size={16} className="text-primary-800 shrink-0" />
-                            <div className="truncate">
-                              <span className="font-semibold text-ink-900 block truncate">
-                                {proofAttachment.name}
-                              </span>
-                              <span className="text-[10px] text-ink-500">{proofAttachment.size}</span>
-                            </div>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => setProofAttachment(null)}
-                            className="p-1 text-ink-400 hover:text-red-600 transition-colors"
-                          >
-                            <X size={14} />
-                          </button>
-                        </div>
-                      ) : (
-                        <div
-                          onClick={() => fileInputRef.current?.click()}
-                          className="border border-dashed border-sand-300 hover:border-emerald-600/40 rounded-xl p-3 text-center cursor-pointer transition-colors bg-sand-50/50 hover:bg-emerald-50/20"
-                        >
-                          <UploadCloud size={18} className="mx-auto text-ink-400 mb-1" />
-                          <span className="text-[11px] font-bold text-ink-700 block">
-                            Attach Transfer Slip / Screenshot
-                          </span>
-                          <span className="text-[10px] text-ink-400">PNG, JPG, PDF up to 5MB</span>
-                        </div>
-                      )}
-                    </div>
-
-                    <button
-                      type="submit"
-                      disabled={!isMultiAllocationMatched}
-                      className="w-full py-2.5 px-4 rounded-xl bg-[#0B3324] hover:bg-[#072419] text-white font-bold text-xs shadow-sm transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed mt-1"
-                    >
-                      Confirm &amp; Record Combined Payment
-                    </button>
-                  </form>
-                ) : isFullySettled ? (
-                  /* SETTLED STATE GUARDRAIL */
-                  <div className="p-4 bg-emerald-50/80 border border-emerald-200 rounded-xl text-center space-y-3">
-                    <div className="h-10 w-10 mx-auto rounded-full bg-primary-50 text-primary-900 border border-primary-200 flex items-center justify-center">
-                      <CheckCircle2 size={22} />
-                    </div>
-                    <div>
-                      <h4 className="font-bold text-xs text-emerald-950">
-                        Invoice Fully Settled
-                      </h4>
-                      <p className="text-[11px] text-primary-900 mt-0.5">
-                        PKR {netPayable.toLocaleString()} received in full. All installments and fees are completely cleared.
-                      </p>
+                {isFullySettled && !isConcessionUnlocked ? (
+                  <div className="p-3.5 bg-emerald-50/60 border border-emerald-200/80 rounded-xl text-xs text-emerald-900 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 size={16} className="text-emerald-700 shrink-0" />
+                      <span>Invoice is fully settled. Concession settings are locked to protect accounting consistency.</span>
                     </div>
                     <button
                       type="button"
-                      onClick={() => onOpenOfficialReceipt(feeRecord)}
-                      className="w-full inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-[#0B3324] hover:bg-[#072419] text-white font-bold text-xs shadow-xs transition-colors cursor-pointer"
+                      onClick={() => setIsConcessionUnlocked(true)}
+                      className="text-[11px] font-bold underline text-emerald-900 hover:text-emerald-950 ml-2 shrink-0 cursor-pointer"
                     >
-                      <Download size={14} />
-                      <span>Download Official Receipt (PDF)</span>
+                      Modify Anyway
                     </button>
                   </div>
                 ) : (
-                  /* SINGLE INVOICE PAYMENT CAPTURE FORM */
-                  <form onSubmit={handleRecordPaymentSubmit} className="space-y-3 text-xs">
-                    {paymentError && (
-                      <div className="p-2.5 bg-red-50 border border-red-200 rounded-xl text-red-800 text-[11px] flex items-center gap-1.5">
-                        <AlertCircle size={14} className="shrink-0 text-red-600" />
-                        <span>{paymentError}</span>
+                  <form onSubmit={handleApplyDiscount} className="space-y-4 text-xs">
+                    {isPaidExceedsNewNet && (
+                      <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 flex items-start gap-2">
+                        <AlertTriangle size={15} className="text-amber-600 shrink-0 mt-0.5" />
+                        <div>
+                          <span className="font-bold block">Retroactive Scholarship / Concession Notice:</span>
+                          <span>
+                            Student has already paid PKR {currentPaid.toLocaleString()}, which exceeds the new Net Payable amount of PKR {netPayable.toLocaleString()}. Applying this concession will zero out remaining unpaid installments and flag an overpayment credit / refund of PKR {creditRefundDelta.toLocaleString()}.
+                          </span>
+                        </div>
                       </div>
                     )}
 
-                    {paymentSuccessMsg && (
+                    {discountSuccessMsg && (
                       <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-primary-900 text-xs flex items-center gap-1.5 font-medium">
                         <CheckCircle2 size={14} className="text-emerald-600" />
-                        <span>{paymentSuccessMsg}</span>
+                        <span>{discountSuccessMsg}</span>
                       </div>
                     )}
 
-                    {Array.isArray(feeRecord.installments) && feeRecord.installments.length > 0 && (
-                      <div>
-                        <label className="text-[11px] font-bold text-ink-700 block mb-1">
-                          Apply Toward Installment
-                        </label>
-                        <select
-                          value={selectedInstallmentId}
-                          onChange={handleInstallmentSelectChange}
-                          className="w-full px-2.5 py-1.5 text-xs bg-white border border-sand-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-600/20"
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      {[
+                        { id: 'none', label: 'Standard', desc: 'No concession (0% off)' },
+                        { id: 'fixed', label: 'Fixed PKR Off', desc: 'Custom PKR amount' },
+                        { id: 'percentage', label: 'Percentage (%)', desc: '1% to 100% off' },
+                        { id: 'waiver', label: 'Full Scholarship', desc: '100% Tuition waiver' },
+                      ].map((opt) => (
+                        <button
+                          type="button"
+                          key={opt.id}
+                          onClick={() => setDiscountType(opt.id)}
+                          className={`p-3 rounded-xl border text-left cursor-pointer transition-all ${
+                            discountType === opt.id
+                              ? 'border-[#0B3324] bg-emerald-50/60 ring-2 ring-emerald-600/20'
+                              : 'border-sand-200 bg-white hover:bg-sand-50/60'
+                          }`}
                         >
-                          <option value="">General Balance / Lump-Sum Payment</option>
-                          {feeRecord.installments.map((inst) => (
-                            <option key={inst.id} value={inst.id}>
-                              {inst.title} — PKR {inst.amount?.toLocaleString()} ({inst.status})
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    )}
-
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <label className="text-[11px] font-bold text-ink-700 block">
-                          Payment Amount (PKR) *
-                        </label>
-                        <span className="text-[10px] text-ink-500 ">
-                          Max: PKR {remainingBalance.toLocaleString()}
-                        </span>
-                      </div>
-                      <input
-                        type="number"
-                        required
-                        min="1"
-                        max={remainingBalance}
-                        value={paymentAmount}
-                        onChange={(e) => setPaymentAmount(e.target.value)}
-                        className="w-full px-3 py-1.5 text-xs border border-sand-300 rounded-xl bg-white font-bold focus:outline-none focus:ring-2 focus:ring-emerald-600/20"
-                      />
+                          <div className="font-bold text-xs text-ink-900">{opt.label}</div>
+                          <div className="text-[10px] text-ink-500 mt-0.5">{opt.desc}</div>
+                        </button>
+                      ))}
                     </div>
 
-                    <div>
-                      <label className="text-[11px] font-bold text-ink-700 block mb-1">
-                        Payment Channel / Method
-                      </label>
-                      <select
-                        value={paymentMethod}
-                        onChange={(e) => setPaymentMethod(e.target.value)}
-                        className="w-full px-2.5 py-1.5 text-xs bg-white border border-sand-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-600/20"
-                      >
-                        <option value="Bank Transfer (Meezan Bank)">Bank Transfer (Meezan Bank)</option>
-                        <option value="Raast Instant Transfer">Raast Instant Transfer</option>
-                        <option value="HBL Online Banking">HBL Online Banking</option>
-                        <option value="Cash at DHA Campus">Cash at DHA Lahore Campus</option>
-                        <option value="Credit/Debit Card (Online)">Credit/Debit Card (Online)</option>
-                      </select>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="text-[11px] font-bold text-ink-700 block mb-1">
-                          TRX / Reference ID
-                        </label>
-                        <input
-                          type="text"
-                          value={transactionRef}
-                          onChange={(e) => setTransactionRef(e.target.value)}
-                          placeholder="TRX-123456"
-                          className="w-full px-2.5 py-1.5 text-xs border border-sand-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-emerald-600/20"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[11px] font-bold text-ink-700 block mb-1">
-                          Date
-                        </label>
-                        <input
-                          type="date"
-                          value={paymentDate}
-                          onChange={(e) => setPaymentDate(e.target.value)}
-                          className="w-full px-2.5 py-1.5 text-xs border border-sand-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-emerald-600/20"
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="text-[11px] font-bold text-ink-700 block mb-1">
-                        Remarks / Accounts Notes
-                      </label>
-                      <input
-                        type="text"
-                        value={paymentNotes}
-                        onChange={(e) => setPaymentNotes(e.target.value)}
-                        placeholder="e.g. Verified by campus accounts officer"
-                        className="w-full px-2.5 py-1.5 text-xs border border-sand-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-emerald-600/20"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-[11px] font-bold text-ink-700 block mb-1">
-                        Deposit Proof / Transfer Screenshot
-                      </label>
-                      <input
-                        type="file"
-                        ref={fileInputRef}
-                        onChange={handleFileUpload}
-                        accept="image/*,.pdf"
-                        className="hidden"
-                      />
-                      {proofAttachment ? (
-                        <div className="p-2.5 bg-sand-100 rounded-xl border border-sand-300 flex items-center justify-between">
-                          <div className="flex items-center gap-2 truncate">
-                            <FileText size={16} className="text-primary-800 shrink-0" />
-                            <div className="truncate">
-                              <span className="font-semibold text-ink-900 block truncate">
-                                {proofAttachment.name}
-                              </span>
-                              <span className="text-[10px] text-ink-500">{proofAttachment.size}</span>
-                            </div>
+                    {(discountType === 'fixed' || discountType === 'percentage') && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                        <div>
+                          <label className="text-[11px] font-bold text-ink-700 block mb-1">
+                            {discountType === 'fixed' ? 'Discount Amount (PKR) *' : 'Percentage Off (%) *'}
+                          </label>
+                          <input
+                            type="number"
+                            required
+                            min="1"
+                            max={discountType === 'fixed' ? baseFee : 100}
+                            value={discountValue}
+                            onChange={(e) => setDiscountValue(e.target.value)}
+                            className="w-full px-3 py-1.5 text-xs border border-sand-300 rounded-xl bg-white font-bold focus:outline-none focus:ring-2 focus:ring-emerald-600/20"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-bold text-ink-700 block mb-1">
+                            Calculated Deduction
+                          </label>
+                          <div className="px-3 py-1.5 text-xs bg-sand-100 rounded-xl font-bold text-primary-900 border border-sand-200">
+                            - PKR {calculatedDiscount.toLocaleString()}
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => setProofAttachment(null)}
-                            className="p-1 text-ink-400 hover:text-red-600 transition-colors"
-                          >
-                            <X size={14} />
-                          </button>
                         </div>
-                      ) : (
-                        <div
-                          onClick={() => fileInputRef.current?.click()}
-                          className="border border-dashed border-sand-300 hover:border-emerald-600/40 rounded-xl p-3 text-center cursor-pointer transition-colors bg-sand-50/50 hover:bg-emerald-50/20"
-                        >
-                          <UploadCloud size={18} className="mx-auto text-ink-400 mb-1" />
-                          <span className="text-[11px] font-bold text-ink-700 block">
-                            Attach Transfer Slip / Screenshot
-                          </span>
-                          <span className="text-[10px] text-ink-400">PNG, JPG, PDF up to 5MB</span>
-                        </div>
-                      )}
-                    </div>
+                      </div>
+                    )}
 
-                    <button
-                      type="submit"
-                      className="w-full py-2.5 px-4 rounded-xl bg-[#0B3324] hover:bg-[#072419] text-white font-bold text-xs shadow-sm transition-all cursor-pointer mt-1"
-                    >
-                      Confirm &amp; Record Payment
-                    </button>
+                    {discountType !== 'none' && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-[11px] font-bold text-ink-700 block mb-1">
+                            Reason / Concession Code *
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            value={discountReason}
+                            onChange={(e) => setDiscountReason(e.target.value)}
+                            placeholder="e.g. Need-Based Financial Aid"
+                            className="w-full px-3 py-1.5 text-xs border border-sand-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-emerald-600/20"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-bold text-ink-700 block mb-1">
+                            Approved Authority
+                          </label>
+                          <input
+                            type="text"
+                            value={approvedBy}
+                            onChange={(e) => setApprovedBy(e.target.value)}
+                            placeholder="e.g. Faculty Dean"
+                            className="w-full px-3 py-1.5 text-xs border border-sand-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-emerald-600/20"
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="pt-2 flex items-center justify-end">
+                      <button
+                        type="submit"
+                        className="px-5 py-2 rounded-xl bg-[#0B3324] hover:bg-[#072419] text-white font-bold text-xs shadow-xs transition-colors cursor-pointer"
+                      >
+                        Save Concession
+                      </button>
+                    </div>
                   </form>
                 )}
               </div>
-
-              {/* -------------------------------------------------- */}
-              {/* CARD 2: PAYMENT LEDGER & AUDIT TRAIL               */}
-              {/* -------------------------------------------------- */}
-              <div className="bg-white rounded-2xl p-5 border border-[#EFECE6] shadow-xs space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5">
-                    <Clock size={15} className="text-ink-600" />
-                    <h3 className="font-bold text-xs text-ink-900 uppercase tracking-wider">
-                      Payment Ledger &amp; Audit Trail
-                    </h3>
-                  </div>
-                  <span className="text-[10px] font-bold text-ink-500 bg-sand-100 px-2 py-0.5 rounded-full">
-                    {(feeRecord.paymentHistory || []).length} Records
-                  </span>
-                </div>
-
-                {Array.isArray(feeRecord.paymentHistory) && feeRecord.paymentHistory.length > 0 ? (
-                  <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-                    {feeRecord.paymentHistory.map((item, idx) => (
-                      <div
-                        key={item.id || idx}
-                        className="p-3 bg-sand-50/70 border border-[#EFECE6] rounded-xl text-xs space-y-1 hover:border-sand-300 transition-colors"
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="font-bold text-ink-900 text-[11px]">
-                            {item.transactionRef || `TRX-${idx + 1}`}
-                          </span>
-                          <span className="font-bold text-primary-900 text-xs">
-                            + PKR {Number(item.amount)?.toLocaleString()}
-                          </span>
-                        </div>
-
-                        <div className="flex items-center justify-between text-[11px] text-ink-500">
-                          <span>{item.method || 'Bank Transfer'}</span>
-                          <span className="">{item.date}</span>
-                        </div>
-
-                        {item.notes && (
-                          <div className="text-[10px] text-ink-600 italic bg-white/60 p-1 rounded border border-sand-200/50">
-                            &ldquo;{item.notes}&rdquo;
-                          </div>
-                        )}
-
-                        <div className="pt-1.5 flex items-center justify-between border-t border-sand-200/60 mt-1">
-                          <button
-                            type="button"
-                            onClick={() => onOpenOfficialReceipt(feeRecord)}
-                            className="inline-flex items-center gap-1 text-[10px] font-semibold text-primary-800 hover:text-primary-950 cursor-pointer"
-                          >
-                            <Receipt size={11} />
-                            <span>Voucher Receipt</span>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (
-                                window.confirm(
-                                  `Are you sure you want to void payment ${item.transactionRef || ''} of PKR ${Number(
-                                    item.amount
-                                  )?.toLocaleString()}? This will safely re-open the outstanding balance.`
-                                )
-                              ) {
-                                onVoidPayment(feeRecord.id, item.id);
-                              }
-                            }}
-                            className="inline-flex items-center gap-1 text-[10px] font-semibold text-red-600 hover:text-red-800 cursor-pointer"
-                            title="Void / reverse this payment entry"
-                          >
-                            <Trash2 size={11} />
-                            <span>Void Entry</span>
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="py-6 text-center text-xs text-ink-400 border border-dashed border-sand-200 rounded-xl">
-                    No payment transactions recorded for this invoice yet.
-                  </div>
-                )}
-              </div>
-            </div>
+            )}
           </div>
         )}
       </motion.div>
