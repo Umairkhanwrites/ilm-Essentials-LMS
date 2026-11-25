@@ -99,12 +99,13 @@ export function evaluatePathwayBillingAccess({
       const overdueInsts = insts.filter((i) => {
         const due = i.due_date || i.dueDate || '';
         const isApproved = i.status === 'APPROVED' || i.status === 'Paid';
-        return !isApproved && due && due <= todayStr;
+        const isUnderReview = i.status === 'UNDER_REVIEW'; // Student uploaded slip; protected by active grace window
+        return !isApproved && !isUnderReview && due && due < todayStr;
       });
 
       if (overdueInsts.length > 0) {
         overdueInstallmentsCount += overdueInsts.length;
-      } else if (inv.status === 'Overdue' || ((Number(inv.balance) || 0) > 0 && inv.due_date && inv.due_date <= todayStr)) {
+      } else if (inv.status === 'Overdue' || ((Number(inv.balance) || 0) > 0 && inv.due_date && inv.due_date < todayStr && inv.status !== 'UNDER_REVIEW')) {
         overdueInstallmentsCount += 1;
       }
     }
@@ -142,8 +143,9 @@ export function evaluatePathwayBillingAccess({
 
   const overdueList = pathwayInstallments.filter((inst) => {
     const isApproved = inst.status === 'APPROVED' || inst.status === 'Paid';
+    const isUnderReview = inst.status === 'UNDER_REVIEW'; // Protected by grace window while under review
     const due = inst.dueDate || inst.due_date;
-    return !isApproved && due && due <= todayStr;
+    return !isApproved && !isUnderReview && due && due < todayStr;
   });
 
   if (overdueList.length > 0) {

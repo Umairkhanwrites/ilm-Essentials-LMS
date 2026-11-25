@@ -500,7 +500,8 @@ export default function CreateCourse() {
 
     setFormData((prev) => {
       if (isMultiSem) {
-        const semesterFeeVal = selectedPathway.semesterFee || selectedPathway.defaultTuitionFee || 30000;
+        const selectedBatch = selectedPathway?.batches?.find((b) => b.id === prev.batchId || b.name === prev.batch) || null;
+        const semesterFeeVal = selectedBatch?.tuition_fee ?? selectedBatch?.tuitionFee ?? selectedPathway.semesterFee ?? selectedPathway.defaultTuitionFee ?? 30000;
         return {
           ...prev,
           fee: `PKR ${Number(semesterFeeVal).toLocaleString()}`,
@@ -1163,7 +1164,8 @@ export default function CreateCourse() {
     const selectedPathway = pathways.find((p) => (p.slug || p.id) === formData.category);
     const isMultiSem = selectedPathway?.programStructure === 'multi_semester' || selectedPathway?.type === 'cohort' || Number(selectedPathway?.semesters) > 1;
     const isFoundations = formData.category === 'foundations';
-    const semesterFeeVal = selectedPathway?.semesterFee || selectedPathway?.defaultTuitionFee || 30000;
+    const selectedBatch = selectedPathway?.batches?.find((b) => b.id === formData.batchId || b.name === formData.batch) || null;
+    const semesterFeeVal = selectedBatch?.tuition_fee ?? selectedBatch?.tuitionFee ?? selectedPathway?.semesterFee ?? selectedPathway?.defaultTuitionFee ?? 30000;
     const isOnline = formData.classCategory === 'online';
     const isOnsite = formData.classCategory === 'onsite';
     const isHybrid = formData.classCategory === 'hybrid';
@@ -1996,7 +1998,8 @@ export default function CreateCourse() {
                     const isMultiSem = selectedPathway?.programStructure === 'multi_semester' || selectedPathway?.type === 'cohort' || Number(selectedPathway?.semesters) > 1;
 
                     if (isMultiSem) {
-                      const semesterFeeVal = selectedPathway?.semesterFee || selectedPathway?.defaultTuitionFee || 30000;
+                      const selectedBatch = selectedPathway?.batches?.find((b) => b.id === formData.batchId || b.name === formData.batch) || null;
+    const semesterFeeVal = selectedBatch?.tuition_fee ?? selectedBatch?.tuitionFee ?? selectedPathway?.semesterFee ?? selectedPathway?.defaultTuitionFee ?? 30000;
                       return (
                         <div>
                           <div className="flex items-center justify-between mb-1.5">

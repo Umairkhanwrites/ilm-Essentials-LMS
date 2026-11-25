@@ -643,68 +643,224 @@ export function deleteInstructor(id) {
 /**
  * Get all student fee records
  */
+/**
+ * Centralized Single Source of Truth Synchronizer (Trigger A Logic)
+ * Ensures every invoice has matching fee_installments and that invoice totals
+ * (paidAmount, balance, status) are derived strictly from fee_installments.
+ */
+export function syncInvoicesAndInstallments() {
+  try {
+    let currentInvoices = [];
+    const storedFees = localStorage.getItem(STORAGE_KEY_FEES);
+    if (storedFees) {
+      try {
+        const parsed = JSON.parse(storedFees);
+        if (Array.isArray(parsed) && parsed.length > 0) currentInvoices = parsed;
+      } catch (e) {}
+    }
+    if (currentInvoices.length === 0) {
+      currentInvoices = [...adminFeeRecords];
+    }
+
+    let currentInsts = [];
+    const storedInsts = localStorage.getItem(STORAGE_KEY_INSTALLMENTS);
+    if (storedInsts) {
+      try {
+        const parsed = JSON.parse(storedInsts);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // If cached localStorage still has legacy unaligned mock entries (like inst_001_1), purge it
+          const hasLegacyMismatch = parsed.some((p) => p.id === 'inst_001_1');
+          if (!hasLegacyMismatch) {
+            currentInsts = parsed;
+          }
+        }
+      } catch (e) {}
+    }
+    if (currentInsts.length === 0) {
+      currentInsts = [...initialFeeInstallments];
+    }
+
+    const todayStr = new Date().toISOString().split('T')[0];
+    const updatedInsts = [...currentInsts];
+    let instsChanged = false;
+
+    const updatedInvoices = currentInvoices.map((inv) => {
+      const baseFee = Number(inv.baseFee) || Number(inv.totalAmount) || 30000;
+      const discountAmount = Number(inv.discountAmount) || 0;
+      const netPayable = Number(inv.netPayable) || Math.max(0, baseFee - discountAmount);
+
+      // Find matching installments for this invoice
+      let matching = updatedInsts.filter((i) =>
+        (i.invoiceId && i.invoiceId === inv.id) ||
+        (!i.invoiceId && i.studentId === inv.studentId && (i.program === inv.program || inv.isSemesterWise))
+      );
+
+      // Synthesize missing installments so fee_installments is the 100% complete source of truth
+      if (matching.length === 0) {
+        const isPaid = inv.status === 'Paid' || (Number(inv.paidAmount) >= netPayable && netPayable > 0);
+        const isPartial = inv.status === 'Partial' || (Number(inv.paidAmount) > 0 && Number(inv.paidAmount) < netPayable);
+        const isWaived = inv.status === 'Waived';
+
+        if (isPaid || isWaived) {
+          const lumpInst = {
+            id: `inst_${inv.id}_lump`,
+            invoiceId: inv.id,
+            challanNo: `CH-${inv.id.replace(/\D/g, '') || Math.floor(10000000 + Math.random() * 90000000)}`,
+            studentId: inv.studentId,
+            studentName: inv.studentName,
+            studentEmail: inv.studentEmail,
+            program: inv.program,
+            semester: inv.semester,
+            title: isWaived ? 'Scholarship Tuition Waiver (100%)' : 'Lump Sum Tuition Payment',
+            amount: netPayable,
+            dueDate: inv.dueDate || '2026-03-15',
+            paidDate: inv.paidDate || '2026-02-20',
+            status: 'APPROVED',
+            paymentMode: inv.paymentMethod || 'Bank Transfer',
+            transactionRef: inv.transactionRef || 'MB-PAID',
+            approvedByName: 'Faculty Administration',
+            approvedAt: inv.paidDate ? `${inv.paidDate}T09:00:00Z` : '2026-02-20T09:00:00Z',
+            createdAt: '2026-01-15T00:00:00Z',
+            updatedAt: '2026-02-20T09:00:00Z',
+          };
+          updatedInsts.push(lumpInst);
+          matching = [lumpInst];
+          instsChanged = true;
+        } else if (isPartial) {
+          const paidPart = Number(inv.paidAmount) || Math.floor(netPayable / 2);
+          const balancePart = netPayable - paidPart;
+          const inst1 = {
+            id: `inst_${inv.id}_1`,
+            invoiceId: inv.id,
+            challanNo: `CH-${inv.id.replace(/\D/g, '') || Math.floor(10000000 + Math.random() * 90000000)}`,
+            studentId: inv.studentId,
+            studentName: inv.studentName,
+            studentEmail: inv.studentEmail,
+            program: inv.program,
+            semester: inv.semester,
+            title: 'Installment 1 — Registration & Tuition',
+            amount: paidPart,
+            dueDate: '2026-02-20',
+            paidDate: inv.paidDate || '2026-02-20',
+            status: 'APPROVED',
+            paymentMode: inv.paymentMethod || 'Bank Transfer',
+            transactionRef: inv.transactionRef || 'MB-PARTIAL',
+            approvedByName: 'Faculty Administration',
+            createdAt: '2026-01-15T00:00:00Z',
+          };
+          const inst2 = {
+            id: `inst_${inv.id}_2`,
+            invoiceId: inv.id,
+            challanNo: `CH-${(Number(inv.id.replace(/\D/g, '')) + 100) || Math.floor(10000000 + Math.random() * 90000000)}`,
+            studentId: inv.studentId,
+            studentName: inv.studentName,
+            studentEmail: inv.studentEmail,
+            program: inv.program,
+            semester: inv.semester,
+            title: 'Installment 2 — Remaining Balance',
+            amount: balancePart,
+            dueDate: inv.dueDate || '2026-04-15',
+            paidDate: null,
+            status: 'UNPAID',
+            paymentMode: '—',
+            createdAt: '2026-01-15T00:00:00Z',
+          };
+          updatedInsts.push(inst1, inst2);
+          matching = [inst1, inst2];
+          instsChanged = true;
+        } else {
+          const lumpUnpaid = {
+            id: `inst_${inv.id}_due`,
+            invoiceId: inv.id,
+            challanNo: `CH-${inv.id.replace(/\D/g, '') || Math.floor(10000000 + Math.random() * 90000000)}`,
+            studentId: inv.studentId,
+            studentName: inv.studentName,
+            studentEmail: inv.studentEmail,
+            program: inv.program,
+            semester: inv.semester,
+            title: 'Tuition Payment',
+            amount: netPayable,
+            dueDate: inv.dueDate || '2026-04-10',
+            paidDate: null,
+            status: 'UNPAID',
+            paymentMode: '—',
+            createdAt: '2026-01-15T00:00:00Z',
+          };
+          updatedInsts.push(lumpUnpaid);
+          matching = [lumpUnpaid];
+          instsChanged = true;
+        }
+      }
+
+      // Link matching installments with invoiceId
+      matching.forEach((inst) => {
+        if (!inst.invoiceId) {
+          inst.invoiceId = inv.id;
+          instsChanged = true;
+        }
+      });
+
+      // Recalculate invoice strictly from its installments (Trigger A logic)
+      const approvedAmount = matching
+        .filter((i) => i.status === 'APPROVED' || i.status === 'Paid')
+        .reduce((sum, i) => sum + (Number(i.amount) || 0), 0);
+
+      const calculatedBalance = Math.max(0, netPayable - approvedAmount);
+      let calculatedStatus = inv.status === 'Waived' ? 'Waived' : 'Pending';
+      if (inv.status !== 'Waived') {
+        if (calculatedBalance === 0 && netPayable > 0) {
+          calculatedStatus = 'Paid';
+        } else if (approvedAmount > 0) {
+          calculatedStatus = 'Partial';
+        } else if (matching.some((i) => i.status !== 'APPROVED' && i.status !== 'UNDER_REVIEW' && i.dueDate && i.dueDate < todayStr)) {
+          calculatedStatus = 'Overdue';
+        } else {
+          calculatedStatus = 'Pending';
+        }
+      }
+
+      return {
+        ...inv,
+        baseFee,
+        discountAmount,
+        netPayable,
+        totalAmount: netPayable,
+        paidAmount: approvedAmount,
+        balance: calculatedBalance,
+        status: calculatedStatus,
+        installments: matching,
+      };
+    });
+
+    localStorage.setItem(STORAGE_KEY_FEES, JSON.stringify(updatedInvoices));
+    if (instsChanged) {
+      localStorage.setItem(STORAGE_KEY_INSTALLMENTS, JSON.stringify(updatedInsts));
+    }
+
+    return { invoices: updatedInvoices, installments: updatedInsts };
+  } catch (err) {
+    console.error('Error synchronizing invoices and installments:', err);
+    return null;
+  }
+}
+
 export function getFeeRecords() {
+  const syncRes = syncInvoicesAndInstallments();
+  if (syncRes && syncRes.invoices) {
+    return syncRes.invoices;
+  }
   try {
     const stored = localStorage.getItem(STORAGE_KEY_FEES);
     if (stored) {
       const parsed = JSON.parse(stored);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        // Ensure newly added mock records (such as multi-course student records) are included
-        const existingIds = new Set(parsed.map((p) => p.id));
-        const missingFromStorage = adminFeeRecords.filter((rec) => !existingIds.has(rec.id));
-        const combined = [...parsed, ...missingFromStorage];
-
-        return combined.map((f) => {
-          const baseFee = Number(f.baseFee) || Number(f.totalAmount) || 30000;
-          const discountAmount = Number(f.discountAmount) || 0;
-          const netPayable = Number(f.netPayable) || Math.max(0, baseFee - discountAmount);
-          const paidAmount = Number(f.paidAmount) || 0;
-          const balance = Math.max(0, netPayable - paidAmount);
-          return {
-            ...f,
-            baseFee,
-            discountType: f.discountType || 'none',
-            discountValue: Number(f.discountValue) || 0,
-            discountAmount,
-            discountReason: f.discountReason || '',
-            discountApprovedBy: f.discountApprovedBy || '',
-            netPayable,
-            totalAmount: netPayable,
-            paidAmount,
-            balance,
-            paymentPlan: f.paymentPlan || (Array.isArray(f.installments) && f.installments.length > 1 ? `installments_${f.installments.length}` : 'lump_sum'),
-            installments: Array.isArray(f.installments) ? f.installments : [],
-            paymentHistory: Array.isArray(f.paymentHistory) ? f.paymentHistory : [],
-          };
-        });
+        return parsed;
       }
     }
   } catch (err) {
     console.error('Failed to load fee records from localStorage:', err);
   }
-  return adminFeeRecords.map((f) => {
-    const baseFee = Number(f.baseFee) || Number(f.totalAmount) || 30000;
-    const discountAmount = Number(f.discountAmount) || 0;
-    const netPayable = Number(f.netPayable) || Math.max(0, baseFee - discountAmount);
-    const paidAmount = Number(f.paidAmount) || 0;
-    const balance = Math.max(0, netPayable - paidAmount);
-    return {
-      ...f,
-      baseFee,
-      discountType: f.discountType || 'none',
-      discountValue: Number(f.discountValue) || 0,
-      discountAmount,
-      discountReason: f.discountReason || '',
-      discountApprovedBy: f.discountApprovedBy || '',
-      netPayable,
-      totalAmount: netPayable,
-      paidAmount,
-      balance,
-      paymentPlan: f.paymentPlan || 'lump_sum',
-      installments: Array.isArray(f.installments) ? f.installments : [],
-      paymentHistory: Array.isArray(f.paymentHistory) ? f.paymentHistory : [],
-    };
-  });
+  return adminFeeRecords;
 }
 
 /**
@@ -799,40 +955,52 @@ export function applyFeeDiscount(feeId, discountData) {
   }
 
   const netPayable = Math.max(0, baseFee - discountAmount);
-  const paidAmount = Number(record.paidAmount) || 0;
-  const newBalance = Math.max(0, netPayable - paidAmount);
 
-  let newStatus = record.status;
-  if (discountType === 'waiver' || newBalance === 0) {
-    newStatus = discountType === 'waiver' ? 'Waived' : 'Paid';
-  } else if (paidAmount > 0) {
-    newStatus = 'Partial';
-  } else {
-    newStatus = 'Pending';
-  }
+  // Synchronize and scale unpaid fee_installments so SUM(installments.amount) === netPayable
+  let allInsts = [];
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_INSTALLMENTS);
+    if (raw) allInsts = JSON.parse(raw);
+  } catch (e) {}
 
-  // If installments exist, proportionally recalculate remaining amounts
-  let updatedInstallments = record.installments || [];
-  if (Array.isArray(updatedInstallments) && updatedInstallments.length > 0) {
-    const count = updatedInstallments.length;
-    const perPart = Math.floor(netPayable / count);
-    const remainder = netPayable - perPart * count;
-    let runningPaid = paidAmount;
+  const matchingInsts = allInsts.filter((i) => i.invoiceId === feeId || (i.studentId === record.studentId && i.program === record.program));
+  const approvedTotal = matchingInsts
+    .filter((i) => i.status === 'APPROVED' || i.status === 'Paid')
+    .reduce((sum, i) => sum + (Number(i.amount) || 0), 0);
 
-    updatedInstallments = updatedInstallments.map((inst, idx) => {
-      const partAmt = idx === count - 1 ? perPart + remainder : perPart;
-      const isInstPaid = runningPaid >= partAmt;
-      if (isInstPaid) {
-        runningPaid -= partAmt;
-      }
-      return {
-        ...inst,
-        amount: partAmt,
-        status: isInstPaid ? 'Paid' : inst.status === 'Paid' ? 'Paid' : 'Pending',
-      };
+  const remainingNet = Math.max(0, netPayable - approvedTotal);
+  const unpaidInsts = matchingInsts.filter((i) => i.status !== 'APPROVED' && i.status !== 'Paid');
+
+  if (unpaidInsts.length > 0) {
+    const part = Math.floor(remainingNet / unpaidInsts.length);
+    const remainder = remainingNet - part * unpaidInsts.length;
+    unpaidInsts.forEach((inst, idx) => {
+      inst.amount = idx === unpaidInsts.length - 1 ? part + remainder : part;
+    });
+  } else if (remainingNet > 0) {
+    allInsts.push({
+      id: `inst_${feeId}_rem_${Date.now()}`,
+      invoiceId: feeId,
+      challanNo: `CH-${Math.floor(10000000 + Math.random() * 90000000)}`,
+      studentId: record.studentId,
+      studentName: record.studentName,
+      studentEmail: record.studentEmail,
+      program: record.program,
+      semester: record.semester,
+      title: 'Remaining Net Tuition',
+      amount: remainingNet,
+      dueDate: record.dueDate || '2026-04-15',
+      status: 'UNPAID',
+      paymentMode: '—',
+      createdAt: new Date().toISOString(),
     });
   }
 
+  try {
+    localStorage.setItem(STORAGE_KEY_INSTALLMENTS, JSON.stringify(allInsts));
+  } catch (e) {}
+
+  // Save updated discount details onto the invoice record
   const updatedRecord = {
     ...record,
     baseFee,
@@ -843,21 +1011,15 @@ export function applyFeeDiscount(feeId, discountData) {
     discountApprovedBy: discountData.approvedBy || 'Administrator',
     netPayable,
     totalAmount: netPayable,
-    balance: newBalance,
-    status: newStatus,
-    installments: updatedInstallments,
   };
 
-  const updated = current.map((f) => (f.id === feeId ? updatedRecord : f));
+  const updatedInvoices = current.map((f) => (f.id === feeId ? updatedRecord : f));
   try {
-    localStorage.setItem(STORAGE_KEY_FEES, JSON.stringify(updated));
-    if (record.studentId) {
-      saveStudent({ id: record.studentId, feeStatus: newStatus === 'Waived' ? 'Paid' : newStatus });
-    }
-  } catch (err) {
-    console.error('Failed to apply fee discount:', err);
-  }
-  return updatedRecord;
+    localStorage.setItem(STORAGE_KEY_FEES, JSON.stringify(updatedInvoices));
+  } catch (e) {}
+
+  syncInvoicesAndInstallments();
+  return getFeeRecords().find((f) => f.id === feeId);
 }
 
 /**
@@ -923,60 +1085,65 @@ export function configureInstallmentPlan(feeId, planData) {
 
 /**
  * Record a payment against a fee record (supports paying installments)
+ * Inserts or updates an APPROVED fee_installments row as the single source of truth,
+ * then triggers syncInvoicesAndInstallments() to reconcile invoices.
  */
 export function recordFeePayment(feeId, paymentData) {
-  const current = getFeeRecords();
-  const record = current.find((f) => f.id === feeId);
+  const currentInvoices = getFeeRecords();
+  const record = currentInvoices.find((f) => f.id === feeId);
   if (!record) return null;
 
   const newPayment = Number(paymentData.amount) || 0;
-  const currentPaid = Number(record.paidAmount) || 0;
-  const netPayable = Number(record.netPayable) || Number(record.totalAmount) || 30000;
-  const newPaidAmount = currentPaid + newPayment;
-  const newBalance = Math.max(0, netPayable - newPaidAmount);
-
-  const newStatus = newBalance === 0 ? 'Paid' : 'Partial';
   const paymentDate = paymentData.paidDate || new Date().toISOString().split('T')[0];
   const paymentMethod = paymentData.paymentMethod || 'Bank Transfer (Meezan Bank)';
   const transactionRef = paymentData.transactionRef || `TRX-${Date.now().toString().slice(-6)}`;
 
-  // Update installments if plan is active
-  let updatedInstallments = record.installments || [];
-  if (Array.isArray(updatedInstallments) && updatedInstallments.length > 0) {
-    if (paymentData.installmentId) {
-      // Mark specific target installment as paid
-      updatedInstallments = updatedInstallments.map((inst) =>
-        inst.id === paymentData.installmentId
-          ? {
-              ...inst,
-              status: 'Paid',
-              paidDate: paymentDate,
-              paidAmount: inst.amount,
-              paymentMethod,
-              transactionRef,
-            }
-          : inst
-      );
-    } else {
-      // Distribute payment sequentially across pending installments
-      let remainingToApply = newPayment;
-      updatedInstallments = updatedInstallments.map((inst) => {
-        if (inst.status !== 'Paid' && remainingToApply >= inst.amount) {
-          remainingToApply -= inst.amount;
-          return {
-            ...inst,
-            status: 'Paid',
-            paidDate: paymentDate,
-            paidAmount: inst.amount,
-            paymentMethod,
-            transactionRef,
-          };
-        }
-        return inst;
-      });
-    }
+  let allInsts = getFeeInstallments();
+  let targetInst = null;
+
+  if (paymentData.installmentId) {
+    targetInst = allInsts.find((i) => i.id === paymentData.installmentId);
+  }
+  if (!targetInst) {
+    targetInst = allInsts.find((i) => i.invoiceId === feeId && i.status !== 'APPROVED');
   }
 
+  if (targetInst) {
+    targetInst.status = 'APPROVED';
+    targetInst.amount = newPayment || targetInst.amount;
+    targetInst.paidDate = paymentDate;
+    targetInst.paymentMode = paymentMethod;
+    targetInst.transactionRef = transactionRef;
+    targetInst.approvedByName = 'Administrator';
+    targetInst.approvedAt = new Date().toISOString();
+  } else {
+    // Insert new approved installment record
+    const newInst = {
+      id: `inst_${feeId}_${Date.now()}`,
+      invoiceId: feeId,
+      challanNo: `CH-${Math.floor(10000000 + Math.random() * 90000000)}`,
+      studentId: record.studentId,
+      studentName: record.studentName,
+      studentEmail: record.studentEmail,
+      program: record.program,
+      semester: record.semester,
+      title: paymentData.notes || 'Recorded Tuition Payment',
+      amount: newPayment,
+      dueDate: paymentDate,
+      paidDate: paymentDate,
+      status: 'APPROVED',
+      paymentMode: paymentMethod,
+      transactionRef: transactionRef,
+      approvedByName: 'Administrator',
+      approvedAt: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+    };
+    allInsts.push(newInst);
+  }
+
+  saveFeeInstallments(allInsts);
+
+  // Record audit history entry
   const paymentEntry = {
     id: `pay_${Date.now()}`,
     date: paymentDate,
@@ -984,39 +1151,24 @@ export function recordFeePayment(feeId, paymentData) {
     method: paymentMethod,
     transactionRef,
     notes: paymentData.notes || '',
-    installmentId: paymentData.installmentId || null,
+    installmentId: targetInst?.id || paymentData.installmentId || null,
   };
 
   const updatedRecord = {
     ...record,
-    paidAmount: newPaidAmount,
-    balance: newBalance,
-    status: newStatus,
-    paidDate: paymentDate,
-    paymentMethod,
-    transactionRef,
-    installments: updatedInstallments,
     paymentHistory: [paymentEntry, ...(record.paymentHistory || [])],
     notes: paymentData.notes
       ? `${record.notes ? record.notes + ' | ' : ''}${paymentData.notes}`
       : record.notes,
   };
 
-  const updated = current.map((f) => (f.id === feeId ? updatedRecord : f));
+  const updated = currentInvoices.map((f) => (f.id === feeId ? updatedRecord : f));
   try {
     localStorage.setItem(STORAGE_KEY_FEES, JSON.stringify(updated));
+  } catch (e) {}
 
-    // Also sync with student record's feeStatus
-    if (record.studentId) {
-      saveStudent({
-        id: record.studentId,
-        feeStatus: newStatus,
-      });
-    }
-  } catch (err) {
-    console.error('Failed to record fee payment:', err);
-  }
-  return updatedRecord;
+  syncInvoicesAndInstallments();
+  return getFeeRecords().find((f) => f.id === feeId);
 }
 
 /**
@@ -1035,7 +1187,9 @@ export function recordMultiFeePayment(paymentsArray) {
 }
 
 /**
- * Void or reverse a previously recorded fee payment entry
+ * Void or reverse a previously recorded fee payment entry.
+ * Reverts the fee_installments row to UNPAID with an audit note,
+ * letting syncInvoicesAndInstallments cleanly reverse invoices.paid_amount.
  */
 export function voidFeePayment(feeId, paymentEntryId) {
   const current = getFeeRecords();
@@ -1046,58 +1200,36 @@ export function voidFeePayment(feeId, paymentEntryId) {
   const entryToVoid = history.find((p) => p.id === paymentEntryId);
   if (!entryToVoid) return record;
 
-  const voidedAmount = Number(entryToVoid.amount) || 0;
-  const currentPaid = Number(record.paidAmount) || 0;
-  const newPaidAmount = Math.max(0, currentPaid - voidedAmount);
-  const netPayable = Number(record.netPayable) || Number(record.totalAmount) || 30000;
-  const newBalance = Math.max(0, netPayable - newPaidAmount);
+  const allInsts = getFeeInstallments();
+  // Find matching installment to void
+  const targetInst = allInsts.find(
+    (i) => i.invoiceId === feeId && (i.id === entryToVoid.installmentId || i.status === 'APPROVED')
+  );
 
-  let newStatus = 'Pending';
-  if (newBalance === 0 && netPayable > 0) newStatus = 'Paid';
-  else if (newPaidAmount > 0) newStatus = 'Partial';
-
-  // Revert targeted installment if applicable
-  let updatedInstallments = record.installments || [];
-  if (entryToVoid.installmentId && Array.isArray(updatedInstallments)) {
-    updatedInstallments = updatedInstallments.map((inst) => {
-      if (inst.id === entryToVoid.installmentId) {
-        return {
-          ...inst,
-          status: 'Pending',
-          paidDate: null,
-          paidAmount: 0,
-          paymentMethod: null,
-          transactionRef: null,
-        };
-      }
-      return inst;
-    });
+  if (targetInst) {
+    targetInst.status = 'UNPAID';
+    targetInst.paidDate = null;
+    targetInst.paymentMode = '—';
+    targetInst.transactionRef = null;
+    targetInst.rejectionReason = `Payment voided: ${entryToVoid.notes || 'Voided by administration'}`;
+    saveFeeInstallments(allInsts);
   }
 
   const updatedHistory = history.filter((p) => p.id !== paymentEntryId);
-
   const updatedRecord = {
     ...record,
-    paidAmount: newPaidAmount,
-    balance: newBalance,
-    status: newStatus,
-    installments: updatedInstallments,
     paymentHistory: updatedHistory,
   };
 
   const updated = current.map((f) => (f.id === feeId ? updatedRecord : f));
   try {
     localStorage.setItem(STORAGE_KEY_FEES, JSON.stringify(updated));
-    if (record.studentId) {
-      saveStudent({
-        id: record.studentId,
-        feeStatus: newStatus,
-      });
-    }
   } catch (err) {
     console.error('Failed to void fee payment:', err);
   }
-  return updatedRecord;
+
+  syncInvoicesAndInstallments();
+  return getFeeRecords().find((f) => f.id === feeId);
 }
 
 /**
@@ -3149,6 +3281,10 @@ export function generateChallanNo() {
 }
 
 export function getFeeInstallments() {
+  const syncRes = syncInvoicesAndInstallments();
+  if (syncRes && syncRes.installments) {
+    return syncRes.installments;
+  }
   try {
     const raw = localStorage.getItem(STORAGE_KEY_INSTALLMENTS);
     if (raw) {
@@ -3258,9 +3394,12 @@ export function getGlobalAccountsSummary() {
     .reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
 
   const todayStr = new Date().toISOString().split('T')[0];
-  const overdueCount = all.filter(
-    (inst) => inst.status !== 'APPROVED' && inst.dueDate < todayStr
-  ).length;
+  const overdueStudentsSet = new Set(
+    all
+      .filter((inst) => inst.status !== 'APPROVED' && inst.status !== 'UNDER_REVIEW' && inst.dueDate < todayStr)
+      .map((inst) => inst.studentId)
+  );
+  const overdueCount = overdueStudentsSet.size;
   const pendingReviewCount = all.filter((inst) => inst.status === 'UNDER_REVIEW').length;
 
   const allStudents = getAllStudents();
@@ -3410,10 +3549,10 @@ export function restrictAllOverdueStudents(adminName = 'Ustadh Zafar Iqbal') {
   const allInstallments = getFeeInstallments();
   const todayStr = new Date().toISOString().split('T')[0];
 
-  // Identify all students who have at least one overdue unapproved installment
+  // Identify all students who have at least one overdue unapproved installment (excluding UNDER_REVIEW grace window)
   const overdueStudentIds = new Set(
     allInstallments
-      .filter((inst) => inst.status !== 'APPROVED' && inst.dueDate <= todayStr)
+      .filter((inst) => inst.status !== 'APPROVED' && inst.status !== 'UNDER_REVIEW' && inst.dueDate <= todayStr)
       .map((inst) => inst.studentId)
   );
 

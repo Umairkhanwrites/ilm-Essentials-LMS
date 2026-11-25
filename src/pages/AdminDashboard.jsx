@@ -1124,20 +1124,58 @@ export default function AdminDashboard() {
   const [singleDueDate, setSingleDueDate] = useState(() => new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0]);
 
   const [accountsToast, setAccountsToast] = useState(null);
-
-  // Accounts Global Ledger Summary
-  const accountsSummary = useMemo(() => {
-    return getGlobalAccountsSummary();
-  }, [feeInstallments, students]);
+  const [accountProgramFilter, setAccountProgramFilter] = useState('all');
 
   // Today string YYYY-MM-DD
   const todayDateStr = useMemo(() => new Date().toISOString().split('T')[0], []);
+
+  // Authoritative Set of unique students with overdue unpaid milestones
+  const overdueStudentIds = useMemo(() => {
+    let source = feeInstallments;
+    if (accountProgramFilter !== 'all') {
+      source = feeInstallments.filter((i) => (i.program || '').toLowerCase().includes(accountProgramFilter.toLowerCase()));
+    }
+    return new Set(
+      source
+        .filter((inst) => inst.status !== 'APPROVED' && inst.status !== 'UNDER_REVIEW' && inst.dueDate && inst.dueDate < todayDateStr)
+        .map((inst) => inst.studentId)
+    );
+  }, [feeInstallments, accountProgramFilter, todayDateStr]);
+
+  // Accounts Global Ledger Summary (Reconciled from Fee Installments Single Source of Truth)
+  const accountsSummary = useMemo(() => {
+    let source = feeInstallments;
+    if (accountProgramFilter !== 'all') {
+      source = feeInstallments.filter((i) => (i.program || '').toLowerCase().includes(accountProgramFilter.toLowerCase()));
+    }
+    const totalReceived = source
+      .filter((inst) => inst.status === 'APPROVED')
+      .reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+    const totalReceivable = source
+      .filter((inst) => ['UNPAID', 'UNDER_REVIEW', 'REJECTED'].includes(inst.status))
+      .reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+    const pendingReviewCount = source.filter((inst) => inst.status === 'UNDER_REVIEW').length;
+    return {
+      totalReceived,
+      totalReceivable,
+      totalBilled: totalReceived + totalReceivable,
+      overdueCount: overdueStudentIds.size,
+      pendingReviewCount,
+      pendingCount: pendingReviewCount,
+    };
+  }, [feeInstallments, accountProgramFilter, overdueStudentIds]);
 
   // Filtered Installments
   const filteredInstallments = useMemo(() => {
     const q = (installmentSearch || '').toLowerCase().trim();
     return feeInstallments.filter((inst) => {
       if (!inst) return false;
+
+      if (accountProgramFilter !== 'all') {
+        const prog = (inst.program || '').toLowerCase();
+        if (!prog.includes(accountProgramFilter.toLowerCase())) return false;
+      }
+
       const matchSearch =
         !q ||
         (inst.studentName || '').toLowerCase().includes(q) ||
@@ -1149,30 +1187,26 @@ export default function AdminDashboard() {
       if (!matchSearch) return false;
 
       if (installmentQueueTab === 'review') return inst.status === 'UNDER_REVIEW';
-      if (installmentQueueTab === 'overdue') return inst.status !== 'APPROVED' && inst.dueDate <= todayDateStr;
+      if (installmentQueueTab === 'overdue') return inst.status !== 'APPROVED' && inst.status !== 'UNDER_REVIEW' && inst.dueDate < todayDateStr;
       if (installmentQueueTab === 'restricted') {
         const student = students.find((s) => s.id === inst.studentId || (inst.studentId === 'usr_001' && s.id === 'std_001'));
-        return Boolean(student?.isVideoRestricted);
+        return Boolean(student?.isVideoRestricted) || (inst.status !== 'APPROVED' && inst.status !== 'UNDER_REVIEW' && inst.dueDate < todayDateStr);
       }
       if (installmentQueueTab === 'approved') return inst.status === 'APPROVED';
       if (installmentQueueTab === 'rejected') return inst.status === 'REJECTED';
       return true; // 'all'
     });
-  }, [feeInstallments, installmentQueueTab, installmentSearch, students, todayDateStr]);
+  }, [feeInstallments, installmentQueueTab, installmentSearch, accountProgramFilter, students, todayDateStr]);
 
   // List of all currently restricted students
   const restrictedStudentsList = useMemo(() => {
     return students.filter((s) => Boolean(s.isVideoRestricted));
   }, [students]);
 
-  // Count of students eligible for overdue bulk restriction
+  // Count of students eligible for overdue bulk restriction (uses authoritative overdueStudentIds)
   const overdueEligibleStudents = useMemo(() => {
-    const overdueInsts = feeInstallments.filter(
-      (inst) => inst.status !== 'APPROVED' && inst.dueDate <= todayDateStr
-    );
-    const studentIdSet = new Set(overdueInsts.map((i) => i.studentId));
-    return students.filter((s) => studentIdSet.has(s.id) && !s.isVideoRestricted);
-  }, [feeInstallments, students, todayDateStr]);
+    return students.filter((s) => overdueStudentIds.has(s.id) && !s.isVideoRestricted);
+  }, [students, overdueStudentIds]);
 
   // Approve Installment Action (with Auto-Unlock Check and Supabase Trigger A sync)
   const handleApproveInstallmentAction = async (inst) => {
@@ -1491,6 +1525,12 @@ export default function AdminDashboard() {
     const q = (feeSearch || '').toLowerCase().trim();
     return feeRecords.filter((f) => {
       if (!f) return false;
+
+      if (accountProgramFilter !== 'all') {
+        const prog = (f.program || '').toLowerCase();
+        if (!prog.includes(accountProgramFilter.toLowerCase())) return false;
+      }
+
       const matchSearch =
         !q ||
         (f.studentName || '').toLowerCase().includes(q) ||
@@ -1503,7 +1543,7 @@ export default function AdminDashboard() {
         (f.status || '').toLowerCase() === (feeStatusFilter || '').toLowerCase();
       return matchSearch && matchFilter;
     });
-  }, [feeRecords, feeSearch, feeStatusFilter]);
+  }, [feeRecords, feeSearch, feeStatusFilter, accountProgramFilter]);
 
   // Grouped Students calculation for Grouped by Student view mode
   const groupedStudents = useMemo(() => {
@@ -1665,13 +1705,16 @@ export default function AdminDashboard() {
   };
 
   const feeSummary = useMemo(() => {
-    const totalBilled = feeRecords.reduce((sum, f) => sum + (Number(f.totalAmount) || 0), 0);
-    const totalCollected = feeRecords.reduce((sum, f) => sum + (Number(f.paidAmount) || 0), 0);
-    const totalOutstanding = feeRecords.reduce((sum, f) => sum + (Number(f.balance) || 0), 0);
-    const overdueCount = feeRecords.filter((f) => f.status === 'Overdue').length;
-    const pendingCount = feeRecords.filter((f) => f.status === 'Pending' || f.status === 'Partial').length;
+    const source = accountProgramFilter === 'all'
+      ? feeRecords
+      : feeRecords.filter((f) => (f.program || '').toLowerCase().includes(accountProgramFilter.toLowerCase()));
+    const totalBilled = source.reduce((sum, f) => sum + (Number(f.totalAmount) || 0), 0);
+    const totalCollected = source.reduce((sum, f) => sum + (Number(f.paidAmount) || 0), 0);
+    const totalOutstanding = source.reduce((sum, f) => sum + (Number(f.balance) || 0), 0);
+    const overdueCount = overdueStudentIds.size;
+    const pendingCount = source.filter((f) => f.status === 'Pending' || f.status === 'Partial').length;
     return { totalBilled, totalCollected, totalOutstanding, overdueCount, pendingCount };
-  }, [feeRecords]);
+  }, [feeRecords, accountProgramFilter, overdueStudentIds]);
 
   const handleQuickFeeStatusChange = (feeId, newStatus) => {
     const updated = updateFeeStatus(feeId, newStatus);
@@ -4092,38 +4135,55 @@ export default function AdminDashboard() {
                 </div>
               </div>
 
-              {/* Minimal Clean Tab Switcher */}
-              <div className="flex items-center gap-1 bg-sand-100 p-1 rounded-xl w-fit">
-                <button
-                  type="button"
-                  onClick={() => setActiveFeeView('installments')}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                    activeFeeView === 'installments'
-                      ? 'bg-white text-ink-900 font-bold shadow-xs'
-                      : 'text-ink-600 hover:text-ink-900'
-                  }`}
-                >
-                  <Receipt size={13} />
-                  <span>Fee Installments</span>
-                  {accountsSummary.pendingCount > 0 && (
-                    <span className="px-1.5 py-0.2 text-[10px] rounded-full font-bold bg-amber-100 text-amber-900">
-                      {accountsSummary.pendingCount}
-                    </span>
-                  )}
-                </button>
+              {/* Minimal Clean Tab Switcher & Cohort / Batch Filter */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-1 bg-sand-100 p-1 rounded-xl w-fit">
+                  <button
+                    type="button"
+                    onClick={() => setActiveFeeView('installments')}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                      activeFeeView === 'installments'
+                        ? 'bg-white text-ink-900 font-bold shadow-xs'
+                        : 'text-ink-600 hover:text-ink-900'
+                    }`}
+                  >
+                    <Receipt size={13} />
+                    <span>Fee Installments</span>
+                    {accountsSummary.pendingCount > 0 && (
+                      <span className="px-1.5 py-0.2 text-[10px] rounded-full font-bold bg-amber-100 text-amber-900">
+                        {accountsSummary.pendingCount}
+                      </span>
+                    )}
+                  </button>
 
-                <button
-                  type="button"
-                  onClick={() => setActiveFeeView('invoices')}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                    activeFeeView === 'invoices'
-                      ? 'bg-white text-ink-900 font-bold shadow-xs'
-                      : 'text-ink-600 hover:text-ink-900'
-                  }`}
-                >
-                  <CreditCard size={13} />
-                  <span>Course Invoices</span>
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveFeeView('invoices')}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                      activeFeeView === 'invoices'
+                        ? 'bg-white text-ink-900 font-bold shadow-xs'
+                        : 'text-ink-600 hover:text-ink-900'
+                    }`}
+                  >
+                    <CreditCard size={13} />
+                    <span>Course Invoices</span>
+                  </button>
+                </div>
+
+                {/* Cohort / Batch Filter */}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-ink-500">Cohort:</span>
+                  <select
+                    value={accountProgramFilter}
+                    onChange={(e) => setAccountProgramFilter(e.target.value)}
+                    className="h-9 px-3 py-1.5 text-xs font-semibold rounded-xl border border-sand-200 bg-sand-50/70 hover:bg-sand-100/70 text-ink-800 shadow-2xs focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-sand-300 cursor-pointer"
+                  >
+                    <option value="all">All Cohorts & Programs</option>
+                    <option value="Ilm Foundations">Ilm Foundations (Batch 1)</option>
+                    <option value="Ilm Intensives">Ilm Intensives (Weekend)</option>
+                    <option value="Ilm Essentials">Ilm Essentials (Evening)</option>
+                  </select>
+                </div>
               </div>
 
               {/* VIEW 1: FEE INSTALLMENTS & VERIFICATION QUEUE */}
@@ -4224,8 +4284,9 @@ export default function AdminDashboard() {
                       <tbody className="divide-y divide-sand-100 text-ink-800">
                         {filteredInstallments.map((inst) => {
                           const student = students.find((s) => s.id === inst.studentId);
-                          const isRestricted = !!(student?.isVideoRestricted);
-                          const isOverdue = inst.status !== 'APPROVED' && inst.dueDate <= todayDateStr;
+                          const isManuallySuspended = !!(student?.isVideoRestricted);
+                          const isFinanciallyOverdue = inst.status !== 'APPROVED' && inst.status !== 'UNDER_REVIEW' && inst.dueDate < todayDateStr;
+                          const isEffectiveRestricted = isManuallySuspended || isFinanciallyOverdue;
 
                           return (
                             <tr key={inst.id} className="hover:bg-sand-50/70 transition-colors">
@@ -4238,8 +4299,8 @@ export default function AdminDashboard() {
                                 <div className="font-medium text-ink-800 text-xs">
                                   {inst.title}
                                 </div>
-                                <div className={`text-[11px] ${isOverdue ? 'text-red-600 font-semibold' : 'text-ink-500'}`}>
-                                  Due: {inst.dueDate} {isOverdue && '(Overdue)'}
+                                <div className={`text-[11px] ${isFinanciallyOverdue ? 'text-red-600 font-semibold' : 'text-ink-500'}`}>
+                                  Due: {inst.dueDate} {isFinanciallyOverdue && '(Overdue)'}
                                 </div>
                               </td>
 
@@ -4271,11 +4332,11 @@ export default function AdminDashboard() {
 
                                 {inst.status === 'UNPAID' && (
                                   <span className={`inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded-full border ${
-                                    isOverdue
+                                    isFinanciallyOverdue
                                       ? 'bg-red-50 text-red-800 border-red-200'
                                       : 'bg-sand-100 text-ink-600 border-sand-200'
                                   }`}>
-                                    {isOverdue ? 'Overdue' : 'Unpaid'}
+                                    {isFinanciallyOverdue ? 'Overdue' : 'Unpaid'}
                                   </span>
                                 )}
                               </td>
@@ -4302,16 +4363,22 @@ export default function AdminDashboard() {
                               <td className="py-3 px-3 whitespace-nowrap">
                                 <button
                                   type="button"
-                                  onClick={() => handleToggleStudentVideo(inst.studentId, inst.studentName, isRestricted)}
+                                  onClick={() => handleToggleStudentVideo(inst.studentId, inst.studentName, isManuallySuspended)}
                                   className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium border transition-colors cursor-pointer ${
-                                    isRestricted
+                                    isEffectiveRestricted
                                       ? 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100'
                                       : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
                                   }`}
-                                  title={isRestricted ? 'Click to restore video access' : 'Click to restrict video access'}
+                                  title={
+                                    isManuallySuspended
+                                      ? 'Manually suspended by administrator. Click to restore access.'
+                                      : isFinanciallyOverdue
+                                      ? 'Restricted automatically by accessEngine due to overdue fee. Click to apply manual override.'
+                                      : 'Active video playback. Click to apply manual administrative suspension.'
+                                  }
                                 >
-                                  {isRestricted ? <Lock size={10} className="text-red-600" /> : <Unlock size={10} className="text-emerald-600" />}
-                                  <span>{isRestricted ? 'Restricted' : 'Active'}</span>
+                                  {isEffectiveRestricted ? <Lock size={10} className="text-red-600" /> : <Unlock size={10} className="text-emerald-600" />}
+                                  <span>{isManuallySuspended ? 'Suspended (Manual)' : isFinanciallyOverdue ? 'Restricted (Overdue)' : 'Active'}</span>
                                 </button>
                               </td>
 
