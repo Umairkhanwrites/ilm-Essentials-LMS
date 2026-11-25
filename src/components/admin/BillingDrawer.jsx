@@ -582,7 +582,7 @@ export default function BillingDrawer({
           {/* MULTI-COURSE ENROLLMENT SWITCHER STRIP (If >1 course)*/}
           {/* ==================================================== */}
           {studentInvoices.length > 1 && (
-            <div className="pt-2.5 border-t border-white/10 flex items-center gap-1.5 overflow-x-auto pb-0.5 scroll-smooth [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+            <div className="pt-2.5 border-t border-white/10 flex items-center flex-wrap gap-1.5">
               <span className="text-[10px] uppercase font-bold tracking-wider text-emerald-300 shrink-0 mr-1 flex items-center gap-1">
                 <Layers size={11} />
                 <span>Programs ({studentInvoices.length}):</span>
@@ -597,18 +597,19 @@ export default function BillingDrawer({
                   <button
                     key={inv.id}
                     type="button"
+                    title={`${inv.program} (${inv.invoiceNo}) — ${isPaid ? 'Settled' : `PKR ${inv.balance.toLocaleString()} Due`}`}
                     onClick={() => {
                       setActiveTabMode('invoice');
                       if (onSelectStudentInvoice) onSelectStudentInvoice(inv);
                     }}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-all cursor-pointer flex items-center gap-1.5 border ${
+                    className={`px-2.5 py-1 rounded-full text-[11px] font-medium whitespace-nowrap transition-all cursor-pointer flex items-center gap-1.5 border ${
                       isSelected
-                        ? 'bg-white text-[#0B3324] border-white shadow-xs font-bold ring-2 ring-emerald-400/30'
+                        ? 'bg-white text-[#0B3324] border-white shadow-xs font-bold'
                         : 'bg-white/10 text-white/90 border-white/15 hover:bg-white/20'
                     }`}
                   >
                     <span
-                      className={`w-2 h-2 rounded-full ${
+                      className={`w-1.5 h-1.5 rounded-full shrink-0 ${
                         isPaid
                           ? 'bg-emerald-400'
                           : inv.status === 'Partial'
@@ -617,12 +618,9 @@ export default function BillingDrawer({
                       }`}
                     />
                     <span>{inv.program}</span>
-                    <span className="text-[10px] opacity-75">
-                      ({inv.invoiceNo})
-                    </span>
                     {!isPaid && inv.balance > 0 && (
-                      <span className="text-[10px] text-amber-300 font-bold">
-                        • PKR {inv.balance.toLocaleString()} Due
+                      <span className={`text-[10px] font-bold ${isSelected ? 'text-amber-700' : 'text-amber-300'}`}>
+                        · {inv.balance.toLocaleString()}
                       </span>
                     )}
                   </button>
@@ -633,16 +631,16 @@ export default function BillingDrawer({
               <button
                 type="button"
                 onClick={() => setActiveTabMode('overview')}
-                className={`px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-all cursor-pointer flex items-center gap-1.5 border ${
+                className={`px-2.5 py-1 rounded-full text-[11px] font-medium whitespace-nowrap transition-all cursor-pointer flex items-center gap-1.5 border ${
                   activeTabMode === 'overview'
-                    ? 'bg-white text-[#0B3324] border-white shadow-xs font-bold ring-2 ring-emerald-400/30'
+                    ? 'bg-white text-[#0B3324] border-white shadow-xs font-bold'
                     : 'bg-white/10 text-white/90 border-white/15 hover:bg-white/20'
                 }`}
               >
                 <Receipt size={11} />
-                <span>All Courses Overview</span>
-                <span className="text-[10px] text-emerald-300 font-bold">
-                  ({combinedSummary.totalDue === 0 ? 'Settled' : `PKR ${combinedSummary.totalDue.toLocaleString()} Due`})
+                <span>All Courses</span>
+                <span className={`text-[10px] font-bold ${activeTabMode === 'overview' ? 'text-[#0B3324]' : 'text-emerald-300'}`}>
+                  ({combinedSummary.totalDue === 0 ? 'Settled' : `${combinedSummary.totalDue.toLocaleString()} Due`})
                 </span>
               </button>
             </div>
