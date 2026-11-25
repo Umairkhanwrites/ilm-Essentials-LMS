@@ -60,11 +60,6 @@ export default function BillingDrawer({
 }) {
   if (!isOpen || !feeRecord) return null;
 
-  // Active view inside the drawer: 'invoice' (specific course) or 'overview' (all courses summary)
-  const [activeTabMode, setActiveTabMode] = useState('invoice');
-  // Internal navigation tab for active course: 'payment' (Payment & Ledger) | 'installments' (Planner) | 'discount' (Concessions)
-  const [drawerNavTab, setDrawerNavTab] = useState('payment');
-
   // Multi-course invoices list (falls back to [feeRecord] if none provided)
   const studentInvoices = useMemo(() => {
     if (Array.isArray(allStudentInvoices) && allStudentInvoices.length > 0) {
@@ -72,6 +67,13 @@ export default function BillingDrawer({
     }
     return [feeRecord];
   }, [allStudentInvoices, feeRecord]);
+
+  const hasMultipleCourses = studentInvoices.length > 1;
+
+  // Active view inside the drawer: 'overview' (default when >1 course) or 'invoice' (specific course)
+  const [activeTabMode, setActiveTabMode] = useState(hasMultipleCourses ? 'overview' : 'invoice');
+  // Internal navigation tab for active course: 'payment' (Payment & Ledger) | 'installments' (Planner) | 'discount' (Concessions)
+  const [drawerNavTab, setDrawerNavTab] = useState('payment');
 
   // Combined totals across all courses for this student
   const combinedSummary = useMemo(() => {
@@ -118,9 +120,13 @@ export default function BillingDrawer({
     setApprovedBy(feeRecord.discountApprovedBy || 'Faculty Administration');
     setIsConcessionUnlocked(false);
     setDiscountSuccessMsg('');
-    setActiveTabMode('invoice');
     setDrawerNavTab('payment');
   }, [feeRecord.id]);
+
+  // Default to 'All Courses' overview when opening the drawer or switching to a different student with >1 course
+  useEffect(() => {
+    setActiveTabMode(hasMultipleCourses ? 'overview' : 'invoice');
+  }, [isOpen, feeRecord.studentEmail, feeRecord.studentName, hasMultipleCourses]);
 
   // Real-time calculation of discount and net payable
   const { calculatedDiscount, netPayable } = useMemo(() => {
@@ -588,6 +594,23 @@ export default function BillingDrawer({
                 <span>Programs ({studentInvoices.length}):</span>
               </span>
 
+              {/* Combined All Courses Overview Tab (First & Default) */}
+              <button
+                type="button"
+                onClick={() => setActiveTabMode('overview')}
+                className={`px-2.5 py-1 rounded-full text-[11px] font-medium whitespace-nowrap transition-all cursor-pointer flex items-center gap-1.5 border ${
+                  activeTabMode === 'overview'
+                    ? 'bg-white text-[#0B3324] border-white shadow-xs font-bold'
+                    : 'bg-white/10 text-white/90 border-white/15 hover:bg-white/20'
+                }`}
+              >
+                <Receipt size={11} />
+                <span>All Courses</span>
+                <span className={`text-[10px] font-bold ${activeTabMode === 'overview' ? 'text-[#0B3324]' : 'text-emerald-300'}`}>
+                  ({combinedSummary.totalDue === 0 ? 'Settled' : `${combinedSummary.totalDue.toLocaleString()} Due`})
+                </span>
+              </button>
+
               {/* Individual Course Invoices */}
               {studentInvoices.map((inv) => {
                 const isSelected = inv.id === feeRecord.id && activeTabMode === 'invoice';
@@ -626,23 +649,6 @@ export default function BillingDrawer({
                   </button>
                 );
               })}
-
-              {/* Combined All Courses Overview Tab */}
-              <button
-                type="button"
-                onClick={() => setActiveTabMode('overview')}
-                className={`px-2.5 py-1 rounded-full text-[11px] font-medium whitespace-nowrap transition-all cursor-pointer flex items-center gap-1.5 border ${
-                  activeTabMode === 'overview'
-                    ? 'bg-white text-[#0B3324] border-white shadow-xs font-bold'
-                    : 'bg-white/10 text-white/90 border-white/15 hover:bg-white/20'
-                }`}
-              >
-                <Receipt size={11} />
-                <span>All Courses</span>
-                <span className={`text-[10px] font-bold ${activeTabMode === 'overview' ? 'text-[#0B3324]' : 'text-emerald-300'}`}>
-                  ({combinedSummary.totalDue === 0 ? 'Settled' : `${combinedSummary.totalDue.toLocaleString()} Due`})
-                </span>
-              </button>
             </div>
           )}
         </div>
