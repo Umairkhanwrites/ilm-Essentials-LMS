@@ -118,6 +118,7 @@ import {
   deleteAttendanceSessionSupabase,
   approveInstallmentSupabase,
   rejectInstallmentSupabase,
+  voidInstallmentSupabase,
   applyDiscountSupabase,
   resolveReceiptUrl,
   useSupabaseLibrary,
@@ -1152,7 +1153,7 @@ export default function AdminDashboard() {
       .filter((inst) => inst.status === 'APPROVED')
       .reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
     const totalReceivable = source
-      .filter((inst) => ['UNPAID', 'UNDER_REVIEW', 'REJECTED'].includes(inst.status))
+      .filter((inst) => ['UNPAID', 'PENDING', 'UNDER_REVIEW', 'REJECTED'].includes(inst.status))
       .reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
     const pendingReviewCount = source.filter((inst) => inst.status === 'UNDER_REVIEW').length;
     return {
@@ -1692,14 +1693,37 @@ export default function AdminDashboard() {
     setStudents(getAllStudents());
   };
 
-  const handleDrawerRecordMultiPayment = (paymentsArray) => {
+  const handleDrawerRecordMultiPayment = async (paymentsArray) => {
     recordMultiFeePayment(paymentsArray);
+    if (isSupabaseConfigured) {
+      for (const p of paymentsArray) {
+        try {
+          if (p.installmentId) {
+            await approveInstallmentSupabase(p.installmentId, user?.name || 'Administrator');
+          }
+        } catch (sbErr) {
+          console.warn('Supabase multi-payment sync note:', sbErr);
+        }
+      }
+      if (refetchSbInvoices) await refetchSbInvoices();
+    }
     setFeeRecords(getFeeRecords());
     setStudents(getAllStudents());
   };
 
-  const handleDrawerVoidPayment = (feeId, paymentEntryId) => {
-    voidFeePayment(feeId, paymentEntryId);
+  const handleDrawerVoidPayment = async (feeId, paymentEntryId) => {
+    const res = voidFeePayment(feeId, paymentEntryId);
+    if (isSupabaseConfigured) {
+      try {
+        const matchingInst = (res?.installments || []).find((i) => i.id === paymentEntryId || i.status === 'UNPAID');
+        if (matchingInst?.id) {
+          await voidInstallmentSupabase(matchingInst.id, 'Voided via Admin Billing Drawer');
+        }
+        if (refetchSbInvoices) await refetchSbInvoices();
+      } catch (sbErr) {
+        console.warn('Supabase void payment sync note:', sbErr);
+      }
+    }
     setFeeRecords(getFeeRecords());
     setStudents(getAllStudents());
   };
@@ -4210,7 +4234,7 @@ export default function AdminDashboard() {
                     <div className="p-3 rounded-xl bg-sand-50 border border-sand-200">
                       <span className="text-[11px] font-semibold text-ink-500 uppercase tracking-wider block">Pending Review</span>
                       <div className="text-lg font-bold text-amber-900 font-heading mt-0.5">
-                        {accountsSummary.pendingCount} Receipts
+                        {accountsSummary.pendingCount} {accountsSummary.pendingCount === 1 ? 'Receipt' : 'Receipts'}
                       </div>
                       <span className="text-[10px] text-ink-400">Needs admin approval</span>
                     </div>
@@ -4218,7 +4242,7 @@ export default function AdminDashboard() {
                     <div className="p-3 rounded-xl bg-sand-50 border border-sand-200">
                       <span className="text-[11px] font-semibold text-ink-500 uppercase tracking-wider block">Overdue Accounts</span>
                       <div className="text-lg font-bold text-red-700 font-heading mt-0.5">
-                        {accountsSummary.overdueCount} Accounts
+                        {accountsSummary.overdueCount} {accountsSummary.overdueCount === 1 ? 'Account' : 'Accounts'}
                       </div>
                       <span className="text-[10px] text-ink-400">Due date passed</span>
                     </div>
@@ -4463,7 +4487,7 @@ export default function AdminDashboard() {
                 <div className="p-4 rounded-xl bg-red-50/70 border border-red-200">
                   <span className="text-xs text-red-800 font-semibold uppercase tracking-wider block">Overdue Accounts</span>
                   <div className="text-2xl font-bold font-heading text-red-900 mt-1">
-                    {feeSummary.overdueCount} Accounts
+                    {feeSummary.overdueCount} {feeSummary.overdueCount === 1 ? 'Account' : 'Accounts'}
                   </div>
                   <span className="text-[11px] text-red-700">Requires follow-up</span>
                 </div>
@@ -4534,19 +4558,18 @@ export default function AdminDashboard() {
 
               {/* Fee Ledger Table */}
               <div className="overflow-x-auto rounded-xl border border-sand-200 shadow-2xs">
-                <table className="w-full text-left text-sm min-w-[1060px]">
-                  <thead className="bg-sand-100/70 text-ink-700 text-xs font-semibold uppercase tracking-wider border-b border-sand-200">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-sand-100/70 text-ink-700 text-[11px] font-semibold uppercase tracking-wider border-b border-sand-200">
                     <tr>
-                      <th className="py-3 px-3.5">
+                      <th className="py-2.5 px-2.5">
                         {tableViewMode === 'grouped' ? 'Student & Enrolled Tracks' : 'Student & Invoice No'}
                       </th>
-                      <th className="py-3 px-3">Program &amp; Cohort</th>
-                      <th className="py-3 px-3">Tuition &amp; Discount</th>
-                      <th className="py-3 px-3">Payment Plan</th>
-                      <th className="py-3 px-3">Paid / Balance</th>
-                      <th className="py-3 px-3">Due Date</th>
-                      <th className="py-3 px-3">Status</th>
-                      <th className="py-3 px-3 text-right">Actions</th>
+                      <th className="py-2.5 px-2">Program &amp; Cohort</th>
+                      <th className="py-2.5 px-2">Tuition &amp; Discount</th>
+                      <th className="py-2.5 px-2">Payment Plan</th>
+                      <th className="py-2.5 px-2">Paid / Balance &amp; Due</th>
+                      <th className="py-2.5 px-2">Status</th>
+                      <th className="py-2.5 px-2 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-sand-100 text-ink-800">
@@ -4582,7 +4605,7 @@ export default function AdminDashboard() {
                                 : 'hover:bg-sand-50/70'
                             }`}
                           >
-                            <td className="py-3.5 px-3.5">
+                            <td className="py-2.5 px-2.5">
                               <div className="flex items-center gap-1.5 flex-wrap">
                                 <span className="font-semibold text-ink-900 group-hover:text-[#0B3324] transition-colors">
                                   {fee.studentName}
@@ -4599,7 +4622,7 @@ export default function AdminDashboard() {
                                       setFeeSearch('');
                                       setTableViewMode('grouped');
                                     }}
-                                    className="inline-flex items-center gap-0.5 text-[10px] font-bold text-primary-900 bg-primary-50 hover:bg-primary-100 px-2 py-0.5 rounded-full border border-primary-200 transition-colors cursor-pointer"
+                                    className="inline-flex items-center gap-0.5 text-[10px] font-bold text-primary-900 bg-primary-50 hover:bg-primary-100 px-1.5 py-0.2 rounded-full border border-primary-200 transition-colors cursor-pointer"
                                     title="Click to view all courses enrolled by this student"
                                   >
                                     <Layers size={9} />
@@ -4607,11 +4630,11 @@ export default function AdminDashboard() {
                                   </button>
                                 )}
                               </div>
-                              <div className="text-xs text-ink-500">{fee.studentEmail}</div>
-                              <div className="text-[11px] text-[#0B3324] font-semibold">{fee.invoiceNo}</div>
+                              <div className="text-[11px] text-ink-500">{fee.studentEmail}</div>
+                              <div className="text-[10px] text-[#0B3324] font-semibold">{fee.invoiceNo}</div>
                             </td>
 
-                            <td className="py-3.5 px-3 text-xs">
+                            <td className="py-2.5 px-2 text-xs">
                               <div className="font-semibold text-ink-800">{fee.program}</div>
                               <div className="text-[11px] text-ink-500">
                                 {fee.semester || (isSemester ? 'Semester 1' : 'Modular Course')}
@@ -4623,7 +4646,7 @@ export default function AdminDashboard() {
                               </span>
                             </td>
 
-                            <td className="py-3.5 px-3 text-xs">
+                            <td className="py-2.5 px-2 text-xs">
                               <div className="font-bold text-ink-900">
                                 PKR {fee.totalAmount?.toLocaleString()}
                               </div>
@@ -4646,10 +4669,10 @@ export default function AdminDashboard() {
                               )}
                             </td>
 
-                            <td className="py-3.5 px-3 text-xs">
+                            <td className="py-2.5 px-2 text-xs">
                               {hasInstallments ? (
                                 <div className="space-y-1">
-                                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-sky-800 bg-sky-50 px-2 py-0.5 rounded-md border border-sky-200/60">
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-sky-800 bg-sky-50 px-1.5 py-0.5 rounded-md border border-sky-200/60">
                                     <Split size={10} />
                                     {fee.installments.length} Installments
                                   </span>
@@ -4658,19 +4681,19 @@ export default function AdminDashboard() {
                                   </div>
                                 </div>
                               ) : isSemester ? (
-                                <span className="text-[11px] text-ink-600 bg-sand-100 px-2 py-0.5 rounded-md">
+                                <span className="text-[11px] text-ink-600 bg-sand-100 px-1.5 py-0.5 rounded-md">
                                   Lump Sum
                                 </span>
                               ) : (
-                                <span className="text-[11px] text-ink-500 bg-sand-100 px-2 py-0.5 rounded-md">
+                                <span className="text-[11px] text-ink-500 bg-sand-100 px-1.5 py-0.5 rounded-md">
                                   Upfront (Course)
                                 </span>
                               )}
                             </td>
 
-                            {/* Explicit PAID / BALANCE figures above progress bar */}
-                            <td className="py-3.5 px-3 text-xs">
-                              <div className="flex items-center gap-1.5 text-[11px] mb-1 whitespace-nowrap">
+                            {/* Explicit PAID / BALANCE figures & stacked Due Date */}
+                            <td className="py-2.5 px-2 text-xs">
+                              <div className="flex items-center gap-1 text-[11px] mb-1 whitespace-nowrap">
                                 <span className="text-primary-900 font-bold">
                                   PKR {fee.paidAmount?.toLocaleString()} Paid
                                 </span>
@@ -4687,7 +4710,7 @@ export default function AdminDashboard() {
                                   PKR {fee.balance?.toLocaleString()} Due
                                 </span>
                               </div>
-                              <div className="w-32 bg-sand-200 h-1.5 rounded-full overflow-hidden">
+                              <div className="w-24 bg-sand-200 h-1.5 rounded-full overflow-hidden">
                                 <div
                                   className={`h-full rounded-full transition-all duration-300 ${
                                     percentPaid >= 100
@@ -4699,15 +4722,14 @@ export default function AdminDashboard() {
                                   style={{ width: `${percentPaid}%` }}
                                 />
                               </div>
+                              <div className="text-[10px] text-ink-500 mt-1 whitespace-nowrap">
+                                Due: <span className={isOverdue ? 'font-bold text-red-600' : 'font-medium text-ink-600'}>{fee.dueDate}</span>
+                              </div>
                             </td>
 
-                            <td className="py-3.5 px-3 text-xs text-ink-600 whitespace-nowrap">
-                              {fee.dueDate}
-                            </td>
-
-                            <td className="py-3.5 px-3 whitespace-nowrap">
+                            <td className="py-2.5 px-2 whitespace-nowrap">
                               <span
-                                className={`text-xs px-2.5 py-0.5 rounded-full font-bold ${
+                                className={`text-xs px-2 py-0.5 rounded-full font-bold ${
                                   fee.status === 'Paid'
                                     ? 'bg-primary-50 text-primary-900 border border-primary-200'
                                     : fee.status === 'Partial'
@@ -4724,7 +4746,7 @@ export default function AdminDashboard() {
                             </td>
 
                             {/* De-cluttered Single Contextual Button */}
-                            <td className="py-3.5 px-3 text-right whitespace-nowrap">
+                            <td className="py-2.5 px-2 text-right whitespace-nowrap">
                               {fee.status === 'Paid' || fee.balance === 0 ? (
                                 <button
                                   type="button"
@@ -4732,7 +4754,7 @@ export default function AdminDashboard() {
                                     e.stopPropagation();
                                     handleOpenBillingDrawer(fee);
                                   }}
-                                  className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-white hover:bg-sand-100 text-ink-700 border border-sand-300 font-semibold transition-colors cursor-pointer shadow-2xs"
+                                  className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg bg-white hover:bg-sand-100 text-ink-700 border border-sand-300 font-semibold transition-colors cursor-pointer shadow-2xs"
                                   title="View payment ledger & receipt"
                                 >
                                   <span>View Ledger</span>
@@ -4745,7 +4767,7 @@ export default function AdminDashboard() {
                                     e.stopPropagation();
                                     handleOpenBillingDrawer(fee);
                                   }}
-                                  className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-[#0B3324] hover:bg-[#072419] text-white font-semibold transition-all cursor-pointer shadow-xs"
+                                  className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg bg-[#0B3324] hover:bg-[#072419] text-white font-semibold transition-all cursor-pointer shadow-xs"
                                   title="Open unified billing drawer"
                                 >
                                   <span>Manage Billing</span>
@@ -4846,8 +4868,8 @@ export default function AdminDashboard() {
                                 </span>
                               </td>
 
-                              {/* Aggregated Paid / Balance */}
-                              <td className="py-3.5 px-3 text-xs">
+                              {/* Aggregated Paid / Balance & Earliest Due */}
+                              <td className="py-3 px-2.5 text-xs">
                                 <div className="flex items-center gap-1.5 text-[11px] mb-1 whitespace-nowrap">
                                   <span className="text-primary-900 font-bold">
                                     PKR {group.totalPaid.toLocaleString()} Paid
@@ -4865,7 +4887,7 @@ export default function AdminDashboard() {
                                     PKR {group.totalBalance.toLocaleString()} Due
                                   </span>
                                 </div>
-                                <div className="w-32 bg-sand-200 h-1.5 rounded-full overflow-hidden">
+                                <div className="w-28 bg-sand-200 h-1.5 rounded-full overflow-hidden">
                                   <div
                                     className={`h-full rounded-full transition-all duration-300 ${
                                       group.percentPaid >= 100
@@ -4877,11 +4899,9 @@ export default function AdminDashboard() {
                                     style={{ width: `${group.percentPaid}%` }}
                                   />
                                 </div>
-                              </td>
-
-                              {/* Earliest Due */}
-                              <td className="py-3.5 px-3 text-xs text-ink-600 whitespace-nowrap">
-                                {group.earliestDue}
+                                <div className="text-[10px] text-ink-500 mt-1 whitespace-nowrap">
+                                  Earliest Due: <span className={group.hasOverdue ? 'font-bold text-red-600' : 'font-medium text-ink-600'}>{group.earliestDue}</span>
+                                </div>
                               </td>
 
                               {/* Aggregated Status */}
@@ -4992,7 +5012,7 @@ export default function AdminDashboard() {
                                       </span>
                                     </td>
 
-                                    <td className="py-2.5 px-3">
+                                    <td className="py-2 px-2.5">
                                       <div className="flex items-center gap-1 text-[10px]">
                                         <span className="text-primary-900 font-bold">
                                           PKR {inv.paidAmount?.toLocaleString()}
@@ -5012,10 +5032,9 @@ export default function AdminDashboard() {
                                           style={{ width: `${invPercentPaid}%` }}
                                         />
                                       </div>
-                                    </td>
-
-                                    <td className="py-2.5 px-3 text-ink-500">
-                                      {inv.dueDate}
+                                      <div className="text-[9px] text-ink-400 mt-0.5">
+                                        Due: {inv.dueDate}
+                                      </div>
                                     </td>
 
                                     <td className="py-2.5 px-3">

@@ -466,6 +466,29 @@ export async function rejectInstallmentSupabase(installmentId, reason, adminName
   }
 }
 
+export async function voidInstallmentSupabase(installmentId, auditNote = 'Voided by administration') {
+  if (!isSupabaseConfigured) return { success: false, error: 'Supabase not configured' };
+  try {
+    const { data, error } = await supabase
+      .from('fee_installments')
+      .update({
+        status: 'UNPAID',
+        receipt_image_url: null,
+        rejection_reason: `Payment voided: ${auditNote}`,
+        approved_by: null,
+        approved_at: null,
+      })
+      .eq('id', installmentId)
+      .select();
+
+    if (error) throw error;
+    return { success: true, data };
+  } catch (err) {
+    console.error('Failed to void installment in Supabase:', err);
+    return { success: false, error: err.message };
+  }
+}
+
 export async function applyDiscountSupabase({ invoiceId, discountType, discountValue, discountReason, approvedBy, baseFee = 30000 }) {
   if (!isSupabaseConfigured) return { success: false, error: 'Supabase not configured' };
   try {

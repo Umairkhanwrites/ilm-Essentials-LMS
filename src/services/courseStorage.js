@@ -806,9 +806,12 @@ export function syncInvoicesAndInstallments() {
         .reduce((sum, i) => sum + (Number(i.amount) || 0), 0);
 
       const calculatedBalance = Math.max(0, netPayable - approvedAmount);
+      const creditRefundDelta = Math.max(0, approvedAmount - netPayable);
       let calculatedStatus = inv.status === 'Waived' ? 'Waived' : 'Pending';
       if (inv.status !== 'Waived') {
-        if (calculatedBalance === 0 && netPayable > 0) {
+        if (netPayable === 0) {
+          calculatedStatus = 'Waived';
+        } else if (calculatedBalance === 0) {
           calculatedStatus = 'Paid';
         } else if (approvedAmount > 0) {
           calculatedStatus = 'Partial';
@@ -828,6 +831,8 @@ export function syncInvoicesAndInstallments() {
         paidAmount: approvedAmount,
         balance: calculatedBalance,
         status: calculatedStatus,
+        creditRefundAmount: creditRefundDelta,
+        hasCreditRefund: creditRefundDelta > 0,
         installments: matching,
       };
     });
@@ -969,14 +974,26 @@ export function applyFeeDiscount(feeId, discountData) {
     .reduce((sum, i) => sum + (Number(i.amount) || 0), 0);
 
   const remainingNet = Math.max(0, netPayable - approvedTotal);
+  const creditRefundDelta = Math.max(0, approvedTotal - netPayable);
   const unpaidInsts = matchingInsts.filter((i) => i.status !== 'APPROVED' && i.status !== 'Paid');
 
   if (unpaidInsts.length > 0) {
-    const part = Math.floor(remainingNet / unpaidInsts.length);
-    const remainder = remainingNet - part * unpaidInsts.length;
-    unpaidInsts.forEach((inst, idx) => {
-      inst.amount = idx === unpaidInsts.length - 1 ? part + remainder : part;
-    });
+    if (remainingNet === 0) {
+      // Net tuition is already completely covered or exceeded by approved payments;
+      // Cap all remaining unpaid installments at 0 to prevent negative values.
+      unpaidInsts.forEach((inst) => {
+        inst.amount = 0;
+        inst.rejectionReason = discountType === 'waiver'
+          ? 'Waived via full scholarship'
+          : 'Covered by retroactive scholarship / concession';
+      });
+    } else {
+      const part = Math.floor(remainingNet / unpaidInsts.length);
+      const remainder = remainingNet - part * unpaidInsts.length;
+      unpaidInsts.forEach((inst, idx) => {
+        inst.amount = Math.max(0, idx === unpaidInsts.length - 1 ? part + remainder : part);
+      });
+    }
   } else if (remainingNet > 0) {
     allInsts.push({
       id: `inst_${feeId}_rem_${Date.now()}`,
@@ -1011,6 +1028,8 @@ export function applyFeeDiscount(feeId, discountData) {
     discountApprovedBy: discountData.approvedBy || 'Administrator',
     netPayable,
     totalAmount: netPayable,
+    creditRefundAmount: creditRefundDelta,
+    hasCreditRefund: creditRefundDelta > 0,
   };
 
   const updatedInvoices = current.map((f) => (f.id === feeId ? updatedRecord : f));
@@ -3359,7 +3378,7 @@ export function getStudentAccountsSummary(studentId = null) {
     .filter((inst) => inst.status === 'APPROVED')
     .reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
   const receivableAmount = installments
-    .filter((inst) => ['UNPAID', 'UNDER_REVIEW', 'REJECTED'].includes(inst.status))
+    .filter((inst) => ['UNPAID', 'PENDING', 'UNDER_REVIEW', 'REJECTED'].includes(inst.status))
     .reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
 
   const todayStr = new Date().toISOString().split('T')[0];
@@ -3390,7 +3409,7 @@ export function getGlobalAccountsSummary() {
     .filter((inst) => inst.status === 'APPROVED')
     .reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
   const totalReceivable = all
-    .filter((inst) => ['UNPAID', 'UNDER_REVIEW', 'REJECTED'].includes(inst.status))
+    .filter((inst) => ['UNPAID', 'PENDING', 'UNDER_REVIEW', 'REJECTED'].includes(inst.status))
     .reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
 
   const todayStr = new Date().toISOString().split('T')[0];

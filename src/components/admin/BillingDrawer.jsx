@@ -142,12 +142,12 @@ export default function BillingDrawer({
   const percentPaid = netPayable > 0 ? Math.min(100, Math.round((currentPaid / netPayable) * 100)) : 100;
   const isFullySettled = remainingBalance === 0;
 
-  // Validation Guardrail: Student cannot be granted a concession lower than what they already paid
+  // Validation Guardrail: Detect if paid amount exceeds adjusted net tuition
   const isPaidExceedsNewNet = currentPaid > netPayable;
+  const creditRefundDelta = Math.max(0, currentPaid - netPayable);
 
   const handleApplyDiscount = (e) => {
     e.preventDefault();
-    if (isPaidExceedsNewNet) return;
 
     onSaveDiscount(feeRecord.id, {
       discountType,
@@ -155,8 +155,14 @@ export default function BillingDrawer({
       discountReason: discountType === 'none' ? '' : discountReason,
       approvedBy,
     });
-    setDiscountSuccessMsg('Concession updated and balance re-calculated.');
-    setTimeout(() => setDiscountSuccessMsg(''), 3000);
+    if (isPaidExceedsNewNet) {
+      setDiscountSuccessMsg(
+        `Concession applied. Excess payment of PKR ${creditRefundDelta.toLocaleString()} flagged as student credit / refund.`
+      );
+    } else {
+      setDiscountSuccessMsg('Concession updated and balance re-calculated.');
+    }
+    setTimeout(() => setDiscountSuccessMsg(''), 4000);
   };
 
   // ==========================================
@@ -573,7 +579,7 @@ export default function BillingDrawer({
           {/* MULTI-COURSE ENROLLMENT SWITCHER STRIP (If >1 course)*/}
           {/* ==================================================== */}
           {studentInvoices.length > 1 && (
-            <div className="pt-2.5 border-t border-white/10 flex items-center gap-1.5 overflow-x-auto pb-0.5">
+            <div className="pt-2.5 border-t border-white/10 flex items-center gap-1.5 overflow-x-auto pb-0.5 no-scrollbar scroll-smooth">
               <span className="text-[10px] uppercase font-bold tracking-wider text-emerald-300 shrink-0 mr-1 flex items-center gap-1">
                 <Layers size={11} />
                 <span>Programs ({studentInvoices.length}):</span>
@@ -709,6 +715,11 @@ export default function BillingDrawer({
                 {(activeTabMode === 'overview' ? combinedSummary.totalDue : remainingBalance) === 0 && (
                   <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1 rounded">
                     Settled
+                  </span>
+                )}
+                {activeTabMode !== 'overview' && (feeRecord.hasCreditRefund || creditRefundDelta > 0) && (
+                  <span className="text-[10px] font-bold text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded border border-amber-300" title="Excess payment over adjusted tuition">
+                    Credit / Refund: PKR {(feeRecord.creditRefundAmount || creditRefundDelta).toLocaleString()}
                   </span>
                 )}
               </div>
@@ -919,12 +930,12 @@ export default function BillingDrawer({
                 ) : (
                   <form onSubmit={handleApplyDiscount} className="space-y-3.5 text-xs">
                     {isPaidExceedsNewNet && (
-                      <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-red-800 flex items-start gap-2">
-                        <AlertTriangle size={15} className="text-red-600 shrink-0 mt-0.5" />
+                      <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 flex items-start gap-2">
+                        <AlertTriangle size={15} className="text-amber-600 shrink-0 mt-0.5" />
                         <div>
-                          <span className="font-bold block">Adjustment Blocked:</span>
+                          <span className="font-bold block">Retroactive Scholarship / Concession Notice:</span>
                           <span>
-                            Student has already paid PKR {currentPaid.toLocaleString()}, which exceeds the new Net Payable amount of PKR {netPayable.toLocaleString()}. Void or refund excess payments first.
+                            Student has already paid PKR {currentPaid.toLocaleString()}, which exceeds the new Net Payable amount of PKR {netPayable.toLocaleString()}. Applying this concession will zero out remaining unpaid installments and flag an overpayment credit / refund of PKR {creditRefundDelta.toLocaleString()}.
                           </span>
                         </div>
                       </div>
@@ -1020,8 +1031,7 @@ export default function BillingDrawer({
                     <div className="pt-2 flex items-center justify-end">
                       <button
                         type="submit"
-                        disabled={isPaidExceedsNewNet}
-                        className="px-4 py-1.5 rounded-xl bg-[#0B3324] hover:bg-[#072419] text-white font-bold text-xs disabled:opacity-40 disabled:cursor-not-allowed shadow-xs transition-colors cursor-pointer"
+                        className="px-4 py-1.5 rounded-xl bg-[#0B3324] hover:bg-[#072419] text-white font-bold text-xs shadow-xs transition-colors cursor-pointer"
                       >
                         Save Concession
                       </button>
