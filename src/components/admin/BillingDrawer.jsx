@@ -490,9 +490,9 @@ export default function BillingDrawer({
   return (
     <div className="bg-white rounded-2xl border border-sand-200 shadow-xs overflow-hidden flex flex-col animate-in fade-in duration-200">
         {/* ======================================================== */}
-        {/* A. FULL-PAGE BILLING HEADER (Dark Forest Green #0B3324)  */}
+        {/* A. MINIMAL FULL-PAGE BILLING HEADER (Warm Sand & Ink)    */}
         {/* ======================================================== */}
-        <div className="bg-[#0B3324] text-white px-6 py-4 border-b border-primary-900/60 shrink-0 shadow-xs space-y-3">
+        <div className="bg-sand-50/90 px-6 py-4 border-b border-sand-200/90 shrink-0 space-y-3.5">
           {/* Top Row: Back, Student info & Prev/Next */}
           <div className="flex flex-wrap items-center justify-between gap-3">
             {/* Left info */}
@@ -501,41 +501,41 @@ export default function BillingDrawer({
                 type="button"
                 onClick={onClose}
                 title="Back to Accounts Overview (Esc)"
-                className="inline-flex items-center gap-1.5 text-xs font-bold text-white/90 hover:text-white bg-white/10 hover:bg-white/20 border border-white/15 px-3 py-1.5 rounded-xl transition-colors cursor-pointer shrink-0"
+                className="inline-flex items-center gap-1.5 text-xs font-bold text-ink-700 hover:text-ink-950 bg-white hover:bg-sand-100 border border-sand-300 px-3 py-1.5 rounded-xl transition-colors cursor-pointer shrink-0 shadow-2xs"
               >
                 <ArrowLeft size={14} />
                 <span>Back</span>
               </button>
 
-              <div className="h-10 w-10 rounded-xl bg-white/10 border border-white/15 flex items-center justify-center text-emerald-300 font-serif font-bold text-lg shrink-0">
+              <div className="h-10 w-10 rounded-xl bg-[#0B3324] text-gold-300 border border-primary-900/20 flex items-center justify-center font-serif font-bold text-lg shrink-0 shadow-2xs">
                 {feeRecord.studentName?.charAt(0) || 'S'}
               </div>
               <div>
                 <div className="flex items-center gap-2 flex-wrap">
-                  <h2 className="text-base font-bold text-white tracking-tight">
+                  <h2 className="text-base sm:text-lg font-heading font-bold text-ink-900 tracking-tight">
                     {feeRecord.studentName}
                   </h2>
-                  <span className="text-[11px] text-emerald-300 bg-white/10 px-2 py-0.5 rounded-md font-semibold">
+                  <span className="text-[11px] text-ink-700 bg-white border border-sand-200 px-2 py-0.5 rounded-md font-semibold shadow-2xs">
                     {feeRecord.invoiceNo}
                   </span>
                   <span
-                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${
+                    className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider border ${
                       feeRecord.status === 'Paid'
-                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/40'
+                        ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
                         : feeRecord.status === 'Partial'
-                        ? 'bg-amber-500/20 text-amber-300 border border-amber-400/40'
+                        ? 'bg-amber-50 text-amber-800 border-amber-200'
                         : feeRecord.status === 'Waived'
-                        ? 'bg-sand-500/20 text-sand-200 border border-sand-400/40'
-                        : 'bg-gold-500/20 text-gold-300 border border-gold-400/40'
+                        ? 'bg-sand-100 text-ink-700 border-sand-300'
+                        : 'bg-rose-50 text-rose-800 border-rose-200'
                     }`}
                   >
                     {feeRecord.status}
                   </span>
                 </div>
-                <div className="flex items-center gap-2 text-xs text-primary-200 mt-0.5">
+                <div className="flex items-center gap-2 text-xs text-ink-500 mt-0.5">
                   <span>{feeRecord.studentEmail}</span>
                   <span>&bull;</span>
-                  <span className="text-white/80 font-medium">
+                  <span className="text-ink-700 font-medium">
                     {feeRecord.program}
                     {feeRecord.semester ? ` (${feeRecord.semester})` : ''}
                   </span>
@@ -545,25 +545,25 @@ export default function BillingDrawer({
 
             {/* Right Navigation Controls */}
             <div className="flex items-center gap-2">
-              <div className="flex items-center bg-white/10 rounded-lg p-0.5 border border-white/10">
+              <div className="flex items-center bg-white rounded-xl p-0.5 border border-sand-200 shadow-2xs">
                 <button
                   type="button"
                   onClick={onPrevStudent}
                   disabled={!hasPrevStudent}
                   title="Previous Student (ArrowUp)"
-                  className="p-1.5 rounded-md text-white/80 hover:text-white hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                  className="p-1.5 rounded-lg text-ink-600 hover:text-ink-950 hover:bg-sand-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
                 >
-                  <ChevronUp size={16} />
+                  <ChevronUp size={15} />
                 </button>
-                <span className="text-[10px] text-white/50 px-1">Navigate</span>
+                <span className="text-[11px] font-semibold text-ink-500 px-1.5">Navigate</span>
                 <button
                   type="button"
                   onClick={onNextStudent}
                   disabled={!hasNextStudent}
                   title="Next Student (ArrowDown)"
-                  className="p-1.5 rounded-md text-white/80 hover:text-white hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                  className="p-1.5 rounded-lg text-ink-600 hover:text-ink-950 hover:bg-sand-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
                 >
-                  <ChevronDown size={16} />
+                  <ChevronDown size={15} />
                 </button>
               </div>
             </div>
@@ -573,9 +573,9 @@ export default function BillingDrawer({
           {/* MULTI-COURSE ENROLLMENT SWITCHER STRIP (If >1 course)*/}
           {/* ==================================================== */}
           {studentInvoices.length > 1 && (
-            <div className="pt-2.5 border-t border-white/10 flex items-center flex-wrap gap-1.5">
-              <span className="text-[10px] uppercase font-bold tracking-wider text-emerald-300 shrink-0 mr-1 flex items-center gap-1">
-                <Layers size={11} />
+            <div className="pt-3 border-t border-sand-200/80 flex items-center flex-wrap gap-1.5">
+              <span className="text-[10px] uppercase font-bold tracking-wider text-ink-500 shrink-0 mr-1 flex items-center gap-1">
+                <Layers size={11} className="text-[#0B3324]" />
                 <span>Programs ({studentInvoices.length}):</span>
               </span>
 
@@ -583,15 +583,15 @@ export default function BillingDrawer({
               <button
                 type="button"
                 onClick={() => setActiveTabMode('overview')}
-                className={`px-2.5 py-1 rounded-full text-[11px] font-medium whitespace-nowrap transition-all cursor-pointer flex items-center gap-1.5 border ${
+                className={`px-3 py-1.5 rounded-full text-[11px] font-medium whitespace-nowrap transition-all cursor-pointer flex items-center gap-1.5 border ${
                   activeTabMode === 'overview'
-                    ? 'bg-white text-[#0B3324] border-white shadow-xs font-bold'
-                    : 'bg-white/10 text-white/90 border-white/15 hover:bg-white/20'
+                    ? 'bg-[#0B3324] text-white border-[#0B3324] shadow-xs font-bold'
+                    : 'bg-white text-ink-700 border-sand-200 hover:border-sand-300 hover:bg-sand-100/70'
                 }`}
               >
                 <Receipt size={11} />
                 <span>All Courses</span>
-                <span className={`text-[10px] font-bold ${activeTabMode === 'overview' ? 'text-[#0B3324]' : 'text-emerald-300'}`}>
+                <span className={`text-[10px] font-bold ${activeTabMode === 'overview' ? 'text-emerald-300' : 'text-emerald-700'}`}>
                   ({combinedSummary.totalDue === 0 ? 'Settled' : `${combinedSummary.totalDue.toLocaleString()} Due`})
                 </span>
               </button>
@@ -610,24 +610,24 @@ export default function BillingDrawer({
                       setActiveTabMode('invoice');
                       if (onSelectStudentInvoice) onSelectStudentInvoice(inv);
                     }}
-                    className={`px-2.5 py-1 rounded-full text-[11px] font-medium whitespace-nowrap transition-all cursor-pointer flex items-center gap-1.5 border ${
+                    className={`px-3 py-1.5 rounded-full text-[11px] font-medium whitespace-nowrap transition-all cursor-pointer flex items-center gap-1.5 border ${
                       isSelected
-                        ? 'bg-white text-[#0B3324] border-white shadow-xs font-bold'
-                        : 'bg-white/10 text-white/90 border-white/15 hover:bg-white/20'
+                        ? 'bg-[#0B3324] text-white border-[#0B3324] shadow-xs font-bold'
+                        : 'bg-white text-ink-700 border-sand-200 hover:border-sand-300 hover:bg-sand-100/70'
                     }`}
                   >
                     <span
                       className={`w-1.5 h-1.5 rounded-full shrink-0 ${
                         isPaid
-                          ? 'bg-emerald-400'
+                          ? 'bg-emerald-500'
                           : inv.status === 'Partial'
-                          ? 'bg-amber-400'
-                          : 'bg-gold-400'
+                          ? 'bg-amber-500'
+                          : 'bg-rose-500'
                       }`}
                     />
                     <span>{inv.program}</span>
                     {!isPaid && inv.balance > 0 && (
-                      <span className={`text-[10px] font-bold ${isSelected ? 'text-amber-700' : 'text-amber-300'}`}>
+                      <span className={`text-[10px] font-bold ${isSelected ? 'text-amber-300' : 'text-amber-700'}`}>
                         · {inv.balance.toLocaleString()}
                       </span>
                     )}
