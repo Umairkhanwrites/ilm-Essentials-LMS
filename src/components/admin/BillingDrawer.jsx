@@ -26,6 +26,7 @@ import {
   ShieldCheck,
   RefreshCw,
   Layers,
+  ArrowLeft,
   ArrowRight,
   TrendingUp,
 } from 'lucide-react';
@@ -487,37 +488,30 @@ export default function BillingDrawer({
   }, [onClose, onPrevStudent, onNextStudent, hasPrevStudent, hasNextStudent]);
 
   return (
-    <div className="fixed inset-0 z-50 overflow-hidden flex justify-end">
-      {/* Backdrop with blur */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        onClick={onClose}
-        className="fixed inset-0 bg-primary-950/60 backdrop-blur-xs transition-opacity cursor-pointer"
-      />
-
-      {/* Slide-over panel */}
-      <motion.div
-        initial={{ x: '100%' }}
-        animate={{ x: 0 }}
-        exit={{ x: '100%' }}
-        transition={{ type: 'spring', damping: 28, stiffness: 260 }}
-        className="relative w-full max-w-4xl h-screen bg-[#F9F8F6] shadow-2xl flex flex-col z-10 border-l border-[#EFECE6] overflow-hidden"
-      >
+    <div className="bg-white rounded-2xl border border-sand-200 shadow-xs overflow-hidden flex flex-col animate-in fade-in duration-200">
         {/* ======================================================== */}
-        {/* A. STICKY DRAWER HEADER (Dark Forest Green #0B3324)     */}
+        {/* A. FULL-PAGE BILLING HEADER (Dark Forest Green #0B3324)  */}
         {/* ======================================================== */}
         <div className="bg-[#0B3324] text-white px-6 py-4 border-b border-primary-900/60 shrink-0 shadow-xs space-y-3">
-          {/* Top Row: Student info & Prev/Next/Close */}
-          <div className="flex items-center justify-between">
+          {/* Top Row: Back, Student info & Prev/Next */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
             {/* Left info */}
             <div className="flex items-center gap-3.5">
-              <div className="h-10 w-10 rounded-xl bg-white/10 border border-white/15 flex items-center justify-center text-emerald-300 font-serif font-bold text-lg">
+              <button
+                type="button"
+                onClick={onClose}
+                title="Back to Accounts Overview (Esc)"
+                className="inline-flex items-center gap-1.5 text-xs font-bold text-white/90 hover:text-white bg-white/10 hover:bg-white/20 border border-white/15 px-3 py-1.5 rounded-xl transition-colors cursor-pointer shrink-0"
+              >
+                <ArrowLeft size={14} />
+                <span>Back</span>
+              </button>
+
+              <div className="h-10 w-10 rounded-xl bg-white/10 border border-white/15 flex items-center justify-center text-emerald-300 font-serif font-bold text-lg shrink-0">
                 {feeRecord.studentName?.charAt(0) || 'S'}
               </div>
               <div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <h2 className="text-base font-bold text-white tracking-tight">
                     {feeRecord.studentName}
                   </h2>
@@ -561,7 +555,7 @@ export default function BillingDrawer({
                 >
                   <ChevronUp size={16} />
                 </button>
-                <span className="text-[10px] text-white/50 px-1 ">Navigate</span>
+                <span className="text-[10px] text-white/50 px-1">Navigate</span>
                 <button
                   type="button"
                   onClick={onNextStudent}
@@ -572,15 +566,6 @@ export default function BillingDrawer({
                   <ChevronDown size={16} />
                 </button>
               </div>
-
-              <button
-                type="button"
-                onClick={onClose}
-                title="Close Drawer (Esc)"
-                className="p-2 rounded-lg text-white/80 hover:text-white hover:bg-white/10 transition-colors cursor-pointer ml-1"
-              >
-                <X size={18} />
-              </button>
             </div>
           </div>
 
@@ -780,7 +765,7 @@ export default function BillingDrawer({
           /* ====================================================== */
           /* OVERVIEW TAB: CONSOLIDATED ALL COURSES FINANCIAL VIEW   */
           /* ====================================================== */
-          <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-[#F9F8F6]">
+          <div className="p-6 space-y-6 bg-[#F9F8F6]">
             <div className="bg-white rounded-2xl p-6 border border-[#EFECE6] shadow-xs space-y-5">
               <div className="flex items-center justify-between border-b border-sand-200/80 pb-3">
                 <div className="flex items-center gap-2">
@@ -908,7 +893,7 @@ export default function BillingDrawer({
           /* ====================================================== */
           /* INVOICE TAB: SPECIFIC COURSE INVOICE LEDGER & ACTIONS  */
           /* ====================================================== */
-          <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-[#FAF8F5]">
+          <div className="p-6 space-y-6 bg-[#FAF8F5]">
             {/* ---------------------------------------------------- */}
             {/* TAB 1: PAYMENT & LEDGER                              */}
             {/* ---------------------------------------------------- */}
@@ -1888,7 +1873,6 @@ export default function BillingDrawer({
             )}
           </div>
         )}
-      </motion.div>
     </div>
   );
 }

@@ -1611,6 +1611,7 @@ export default function AdminDashboard() {
 
   const handleOpenBillingDrawer = (feeRec) => {
     setSelectedDrawerFeeId(feeRec.id);
+    setActiveTab('fees');
     setIsBillingDrawerOpen(true);
   };
 
@@ -2972,6 +2973,7 @@ export default function AdminDashboard() {
                         onClick={() => {
                           setActiveTab(tab.id);
                           if (tab.id === 'attendance') setIsAttendanceModalOpen(false);
+                          if (tab.id === 'fees') setIsBillingDrawerOpen(false);
                         }}
                         className={`w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-xs font-semibold transition-all cursor-pointer text-left ${
                           isActive
@@ -5231,6 +5233,33 @@ export default function AdminDashboard() {
           {/* Tab 4: Student Tuition & Fee Management */}
                     {/* Tab 4: Accounts, Fee Installments & Video Access Management */}
           {activeTab === 'fees' && (
+            isBillingDrawerOpen && selectedDrawerFee ? (
+              <BillingDrawer
+                feeRecord={selectedDrawerFee}
+                allStudentInvoices={
+                  selectedDrawerFee
+                    ? feeRecords.filter(
+                        (f) =>
+                          (f.studentId && f.studentId === selectedDrawerFee.studentId) ||
+                          f.studentEmail?.toLowerCase() === selectedDrawerFee.studentEmail?.toLowerCase()
+                      )
+                    : []
+                }
+                onSelectStudentInvoice={(inv) => setSelectedDrawerFeeId(inv.id)}
+                isOpen={isBillingDrawerOpen}
+                onClose={handleCloseBillingDrawer}
+                onPrevStudent={handlePrevDrawerStudent}
+                onNextStudent={handleNextDrawerStudent}
+                hasPrevStudent={hasPrevDrawerStudent}
+                hasNextStudent={hasNextDrawerStudent}
+                onSaveDiscount={handleDrawerSaveDiscount}
+                onSaveInstallments={handleDrawerSaveInstallments}
+                onRecordPayment={handleDrawerRecordPayment}
+                onRecordMultiPayment={handleDrawerRecordMultiPayment}
+                onVoidPayment={handleDrawerVoidPayment}
+                onOpenOfficialReceipt={(rec) => setSelectedInvoiceRecord(rec)}
+              />
+            ) : (
             <div className="space-y-6">
               {/* Minimal Clean Header & Actions */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-sand-200/80">
@@ -6196,6 +6225,7 @@ export default function AdminDashboard() {
             </div>
             )}
           </div>
+            )
         )}
 
           {/* Tab 5: Admissions */}
@@ -8872,33 +8902,6 @@ export default function AdminDashboard() {
             </div>
           </div>
         )}
-
-        {/* UNIFIED SLIDE-OVER BILLING DRAWER */}
-        <BillingDrawer
-          feeRecord={selectedDrawerFee}
-          allStudentInvoices={
-            selectedDrawerFee
-              ? feeRecords.filter(
-                  (f) =>
-                    (f.studentId && f.studentId === selectedDrawerFee.studentId) ||
-                    f.studentEmail?.toLowerCase() === selectedDrawerFee.studentEmail?.toLowerCase()
-                )
-              : []
-          }
-          onSelectStudentInvoice={(inv) => setSelectedDrawerFeeId(inv.id)}
-          isOpen={isBillingDrawerOpen}
-          onClose={handleCloseBillingDrawer}
-          onPrevStudent={handlePrevDrawerStudent}
-          onNextStudent={handleNextDrawerStudent}
-          hasPrevStudent={hasPrevDrawerStudent}
-          hasNextStudent={hasNextDrawerStudent}
-          onSaveDiscount={handleDrawerSaveDiscount}
-          onSaveInstallments={handleDrawerSaveInstallments}
-          onRecordPayment={handleDrawerRecordPayment}
-          onRecordMultiPayment={handleDrawerRecordMultiPayment}
-          onVoidPayment={handleDrawerVoidPayment}
-          onOpenOfficialReceipt={(rec) => setSelectedInvoiceRecord(rec)}
-        />
 
         {/* INTERACTIVE CLASS SCHEDULE PLANNER DRAWER */}
         <ScheduleDrawer
