@@ -705,6 +705,7 @@ export default function AdminDashboard() {
     setAttendanceParseResult(null);
     setAttendanceFilterStatus('all');
     setAttendanceFormatFilter('all');
+    setActiveTab('attendance');
     setIsAttendanceModalOpen(true);
   };
 
@@ -2968,7 +2969,10 @@ export default function AdminDashboard() {
                     return (
                       <button
                         key={tab.id}
-                        onClick={() => setActiveTab(tab.id)}
+                        onClick={() => {
+                          setActiveTab(tab.id);
+                          if (tab.id === 'attendance') setIsAttendanceModalOpen(false);
+                        }}
                         className={`w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-xs font-semibold transition-all cursor-pointer text-left ${
                           isActive
                             ? 'bg-primary-900 text-white shadow-sm'
@@ -3836,6 +3840,962 @@ export default function AdminDashboard() {
               if (course) return matchesCourseYear(course, attendanceYearFilter);
               return false;
             });
+
+            if (isAttendanceModalOpen) {
+              const currentCourse = courses.find((c) => c.id === attendanceCourseId) || courses[0];
+              const totalEnrolled = attendanceEnrolledStudents.length;
+              const onsiteEnrolled = attendanceEnrolledStudents.filter((s) => (s.format || '').toLowerCase().includes('onsite')).length;
+              const onlineEnrolled = attendanceEnrolledStudents.filter((s) => (s.format || '').toLowerCase().includes('online')).length;
+              const presentCount = attendanceEnrolledStudents.filter((s) => (attendanceRecords[s.id] || 'present') === 'present').length;
+              const lateCount = attendanceEnrolledStudents.filter((s) => attendanceRecords[s.id] === 'late').length;
+              const absentCount = attendanceEnrolledStudents.filter((s) => attendanceRecords[s.id] === 'absent').length;
+              const currentRatePct = totalEnrolled > 0 ? Math.round(((presentCount + lateCount * 0.75) / totalEnrolled) * 100) : 0;
+
+              const filteredAttendanceStudents = attendanceEnrolledStudents.filter((s) => {
+                const fmt = (s.format || 'online').toLowerCase();
+                if (attendanceFormatFilter === 'all') return true;
+                return fmt.includes(attendanceFormatFilter);
+              });
+
+              const thisCourseSessions = attendanceSessions.filter((s) => s.courseId === attendanceCourseId);
+
+              let courseAvgRate = null;
+              if (thisCourseSessions.length > 0) {
+                let sum = 0;
+                thisCourseSessions.forEach((sess) => {
+                  let p = 0, l = 0, a = 0;
+                  if (sess.records) {
+                    Object.values(sess.records).forEach((st) => {
+                      if (st === 'present') p++;
+                      else if (st === 'late') l++;
+                      else if (st === 'absent') a++;
+                    });
+                  }
+                  const tot = p + l + a;
+                  sum += tot > 0 ? ((p + l * 0.75) / tot) * 100 : 100;
+                });
+                courseAvgRate = Math.round(sum / thisCourseSessions.length);
+              }
+
+              const unmatchedSessions = thisCourseSessions.filter((s) => {
+                if (!s.topic) return true;
+                const sTopic = s.topic.trim().toLowerCase();
+                return !availableCourseLessons.some((l) => {
+                  const lTitle = (l.title || '').trim().toLowerCase();
+                  return sTopic === lTitle || sTopic.includes(lTitle) || lTitle.includes(sTopic);
+                });
+              });
+
+              const pendingLessonsCount = availableCourseLessons.filter((l) => {
+                const lTitle = (l.title || '').trim().toLowerCase();
+                return !thisCourseSessions.some((s) => {
+                  const sTopic = (s.topic || '').trim().toLowerCase();
+                  return sTopic === lTitle || sTopic.includes(lTitle) || lTitle.includes(sTopic);
+                });
+              }).length;
+
+              return (
+                <div className="bg-white rounded-2xl border border-sand-200 shadow-xs overflow-hidden flex flex-col animate-in fade-in duration-200">
+                  {/* FULL PAGE VIEW 1: COURSE LESSONS & ATTENDANCE HISTORY */}
+                  {attendanceModalMode === 'lessons' && (
+                    <>
+                      <div className="px-6 py-4 bg-sand-50/90 border-b border-sand-200/90 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => setIsAttendanceModalOpen(false)}
+                            className="inline-flex items-center gap-1.5 text-xs font-bold text-ink-700 hover:text-ink-950 bg-white hover:bg-sand-100 border border-sand-300 px-3 py-1.5 rounded-xl transition-colors cursor-pointer shrink-0 shadow-2xs"
+                            title="Back to Attendance Overview"
+                          >
+                            <ArrowLeft size={13} />
+                            <span>Back</span>
+                          </button>
+                          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-900 to-primary-950 text-gold-300 border border-primary-800/80 flex items-center justify-center shadow-xs shrink-0">
+                            <BookOpen size={18} />
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h2 className="text-base sm:text-lg font-heading font-bold text-ink-900">
+                                {currentCourse?.title || 'Course Attendance'}
+                              </h2>
+                              <span className="text-[10px] uppercase font-bold tracking-wider px-2.5 py-0.5 rounded-full bg-gold-50 text-gold-900 border border-gold-200/90 shadow-2xs">
+                                {currentCourse?.category || 'Course'}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-ink-500 mt-0.5">
+                              Instructor: <strong className="font-semibold text-ink-800">{currentCourse?.instructor || 'Faculty Scholar'}</strong> • <span className="font-medium text-ink-700">{totalEnrolled} Enrolled</span> • Mode: <span className="capitalize font-semibold text-primary-900">{currentCourse?.format || 'Hybrid'}</span>
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 self-end sm:self-center">
+                          <div className="relative">
+                            <select
+                              value={attendanceCourseId}
+                              onChange={(e) => handleAttendanceCourseChange(e.target.value)}
+                              className="appearance-none pl-3 pr-8 py-2 text-xs border border-sand-300 rounded-xl bg-white font-bold text-ink-900 focus:outline-none focus:ring-2 focus:ring-primary-500/20 cursor-pointer max-w-[240px] truncate shadow-2xs"
+                            >
+                              {courses.map((c) => (
+                                <option key={c.id} value={c.id}>
+                                  {c.title}
+                                </option>
+                              ))}
+                            </select>
+                            <ChevronDown size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-400 pointer-events-none" />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="px-6 py-3.5 bg-sand-50/40 border-b border-sand-200/80 grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        <div className="bg-white p-3 rounded-xl border border-sand-200/90 shadow-2xs">
+                          <div className="text-[10px] font-bold uppercase tracking-wider text-ink-500 flex items-center gap-1.5">
+                            <BookOpen size={11} className="text-primary-800" />
+                            Curriculum
+                          </div>
+                          <div className="text-sm font-bold text-ink-900 mt-1">{availableCourseLessons.length} Lessons</div>
+                        </div>
+                        <div className="bg-primary-50/50 p-3 rounded-xl border border-primary-200/70 shadow-2xs">
+                          <div className="text-[10px] font-bold uppercase tracking-wider text-primary-950 flex items-center gap-1.5">
+                            <Check size={11} className="text-primary-800" />
+                            Sessions Logged
+                          </div>
+                          <div className="text-sm font-bold text-primary-950 mt-1">{thisCourseSessions.length} Recorded</div>
+                        </div>
+                        <div className="bg-white p-3 rounded-xl border border-sand-200/90 shadow-2xs">
+                          <div className="text-[10px] font-bold uppercase tracking-wider text-ink-500 flex items-center gap-1.5">
+                            <Clock size={11} className="text-ink-400" />
+                            Unrecorded
+                          </div>
+                          <div className="text-sm font-bold text-ink-700 mt-1">{pendingLessonsCount} Pending</div>
+                        </div>
+                        <div className="bg-gold-50/60 p-3 rounded-xl border border-gold-200/80 shadow-2xs">
+                          <div className="text-[10px] font-bold uppercase tracking-wider text-gold-900 flex items-center gap-1.5">
+                            <ShieldCheck size={11} className="text-gold-700" />
+                            Attendance Rate
+                          </div>
+                          <div className={`text-sm font-bold mt-1 ${courseAvgRate !== null && courseAvgRate >= 85 ? 'text-primary-950' : 'text-gold-900'}`}>
+                            {courseAvgRate !== null ? `${courseAvgRate}% Avg` : '—'}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="px-6 border-b border-sand-200 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div className="flex items-center gap-5">
+                          <button
+                            type="button"
+                            onClick={() => setAttendanceLessonsTab('lessons')}
+                            className={`py-3 text-xs font-bold border-b-2 transition-colors cursor-pointer ${
+                              attendanceLessonsTab === 'lessons'
+                                ? 'border-primary-900 text-primary-950'
+                                : 'border-transparent text-ink-400 hover:text-ink-700'
+                            }`}
+                          >
+                            Course Lessons ({availableCourseLessons.length})
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setAttendanceLessonsTab('history')}
+                            className={`py-3 text-xs font-bold border-b-2 transition-colors cursor-pointer ${
+                              attendanceLessonsTab === 'history'
+                                ? 'border-primary-900 text-primary-950'
+                                : 'border-transparent text-ink-400 hover:text-ink-700'
+                            }`}
+                          >
+                            Session History ({thisCourseSessions.length})
+                          </button>
+                        </div>
+
+                        <div className="flex items-center gap-2 py-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsCustomTopic(true);
+                              setAttendanceTopic('');
+                              setEditingAttendanceSessionId(null);
+                              setAttendanceModalMode('rollcall');
+                              setAttendanceActiveTab('register');
+                            }}
+                            className="inline-flex items-center gap-1.5 text-[11px] font-bold text-primary-950 bg-primary-50/80 hover:bg-primary-100 border border-primary-200/80 px-3 py-1.5 rounded-xl transition-all cursor-pointer shadow-2xs"
+                          >
+                            <Plus size={12} />
+                            <span>Custom Session</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingAttendanceSessionId(null);
+                              setAttendanceModalMode('rollcall');
+                              setAttendanceActiveTab('upload');
+                            }}
+                            className="inline-flex items-center gap-1.5 text-[11px] font-bold text-ink-700 bg-sand-100/90 hover:bg-sand-200/90 border border-sand-200 px-3 py-1.5 rounded-xl transition-all cursor-pointer shadow-2xs"
+                          >
+                            <UploadCloud size={12} />
+                            <span>Upload Sheet</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="p-6 space-y-4">
+                        {attendanceLessonsTab === 'lessons' && (
+                          <div className="space-y-3">
+                            {availableCourseLessons.length === 0 ? (
+                              <div className="p-8 text-center bg-sand-50 rounded-xl border border-sand-200 space-y-2">
+                                <p className="text-xs text-ink-600 font-medium">
+                                  No pre-configured syllabus lessons found for this course.
+                                </p>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setIsCustomTopic(true);
+                                    setAttendanceTopic('');
+                                    setEditingAttendanceSessionId(null);
+                                    setAttendanceModalMode('rollcall');
+                                  }}
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary-900 hover:bg-primary-800 text-white text-xs font-bold cursor-pointer"
+                                >
+                                  <Plus size={13} />
+                                  Take Custom Roll Call
+                                </button>
+                              </div>
+                            ) : (
+                              availableCourseLessons.map((les, idx) => {
+                                const matchedSessions = thisCourseSessions.filter((s) => {
+                                  if (s.lessonId && les.id && s.lessonId === les.id) return true;
+                                  if (!s.topic) return false;
+                                  const sTopic = s.topic.trim().toLowerCase();
+                                  const lTitle = (les.title || '').trim().toLowerCase();
+                                  return sTopic === lTitle || sTopic.includes(lTitle) || lTitle.includes(sTopic);
+                                });
+                                const hasRecorded = matchedSessions.length > 0;
+                                const latest = hasRecorded ? matchedSessions[matchedSessions.length - 1] : null;
+
+                                let presentTotal = 0;
+                                let lateTotal = 0;
+                                let absentTotal = 0;
+                                if (latest && latest.records) {
+                                  Object.values(latest.records).forEach((st) => {
+                                    if (st === 'present') presentTotal++;
+                                    else if (st === 'late') lateTotal++;
+                                    else if (st === 'absent') absentTotal++;
+                                  });
+                                }
+                                const sessionRate = (presentTotal + lateTotal + absentTotal) > 0
+                                  ? Math.round(((presentTotal + lateTotal * 0.75) / (presentTotal + lateTotal + absentTotal)) * 100)
+                                  : null;
+
+                                return (
+                                  <div
+                                    key={les.id || idx}
+                                    className={`p-4 rounded-xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs ${
+                                      hasRecorded
+                                        ? 'bg-primary-50/20 border-primary-200/80 hover:border-primary-300'
+                                        : 'bg-white border-sand-200/90 hover:border-sand-300'
+                                    }`}
+                                  >
+                                    <div className="flex items-start gap-3 min-w-0">
+                                      <div
+                                        className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 mt-0.5 ${
+                                          hasRecorded
+                                            ? 'bg-primary-100 text-primary-950 border border-primary-200'
+                                            : 'bg-sand-100 text-ink-600 border border-sand-200/90'
+                                        }`}
+                                      >
+                                        {idx + 1}
+                                      </div>
+                                      <div className="min-w-0">
+                                        <h4 className="text-xs sm:text-sm font-bold text-ink-900 truncate sm:whitespace-normal">
+                                          {les.title}
+                                        </h4>
+                                        <div className="flex flex-wrap items-center gap-2 mt-1 text-[11px] text-ink-500">
+                                          {les.duration && <span>{les.duration}</span>}
+                                          {hasRecorded ? (
+                                            <>
+                                              <span>•</span>
+                                              <span className="font-semibold text-primary-900">
+                                                Recorded on {latest.date} ({latest.deliveryMode || 'hybrid'})
+                                              </span>
+                                              <span>•</span>
+                                              <span className="font-bold text-ink-700">
+                                                {presentTotal} Present • {absentTotal} Absent ({sessionRate}%)
+                                              </span>
+                                            </>
+                                          ) : (
+                                            <>
+                                              <span>•</span>
+                                              <span className="text-ink-400 italic">Not yet recorded</span>
+                                            </>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                                      {hasRecorded ? (
+                                        <>
+                                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-primary-100/90 text-primary-950 border border-primary-200/80 font-bold text-[10px]">
+                                            <Check size={11} />
+                                            Recorded
+                                          </span>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleViewSessionAttendance(latest)}
+                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-sand-300 bg-white hover:bg-sand-50 text-ink-800 hover:text-ink-950 text-xs font-bold transition-all cursor-pointer shadow-2xs"
+                                            title="View & inspect recorded student roll call for this lesson"
+                                          >
+                                            <Eye size={13} />
+                                            View Attendance
+                                          </button>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-sand-100 text-ink-600 border border-sand-200/80 font-semibold text-[10px]">
+                                            Pending
+                                          </span>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleStartLessonAttendance(les)}
+                                            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-primary-900 hover:bg-primary-800 text-white text-xs font-bold transition-all shadow-xs hover:shadow cursor-pointer"
+                                            title="Mark attendance for this lesson"
+                                          >
+                                            <ClipboardCheck size={13} />
+                                            Mark Attendance
+                                          </button>
+                                        </>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })
+                            )}
+
+                            {unmatchedSessions.length > 0 && (
+                              <div className="pt-4 border-t border-sand-200 space-y-2.5 mt-4">
+                                <div className="flex items-center justify-between">
+                                  <h5 className="text-[11px] font-bold uppercase tracking-wider text-ink-600">
+                                    Additional Recorded Sessions ({unmatchedSessions.length})
+                                  </h5>
+                                  <span className="text-[11px] text-ink-400">
+                                    Custom or historical lectures recorded for this course
+                                  </span>
+                                </div>
+                                {unmatchedSessions.map((sess) => {
+                                  let presentTotal = 0;
+                                  let absentTotal = 0;
+                                  let lateTotal = 0;
+                                  if (sess.records) {
+                                    Object.values(sess.records).forEach((st) => {
+                                      if (st === 'present') presentTotal++;
+                                      else if (st === 'late') lateTotal++;
+                                      else if (st === 'absent') absentTotal++;
+                                    });
+                                  }
+                                  const sRate = (presentTotal + lateTotal + absentTotal) > 0
+                                    ? Math.round(((presentTotal + lateTotal * 0.75) / (presentTotal + lateTotal + absentTotal)) * 100)
+                                    : null;
+
+                                  return (
+                                    <div
+                                      key={sess.id}
+                                      className="p-4 bg-primary-50/20 rounded-xl border border-primary-200/70 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+                                    >
+                                      <div className="flex items-center gap-2.5 min-w-0">
+                                        <div className="p-2 rounded-xl bg-primary-100 text-primary-950 border border-primary-200 shrink-0">
+                                          <Calendar size={14} />
+                                        </div>
+                                        <div className="truncate">
+                                          <div className="font-bold text-ink-900 truncate">{sess.topic}</div>
+                                          <div className="text-[11px] text-ink-500 mt-0.5">
+                                            {sess.date} • {sess.deliveryMode || 'hybrid'} • {presentTotal} Present, {absentTotal} Absent ({sRate}%)
+                                          </div>
+                                        </div>
+                                      </div>
+                                      <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-primary-100/90 text-primary-950 border border-primary-200/80 font-bold text-[10px]">
+                                          <Check size={11} />
+                                          Recorded
+                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleViewSessionAttendance(sess)}
+                                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-sand-300 bg-white hover:bg-sand-50 text-ink-800 text-xs font-bold transition-all cursor-pointer shadow-2xs"
+                                        >
+                                          <Eye size={12} />
+                                          View Attendance
+                                        </button>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {attendanceLessonsTab === 'history' && (
+                          <div className="space-y-3">
+                            {thisCourseSessions.length === 0 ? (
+                              <div className="py-10 text-center text-xs text-ink-500">
+                                No attendance sessions logged yet for this course. Click "Mark Attendance" on any lesson to record your first roll call.
+                              </div>
+                            ) : (
+                              <div className="overflow-x-auto rounded-xl border border-sand-200">
+                                <table className="w-full text-left text-sm min-w-[620px]">
+                                  <thead className="bg-sand-100/70 text-ink-700 text-xs font-semibold uppercase tracking-wider border-b border-sand-200">
+                                    <tr>
+                                      <th className="py-2.5 px-3">Date</th>
+                                      <th className="py-2.5 px-3">Lesson / Topic</th>
+                                      <th className="py-2.5 px-3">Mode</th>
+                                      <th className="py-2.5 px-3">Present / Absent</th>
+                                      <th className="py-2.5 px-3">Rate</th>
+                                      <th className="py-2.5 px-3 text-right">Actions</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-sand-200 text-xs">
+                                    {thisCourseSessions.map((sess) => {
+                                      let pCount = 0;
+                                      let lCount = 0;
+                                      let aCount = 0;
+                                      if (sess.records) {
+                                        Object.values(sess.records).forEach((st) => {
+                                          if (st === 'present') pCount++;
+                                          else if (st === 'late') lCount++;
+                                          else if (st === 'absent') aCount++;
+                                        });
+                                      }
+                                      const totalLogged = pCount + lCount + aCount;
+                                      const rate = totalLogged > 0 ? Math.round(((pCount + lCount * 0.75) / totalLogged) * 100) : 0;
+
+                                      return (
+                                        <tr key={sess.id} className="hover:bg-sand-50/60 transition-colors">
+                                          <td className="py-2.5 px-3 font-semibold text-ink-900 whitespace-nowrap">
+                                            {sess.date}
+                                          </td>
+                                          <td className="py-2.5 px-3 text-ink-900 font-medium max-w-xs truncate">
+                                            {sess.topic}
+                                          </td>
+                                          <td className="py-2.5 px-3 uppercase text-[10px] font-bold text-ink-600 whitespace-nowrap">
+                                            {sess.deliveryMode || 'hybrid'}
+                                          </td>
+                                          <td className="py-2.5 px-3 text-ink-700 whitespace-nowrap">
+                                            <span className="font-semibold text-emerald-800">{pCount} Present</span>
+                                            {lCount > 0 && <span className="ml-1 text-amber-700 font-semibold">• {lCount} Late</span>}
+                                            {aCount > 0 && <span className="ml-1 text-rose-700 font-semibold">• {aCount} Absent</span>}
+                                          </td>
+                                          <td className="py-2.5 px-3 font-bold whitespace-nowrap">
+                                            <span className={rate >= 85 ? 'text-emerald-800' : 'text-amber-800'}>
+                                              {rate}%
+                                            </span>
+                                          </td>
+                                          <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                                            <div className="flex items-center justify-end gap-1.5">
+                                              <button
+                                                type="button"
+                                                onClick={() => handleViewSessionAttendance(sess)}
+                                                className="px-2.5 py-1 rounded-md bg-sand-100 hover:bg-sand-200 text-ink-800 font-bold text-[11px] transition-colors cursor-pointer"
+                                              >
+                                                View / Edit
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={() => handleDeleteAttendanceSession(sess.id)}
+                                                className="p-1 rounded-md text-ink-400 hover:text-rose-700 hover:bg-rose-50 transition-colors cursor-pointer"
+                                                title="Delete session"
+                                              >
+                                                <Trash2 size={13} />
+                                              </button>
+                                            </div>
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      {attendanceToast && (
+                        <div className="px-6 py-3 bg-primary-50/70 border-t border-primary-200 text-xs font-bold text-primary-900">
+                          • {attendanceToast}
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {/* FULL PAGE VIEW 2: DAILY ROLL CALL / ATTENDANCE REGISTER */}
+                  {attendanceModalMode === 'rollcall' && (
+                    <>
+                      <div className="px-6 py-4 bg-sand-50 border-b border-sand-200 flex flex-wrap items-center justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAttendanceModalMode('lessons');
+                              setEditingAttendanceSessionId(null);
+                            }}
+                            className="inline-flex items-center gap-1.5 text-xs font-bold text-ink-700 hover:text-ink-900 bg-white hover:bg-sand-100 border border-sand-300 px-3 py-1.5 rounded-xl transition-colors cursor-pointer"
+                            title="Return to course lessons list"
+                          >
+                            <ArrowLeft size={13} />
+                            Back to Lessons
+                          </button>
+                          <div>
+                            <h2 className="text-base font-heading font-bold text-ink-900">
+                              {editingAttendanceSessionId ? 'View / Edit Lesson Attendance' : 'Mark Lesson Attendance'}
+                            </h2>
+                            <p className="text-[11px] text-ink-500">
+                              {currentCourse?.title} • {attendanceTopic || 'Selected Lesson'}
+                            </p>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsAttendanceModalOpen(false);
+                            setEditingAttendanceSessionId(null);
+                          }}
+                          className="text-xs font-semibold text-ink-600 hover:text-ink-900 px-3 py-1.5 rounded-lg hover:bg-sand-200/70 transition-colors cursor-pointer"
+                        >
+                          All Courses Overview
+                        </button>
+                      </div>
+
+                      <div className="p-5 bg-sand-50/40 border-b border-sand-200 space-y-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                          <div>
+                            <label className="text-[10px] font-bold uppercase tracking-wider text-ink-500 block mb-1">
+                              Course
+                            </label>
+                            <select
+                              value={attendanceCourseId}
+                              onChange={(e) => handleAttendanceCourseChange(e.target.value)}
+                              className="w-full px-2.5 py-2 text-xs border border-sand-300 rounded-xl bg-white font-semibold text-ink-900 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                            >
+                              {courses.map((c) => (
+                                <option key={c.id} value={c.id}>
+                                  {c.title}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div>
+                            <label className="text-[10px] font-bold uppercase tracking-wider text-ink-500 block mb-1">
+                              Batch / Intake
+                            </label>
+                            <select
+                              value={attendanceCohortId}
+                              onChange={(e) => setAttendanceCohortId(e.target.value)}
+                              className="w-full px-2.5 py-2 text-xs border border-sand-300 rounded-xl bg-white font-semibold text-ink-900 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                            >
+                              {Array.isArray(sbBatches) && sbBatches.filter((b) => b.status !== 'archived').map((b) => (
+                                <option key={b.id} value={b.id}>
+                                  {b.name}
+                                </option>
+                              ))}
+                              {(!sbBatches || sbBatches.length === 0) && (
+                                <>
+                                  <option value="foundations_sem1">Ilm Foundations • Fall 2026</option>
+                                  <option value="cohort_2026">General Cohort 2026</option>
+                                </>
+                              )}
+                            </select>
+                          </div>
+
+                          <div>
+                            <label className="text-[10px] font-bold uppercase tracking-wider text-ink-500 block mb-1">
+                              Date
+                            </label>
+                            <input
+                              type="date"
+                              value={attendanceDate}
+                              onChange={(e) => setAttendanceDate(e.target.value)}
+                              className="w-full px-2.5 py-2 text-xs border border-sand-300 rounded-xl bg-white font-semibold text-ink-900 focus:outline-none focus:ring-2 focus:ring-primary-500/20 cursor-pointer"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="text-[10px] font-bold uppercase tracking-wider text-ink-500 block mb-1">
+                              Delivery Mode
+                            </label>
+                            <select
+                              value={attendanceDeliveryMode}
+                              onChange={(e) => setAttendanceDeliveryMode(e.target.value)}
+                              className="w-full px-2.5 py-2 text-xs border border-sand-300 rounded-xl bg-white font-semibold text-ink-900 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                            >
+                              <option value="hybrid">Hybrid (Both)</option>
+                              <option value="onsite">Onsite (DHA)</option>
+                              <option value="online">Online (Meet)</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="text-[10px] font-bold uppercase tracking-wider text-ink-500">
+                              Lecture / Topic
+                            </label>
+                            {availableCourseLessons.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const next = !isCustomTopic;
+                                  setIsCustomTopic(next);
+                                  if (next) {
+                                    setAttendanceTopic('');
+                                  } else if (availableCourseLessons[0]) {
+                                    setAttendanceTopic(availableCourseLessons[0].title);
+                                  }
+                                }}
+                                className="text-[10px] text-primary-800 hover:underline font-semibold cursor-pointer"
+                              >
+                                {isCustomTopic ? '← Select from Course Lessons' : '+ Custom Topic'}
+                              </button>
+                            )}
+                          </div>
+
+                          {!isCustomTopic && availableCourseLessons.length > 0 ? (
+                            <select
+                              value={attendanceTopic}
+                              onChange={(e) => setAttendanceTopic(e.target.value)}
+                              className="w-full px-2.5 py-2 text-xs border border-sand-300 rounded-xl bg-white font-semibold text-ink-900 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                            >
+                              {availableCourseLessons.map((l, i) => (
+                                <option key={l.id || i} value={l.title}>
+                                  {l.title}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <input
+                              type="text"
+                              value={attendanceTopic}
+                              onChange={(e) => setAttendanceTopic(e.target.value)}
+                              placeholder="e.g. Lesson 4: The Definite Noun or Exam Review"
+                              className="w-full px-2.5 py-2 text-xs border border-sand-300 rounded-xl bg-white font-semibold text-ink-900 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                            />
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="px-6 border-b border-sand-200 bg-white flex items-center justify-between">
+                        <div className="flex items-center gap-5">
+                          <button
+                            type="button"
+                            onClick={() => setAttendanceActiveTab('register')}
+                            className={`py-3 text-xs font-bold border-b-2 transition-colors cursor-pointer ${
+                              attendanceActiveTab === 'register'
+                                ? 'border-primary-900 text-primary-950'
+                                : 'border-transparent text-ink-400 hover:text-ink-700'
+                            }`}
+                          >
+                            Roll Call ({totalEnrolled})
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setAttendanceActiveTab('upload')}
+                            className={`py-3 text-xs font-bold border-b-2 flex items-center gap-1.5 transition-colors cursor-pointer ${
+                              attendanceActiveTab === 'upload'
+                                ? 'border-primary-900 text-primary-950'
+                                : 'border-transparent text-ink-400 hover:text-ink-700'
+                            }`}
+                          >
+                            Upload Sheet
+                            {attendanceParseResult && (
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                            )}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="p-6 space-y-4">
+                        {attendanceActiveTab === 'register' && (
+                          <div className="space-y-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2 pb-1">
+                              <div className="flex items-center gap-1 bg-sand-100 p-0.5 rounded-lg">
+                                <button
+                                  type="button"
+                                  onClick={() => setAttendanceFormatFilter('all')}
+                                  className={`px-2.5 py-1 text-[11px] font-semibold rounded-md transition-all cursor-pointer ${
+                                    attendanceFormatFilter === 'all'
+                                      ? 'bg-white text-ink-900 shadow-xs font-bold'
+                                      : 'text-ink-600 hover:text-ink-900'
+                                  }`}
+                                >
+                                  All ({totalEnrolled})
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setAttendanceFormatFilter('onsite')}
+                                  className={`px-2.5 py-1 text-[11px] font-semibold rounded-md transition-all cursor-pointer ${
+                                    attendanceFormatFilter === 'onsite'
+                                      ? 'bg-white text-ink-900 shadow-xs font-bold'
+                                      : 'text-ink-600 hover:text-ink-900'
+                                  }`}
+                                >
+                                  Onsite ({onsiteEnrolled})
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setAttendanceFormatFilter('online')}
+                                  className={`px-2.5 py-1 text-[11px] font-semibold rounded-md transition-all cursor-pointer ${
+                                    attendanceFormatFilter === 'online'
+                                      ? 'bg-white text-ink-900 shadow-xs font-bold'
+                                      : 'text-ink-600 hover:text-ink-900'
+                                  }`}
+                                >
+                                  Online ({onlineEnrolled})
+                                </button>
+                              </div>
+
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleMarkAllAttendance('present', 'all')}
+                                  className="text-[11px] font-bold text-primary-900 hover:text-primary-950 px-2.5 py-1 rounded-lg bg-primary-50/80 hover:bg-primary-100 border border-primary-200/70 transition-colors cursor-pointer"
+                                >
+                                  Mark All Present
+                                </button>
+                                <span className="text-sand-300">•</span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleMarkAllAttendance('absent', 'all')}
+                                  className="text-[11px] font-bold text-rose-700 hover:text-rose-900 px-2.5 py-1 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
+                                >
+                                  Mark All Absent
+                                </button>
+                              </div>
+                            </div>
+
+                            {totalEnrolled === 0 ? (
+                              <div className="p-6 text-center text-xs text-ink-500 bg-sand-50 rounded-xl">
+                                No students enrolled in this course.
+                              </div>
+                            ) : (
+                              <div className="divide-y divide-sand-100 rounded-xl border border-sand-200 overflow-hidden">
+                                {filteredAttendanceStudents.map((std) => {
+                                  const status = attendanceRecords[std.id] || 'present';
+                                  const initial = (std.name || 'S').charAt(0).toUpperCase();
+
+                                  return (
+                                    <div
+                                      key={std.id}
+                                      className="p-3.5 flex items-center justify-between gap-3 hover:bg-sand-50/50 transition-colors"
+                                    >
+                                      <div className="flex items-center gap-3 min-w-0">
+                                        <div className="w-8 h-8 rounded-full bg-sand-200 text-ink-800 font-bold flex items-center justify-center text-xs shrink-0">
+                                          {initial}
+                                        </div>
+                                        <div className="min-w-0">
+                                          <div className="flex items-center gap-1.5">
+                                            <span className="text-xs font-bold text-ink-900 truncate">{std.name}</span>
+                                            <span className="px-1.5 py-0.2 rounded text-[9px] font-semibold bg-sand-100 text-ink-600 uppercase">
+                                              {std.format || 'online'}
+                                            </span>
+                                          </div>
+                                          <div className="text-[11px] text-ink-400 truncate">{std.email}</div>
+                                        </div>
+                                      </div>
+
+                                      <div className="flex items-center gap-1.5 shrink-0">
+                                        <button
+                                          type="button"
+                                          onClick={() => handleSetStudentAttendance(std.id, 'present')}
+                                          className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                                            status === 'present'
+                                              ? 'bg-primary-900 text-white font-bold shadow-xs'
+                                              : 'bg-sand-100 text-ink-600 hover:bg-sand-200'
+                                          }`}
+                                        >
+                                          Present
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleSetStudentAttendance(std.id, 'late')}
+                                          className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                                            status === 'late'
+                                              ? 'bg-gold-500 text-white font-bold shadow-xs'
+                                              : 'bg-sand-100 text-ink-600 hover:bg-sand-200'
+                                          }`}
+                                        >
+                                          Late
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleSetStudentAttendance(std.id, 'absent')}
+                                          className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                                            status === 'absent'
+                                              ? 'bg-rose-600 text-white font-bold shadow-xs'
+                                              : 'bg-sand-100 text-ink-600 hover:bg-sand-200'
+                                          }`}
+                                        >
+                                          Absent
+                                        </button>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {attendanceActiveTab === 'upload' && (
+                          <div className="space-y-3.5 text-xs">
+                            <div className="p-3 bg-sand-50 rounded-xl border border-sand-200 text-ink-600">
+                              Upload or paste Google Meet CSV attendance. Attendees will automatically match by email/name.
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              <label className="p-4 rounded-xl border-2 border-dashed border-sand-300 hover:border-sand-400 flex flex-col items-center justify-center text-center cursor-pointer space-y-1.5 transition-colors">
+                                <UploadCloud size={20} className="text-ink-400" />
+                                <span className="font-semibold text-ink-800">Upload CSV file</span>
+                                <span className="text-[10px] text-ink-400">Google Meet or Roll-call CSV</span>
+                                <input
+                                  type="file"
+                                  accept=".csv,.tsv,.txt"
+                                  onChange={handleAttendanceFileUpload}
+                                  className="hidden"
+                                />
+                              </label>
+
+                              <div className="space-y-1.5">
+                                <textarea
+                                  rows={4}
+                                  value={attendanceSheetText}
+                                  onChange={(e) => setAttendanceSheetText(e.target.value)}
+                                  placeholder="Or paste attendee emails or CSV rows here..."
+                                  className="w-full p-2.5 text-xs font-mono border border-sand-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={handleParseAttendanceSheet}
+                                  disabled={!attendanceSheetText.trim()}
+                                  className="w-full py-1.5 px-3 text-xs font-bold rounded-lg bg-sand-200 hover:bg-sand-300 text-ink-800 transition-colors disabled:opacity-50 cursor-pointer"
+                                >
+                                  Parse Pasted Text
+                                </button>
+                              </div>
+                            </div>
+
+                            {attendanceParseResult && (
+                              <div className="p-3.5 bg-sand-50 rounded-xl border border-sand-200 space-y-3">
+                                <div className="flex items-center justify-between">
+                                  <span className="font-bold text-xs text-ink-900">
+                                    Matched: {attendanceParseResult.matched.length} of {totalEnrolled} enrolled
+                                  </span>
+                                  <div className="flex items-center gap-1.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleApplyParsedAttendance('safe_hybrid')}
+                                      className="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition-all cursor-pointer"
+                                    >
+                                      Sync Online (Keep Onsite)
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleApplyParsedAttendance('all')}
+                                      className="px-2.5 py-1 rounded-lg bg-sand-200 hover:bg-sand-300 text-ink-800 font-semibold text-xs transition-colors cursor-pointer"
+                                    >
+                                      Full Override
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {attendanceParseResult.unmatchedRows?.length > 0 && (
+                                  <div className="pt-2.5 border-t border-sand-200 space-y-2">
+                                    <div className="flex items-center justify-between">
+                                      <div className="flex items-center gap-1.5">
+                                        <AlertCircle className="w-3.5 h-3.5 text-amber-700" />
+                                        <span className="text-xs font-bold text-amber-900">
+                                          {attendanceParseResult.unmatchedRows.length} Unmatched {attendanceParseResult.unmatchedRows.length === 1 ? 'Attendee' : 'Attendees'} (Not in Course Roster)
+                                        </span>
+                                      </div>
+                                      <span className="text-[11px] text-ink-500">
+                                        Ask in class to identify students who joined with alternate emails
+                                      </span>
+                                    </div>
+                                    <div className="max-h-36 overflow-y-auto space-y-1 pr-1">
+                                      {attendanceParseResult.unmatchedRows.map((unmatched, uIdx) => (
+                                        <div
+                                          key={uIdx}
+                                          className="flex items-center justify-between px-2.5 py-1.5 bg-white border border-sand-200 rounded-lg text-xs"
+                                        >
+                                          <div className="flex items-center gap-2 min-w-0">
+                                            <div className="w-5 h-5 rounded-full bg-sand-100 text-ink-600 font-bold text-[10px] flex items-center justify-center shrink-0">
+                                              {(unmatched.detectedName?.[0] || unmatched.detectedEmail?.[0] || '?').toUpperCase()}
+                                            </div>
+                                            <div className="truncate">
+                                              <span className="font-semibold text-ink-900">
+                                                {unmatched.detectedName || 'Unknown Name'}
+                                              </span>
+                                              {unmatched.detectedEmail && (
+                                                <span className="ml-1.5 text-ink-500 font-mono text-[11px]">
+                                                  &lt;{unmatched.detectedEmail}&gt;
+                                                </span>
+                                              )}
+                                            </div>
+                                          </div>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setAttendanceActiveTab('register');
+                                              setAttendanceToast(`Check roster for: ${unmatched.detectedName || unmatched.detectedEmail}`);
+                                              setTimeout(() => setAttendanceToast(''), 4000);
+                                            }}
+                                            className="ml-2 px-2 py-0.5 text-[11px] font-semibold text-primary-900 bg-sand-100 hover:bg-sand-200 rounded transition-colors shrink-0 cursor-pointer"
+                                          >
+                                            Mark in Roll Call &rarr;
+                                          </button>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="px-6 py-3.5 bg-sand-50 border-t border-sand-200 flex items-center justify-between">
+                        <div className="text-xs text-ink-600 font-medium">
+                          {presentCount} of {totalEnrolled} Present ({currentRatePct}%)
+                          {attendanceToast && (
+                            <span className="ml-2 font-bold text-emerald-800">
+                              • {attendanceToast}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAttendanceModalMode('lessons');
+                              setEditingAttendanceSessionId(null);
+                            }}
+                            className="px-3.5 py-1.5 rounded-lg text-ink-600 hover:bg-sand-200/80 text-xs font-semibold cursor-pointer transition-colors"
+                          >
+                            Back to Lessons
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleSaveAttendance}
+                            className="px-5 py-2 rounded-xl bg-primary-900 hover:bg-primary-800 text-white text-xs font-bold shadow-xs hover:shadow transition-all cursor-pointer"
+                          >
+                            {editingAttendanceSessionId ? 'Save & Update Session' : 'Save Attendance'}
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              );
+            }
 
             return (
               <div className="bg-white rounded-2xl border border-sand-200 p-6 space-y-5 shadow-xs animate-in fade-in duration-200">
@@ -7166,1002 +8126,6 @@ export default function AdminDashboard() {
             </div>
           </div>
         )}
-
-        {/* ATTENDANCE MANAGER & DAILY ROLL-CALL MODAL (MINIMAL & LESSONS INTEGRATED) */}
-        {isAttendanceModalOpen && (() => {
-          const currentCourse = courses.find((c) => c.id === attendanceCourseId) || courses[0];
-          const totalEnrolled = attendanceEnrolledStudents.length;
-          const onsiteEnrolled = attendanceEnrolledStudents.filter((s) => (s.format || '').toLowerCase().includes('onsite')).length;
-          const onlineEnrolled = attendanceEnrolledStudents.filter((s) => (s.format || '').toLowerCase().includes('online')).length;
-          const presentCount = attendanceEnrolledStudents.filter((s) => (attendanceRecords[s.id] || 'present') === 'present').length;
-          const lateCount = attendanceEnrolledStudents.filter((s) => attendanceRecords[s.id] === 'late').length;
-          const absentCount = attendanceEnrolledStudents.filter((s) => attendanceRecords[s.id] === 'absent').length;
-          const currentRatePct = totalEnrolled > 0 ? Math.round(((presentCount + lateCount * 0.75) / totalEnrolled) * 100) : 0;
-
-          const filteredStudents = attendanceEnrolledStudents.filter((s) => {
-            const fmt = (s.format || 'online').toLowerCase();
-            if (attendanceFormatFilter === 'all') return true;
-            return fmt.includes(attendanceFormatFilter);
-          });
-
-          // All sessions for this course
-          const thisCourseSessions = attendanceSessions.filter((s) => s.courseId === attendanceCourseId);
-
-          // Course average attendance rate
-          let courseAvgRate = null;
-          if (thisCourseSessions.length > 0) {
-            let sum = 0;
-            thisCourseSessions.forEach((sess) => {
-              let p = 0, l = 0, a = 0;
-              if (sess.records) {
-                Object.values(sess.records).forEach((st) => {
-                  if (st === 'present') p++;
-                  else if (st === 'late') l++;
-                  else if (st === 'absent') a++;
-                });
-              }
-              const tot = p + l + a;
-              sum += tot > 0 ? ((p + l * 0.75) / tot) * 100 : 100;
-            });
-            courseAvgRate = Math.round(sum / thisCourseSessions.length);
-          }
-
-          // Unmatched historical/custom sessions for this course that aren't in availableCourseLessons
-          const unmatchedSessions = thisCourseSessions.filter((s) => {
-            if (!s.topic) return true;
-            const sTopic = s.topic.trim().toLowerCase();
-            return !availableCourseLessons.some((l) => {
-              const lTitle = (l.title || '').trim().toLowerCase();
-              return sTopic === lTitle || sTopic.includes(lTitle) || lTitle.includes(sTopic);
-            });
-          });
-
-          // Count of pending (unrecorded) curriculum lessons
-          const pendingLessonsCount = availableCourseLessons.filter((l) => {
-            const lTitle = (l.title || '').trim().toLowerCase();
-            return !thisCourseSessions.some((s) => {
-              const sTopic = (s.topic || '').trim().toLowerCase();
-              return sTopic === lTitle || sTopic.includes(lTitle) || lTitle.includes(sTopic);
-            });
-          }).length;
-
-          return (
-            <div className="fixed inset-0 bg-primary-950/70 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4">
-              <div
-                className={`bg-white rounded-2xl shadow-2xl ${
-                  attendanceModalMode === 'lessons' ? 'max-w-3xl' : 'max-w-2xl'
-                } w-full border border-sand-200 overflow-hidden flex flex-col max-h-[90vh] animate-in fade-in zoom-in-95 duration-150`}
-              >
-                {/* ========================================================= */}
-                {/* VIEW 1: COURSE LESSONS & ATTENDANCE HISTORY LIST */}
-                {/* ========================================================= */}
-                {attendanceModalMode === 'lessons' && (
-                  <>
-                    {/* Header */}
-                    <div className="px-5 py-4 bg-sand-50/90 border-b border-sand-200/90 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-900 to-primary-950 text-gold-300 border border-primary-800/80 flex items-center justify-center shadow-xs shrink-0">
-                          <BookOpen size={18} />
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <h3 className="text-sm sm:text-base font-bold text-ink-900">
-                              {currentCourse?.title || 'Course Attendance'}
-                            </h3>
-                            <span className="text-[10px] uppercase font-bold tracking-wider px-2.5 py-0.5 rounded-full bg-gold-50 text-gold-900 border border-gold-200/90 shadow-2xs">
-                              {currentCourse?.category || 'Course'}
-                            </span>
-                          </div>
-                          <p className="text-[11px] text-ink-500 mt-0.5">
-                            Instructor: <strong className="font-semibold text-ink-800">{currentCourse?.instructor || 'Faculty Scholar'}</strong> • <span className="font-medium text-ink-700">{totalEnrolled} Enrolled</span> • Mode: <span className="capitalize font-semibold text-primary-900">{currentCourse?.format || 'Hybrid'}</span>
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2 self-end sm:self-center">
-                        {/* Course Switcher */}
-                        <div className="relative">
-                          <select
-                            value={attendanceCourseId}
-                            onChange={(e) => handleAttendanceCourseChange(e.target.value)}
-                            className="appearance-none pl-3 pr-7 py-1.5 text-xs border border-sand-300 rounded-xl bg-white font-bold text-ink-900 focus:outline-none focus:ring-2 focus:ring-primary-500/20 cursor-pointer max-w-[190px] truncate shadow-2xs"
-                          >
-                            {courses.map((c) => (
-                              <option key={c.id} value={c.id}>
-                                {c.title}
-                              </option>
-                            ))}
-                          </select>
-                          <ChevronDown size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-400 pointer-events-none" />
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() => setIsAttendanceModalOpen(false)}
-                          className="p-1.5 rounded-xl text-ink-400 hover:text-ink-800 hover:bg-sand-200/60 transition-colors cursor-pointer"
-                        >
-                          <X size={18} />
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Brand Metrics Telemetry Strip */}
-                    <div className="px-5 py-2.5 bg-sand-50/40 border-b border-sand-200/80 grid grid-cols-2 sm:grid-cols-4 gap-2.5 shrink-0">
-                      <div className="bg-white p-2.5 rounded-xl border border-sand-200/90 shadow-2xs">
-                        <div className="text-[10px] font-bold uppercase tracking-wider text-ink-500 flex items-center gap-1.5">
-                          <BookOpen size={11} className="text-primary-800" />
-                          Curriculum
-                        </div>
-                        <div className="text-xs font-bold text-ink-900 mt-1">{availableCourseLessons.length} Lessons</div>
-                      </div>
-                      <div className="bg-primary-50/50 p-2.5 rounded-xl border border-primary-200/70 shadow-2xs">
-                        <div className="text-[10px] font-bold uppercase tracking-wider text-primary-950 flex items-center gap-1.5">
-                          <Check size={11} className="text-primary-800" />
-                          Sessions Logged
-                        </div>
-                        <div className="text-xs font-bold text-primary-950 mt-1">{thisCourseSessions.length} Recorded</div>
-                      </div>
-                      <div className="bg-white p-2.5 rounded-xl border border-sand-200/90 shadow-2xs">
-                        <div className="text-[10px] font-bold uppercase tracking-wider text-ink-500 flex items-center gap-1.5">
-                          <Clock size={11} className="text-ink-400" />
-                          Unrecorded
-                        </div>
-                        <div className="text-xs font-bold text-ink-700 mt-1">{pendingLessonsCount} Pending</div>
-                      </div>
-                      <div className="bg-gold-50/60 p-2.5 rounded-xl border border-gold-200/80 shadow-2xs">
-                        <div className="text-[10px] font-bold uppercase tracking-wider text-gold-900 flex items-center gap-1.5">
-                          <ShieldCheck size={11} className="text-gold-700" />
-                          Attendance Rate
-                        </div>
-                        <div className={`text-xs font-bold mt-1 ${courseAvgRate !== null && courseAvgRate >= 85 ? 'text-primary-950' : 'text-gold-900'}`}>
-                          {courseAvgRate !== null ? `${courseAvgRate}% Avg` : '—'}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Sub Navigation Bar inside Modal */}
-                    <div className="px-5 border-b border-sand-200 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 shrink-0">
-                      <div className="flex items-center gap-4">
-                        <button
-                          type="button"
-                          onClick={() => setAttendanceLessonsTab('lessons')}
-                          className={`py-2.5 text-xs font-bold border-b-2 transition-colors cursor-pointer ${
-                            attendanceLessonsTab === 'lessons'
-                              ? 'border-primary-900 text-primary-950'
-                              : 'border-transparent text-ink-400 hover:text-ink-700'
-                          }`}
-                        >
-                          Course Lessons ({availableCourseLessons.length})
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setAttendanceLessonsTab('history')}
-                          className={`py-2.5 text-xs font-bold border-b-2 transition-colors cursor-pointer ${
-                            attendanceLessonsTab === 'history'
-                              ? 'border-primary-900 text-primary-950'
-                              : 'border-transparent text-ink-400 hover:text-ink-700'
-                          }`}
-                        >
-                          Session History ({thisCourseSessions.length})
-                        </button>
-                      </div>
-
-                      <div className="flex items-center gap-2 py-1.5">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setIsCustomTopic(true);
-                            setAttendanceTopic('');
-                            setEditingAttendanceSessionId(null);
-                            setAttendanceModalMode('rollcall');
-                            setAttendanceActiveTab('register');
-                          }}
-                          className="inline-flex items-center gap-1.5 text-[11px] font-bold text-primary-950 bg-primary-50/80 hover:bg-primary-100 border border-primary-200/80 px-3 py-1.5 rounded-xl transition-all cursor-pointer shadow-2xs"
-                        >
-                          <Plus size={12} />
-                          <span>Custom Session</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setEditingAttendanceSessionId(null);
-                            setAttendanceModalMode('rollcall');
-                            setAttendanceActiveTab('upload');
-                          }}
-                          className="inline-flex items-center gap-1.5 text-[11px] font-bold text-ink-700 bg-sand-100/90 hover:bg-sand-200/90 border border-sand-200 px-3 py-1.5 rounded-xl transition-all cursor-pointer shadow-2xs"
-                        >
-                          <UploadCloud size={12} />
-                          <span>Upload Sheet</span>
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Lessons View Body */}
-                    <div className="flex-1 overflow-y-auto p-4 sm:p-5">
-                      {/* TAB 1: CURRICULUM LESSONS */}
-                      {attendanceLessonsTab === 'lessons' && (
-                        <div className="space-y-3">
-                          {availableCourseLessons.length === 0 ? (
-                            <div className="p-8 text-center bg-sand-50 rounded-xl border border-sand-200 space-y-2">
-                              <p className="text-xs text-ink-600 font-medium">
-                                No pre-configured syllabus lessons found for this course.
-                              </p>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setIsCustomTopic(true);
-                                  setAttendanceTopic('');
-                                  setEditingAttendanceSessionId(null);
-                                  setAttendanceModalMode('rollcall');
-                                }}
-                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary-900 hover:bg-primary-800 text-white text-xs font-bold cursor-pointer"
-                              >
-                                <Plus size={13} />
-                                Take Custom Roll Call
-                              </button>
-                            </div>
-                          ) : (
-                            availableCourseLessons.map((les, idx) => {
-                              const matchedSessions = thisCourseSessions.filter((s) => {
-                                if (s.lessonId && les.id && s.lessonId === les.id) return true;
-                                if (!s.topic) return false;
-                                const sTopic = s.topic.trim().toLowerCase();
-                                const lTitle = (les.title || '').trim().toLowerCase();
-                                return sTopic === lTitle || sTopic.includes(lTitle) || lTitle.includes(sTopic);
-                              });
-                              const hasRecorded = matchedSessions.length > 0;
-                              const latest = hasRecorded ? matchedSessions[matchedSessions.length - 1] : null;
-
-                              let presentTotal = 0;
-                              let lateTotal = 0;
-                              let absentTotal = 0;
-                              if (latest && latest.records) {
-                                Object.values(latest.records).forEach((st) => {
-                                  if (st === 'present') presentTotal++;
-                                  else if (st === 'late') lateTotal++;
-                                  else if (st === 'absent') absentTotal++;
-                                });
-                              }
-                              const sessionRate = (presentTotal + lateTotal + absentTotal) > 0
-                                ? Math.round(((presentTotal + lateTotal * 0.75) / (presentTotal + lateTotal + absentTotal)) * 100)
-                                : null;
-
-                              return (
-                                <div
-                                  key={les.id || idx}
-                                  className={`p-3.5 sm:p-4 rounded-xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs ${
-                                    hasRecorded
-                                      ? 'bg-primary-50/20 border-primary-200/80 hover:border-primary-300'
-                                      : 'bg-white border-sand-200/90 hover:border-sand-300'
-                                  }`}
-                                >
-                                  <div className="flex items-start gap-3 min-w-0">
-                                    <div
-                                      className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 mt-0.5 ${
-                                        hasRecorded
-                                          ? 'bg-primary-100 text-primary-950 border border-primary-200'
-                                          : 'bg-sand-100 text-ink-600 border border-sand-200/90'
-                                      }`}
-                                    >
-                                      {idx + 1}
-                                    </div>
-                                    <div className="min-w-0">
-                                      <h4 className="text-xs font-bold text-ink-900 truncate sm:whitespace-normal">
-                                        {les.title}
-                                      </h4>
-                                      <div className="flex flex-wrap items-center gap-2 mt-1 text-[11px] text-ink-500">
-                                        {les.duration && <span>{les.duration}</span>}
-                                        {hasRecorded ? (
-                                          <>
-                                            <span>•</span>
-                                            <span className="font-semibold text-primary-900">
-                                              Recorded on {latest.date} ({latest.deliveryMode || 'hybrid'})
-                                            </span>
-                                            <span>•</span>
-                                            <span className="font-bold text-ink-700">
-                                              {presentTotal} Present • {absentTotal} Absent ({sessionRate}%)
-                                            </span>
-                                          </>
-                                        ) : (
-                                          <>
-                                            <span>•</span>
-                                            <span className="text-ink-400 italic">Not yet recorded</span>
-                                          </>
-                                        )}
-                                      </div>
-                                    </div>
-                                  </div>
-
-                                  <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
-                                    {hasRecorded ? (
-                                      <>
-                                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-primary-100/90 text-primary-950 border border-primary-200/80 font-bold text-[10px]">
-                                          <Check size={11} />
-                                          Recorded
-                                        </span>
-                                        <button
-                                          type="button"
-                                          onClick={() => handleViewSessionAttendance(latest)}
-                                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-sand-300 bg-white hover:bg-sand-50 text-ink-800 hover:text-ink-950 text-xs font-bold transition-all cursor-pointer shadow-2xs"
-                                          title="View & inspect recorded student roll call for this lesson"
-                                        >
-                                          <Eye size={13} />
-                                          View Attendance
-                                        </button>
-                                      </>
-                                    ) : (
-                                      <>
-                                        <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-sand-100 text-ink-600 border border-sand-200/80 font-semibold text-[10px]">
-                                          Pending
-                                        </span>
-                                        <button
-                                          type="button"
-                                          onClick={() => handleStartLessonAttendance(les)}
-                                          className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-primary-900 hover:bg-primary-800 text-white text-xs font-bold transition-all shadow-xs hover:shadow cursor-pointer"
-                                          title="Mark attendance for this lesson"
-                                        >
-                                          <ClipboardCheck size={13} />
-                                          Mark Attendance
-                                        </button>
-                                      </>
-                                    )}
-                                  </div>
-                                </div>
-                              );
-                            })
-                          )}
-
-                          {/* Historical or Additional Custom Sessions for this Course */}
-                          {unmatchedSessions.length > 0 && (
-                            <div className="pt-3 border-t border-sand-200 space-y-2 mt-4">
-                              <div className="flex items-center justify-between">
-                                <h5 className="text-[11px] font-bold uppercase tracking-wider text-ink-600">
-                                  Additional Recorded Sessions ({unmatchedSessions.length})
-                                </h5>
-                                <span className="text-[11px] text-ink-400">
-                                  Custom or historical lectures recorded for this course
-                                </span>
-                              </div>
-                              {unmatchedSessions.map((sess) => {
-                                let presentTotal = 0;
-                                let absentTotal = 0;
-                                let lateTotal = 0;
-                                if (sess.records) {
-                                  Object.values(sess.records).forEach((st) => {
-                                    if (st === 'present') presentTotal++;
-                                    else if (st === 'late') lateTotal++;
-                                    else if (st === 'absent') absentTotal++;
-                                  });
-                                }
-                                const sRate = (presentTotal + lateTotal + absentTotal) > 0
-                                  ? Math.round(((presentTotal + lateTotal * 0.75) / (presentTotal + lateTotal + absentTotal)) * 100)
-                                  : null;
-
-                                return (
-                                  <div
-                                    key={sess.id}
-                                    className="p-3.5 bg-primary-50/20 rounded-xl border border-primary-200/70 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
-                                  >
-                                    <div className="flex items-center gap-2.5 min-w-0">
-                                      <div className="p-2 rounded-xl bg-primary-100 text-primary-950 border border-primary-200 shrink-0">
-                                        <Calendar size={14} />
-                                      </div>
-                                      <div className="truncate">
-                                        <div className="font-bold text-ink-900 truncate">{sess.topic}</div>
-                                        <div className="text-[11px] text-ink-500 mt-0.5">
-                                          {sess.date} • {sess.deliveryMode || 'hybrid'} • {presentTotal} Present, {absentTotal} Absent ({sRate}%)
-                                        </div>
-                                      </div>
-                                    </div>
-                                    <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
-                                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-primary-100/90 text-primary-950 border border-primary-200/80 font-bold text-[10px]">
-                                        <Check size={11} />
-                                        Recorded
-                                      </span>
-                                      <button
-                                        type="button"
-                                        onClick={() => handleViewSessionAttendance(sess)}
-                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-sand-300 bg-white hover:bg-sand-50 text-ink-800 text-xs font-bold transition-all cursor-pointer shadow-2xs"
-                                      >
-                                        <Eye size={12} />
-                                        View Attendance
-                                      </button>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      {/* TAB 2: COURSE SESSION HISTORY TABLE */}
-                      {attendanceLessonsTab === 'history' && (
-                        <div className="space-y-3">
-                          {thisCourseSessions.length === 0 ? (
-                            <div className="py-10 text-center text-xs text-ink-500">
-                              No attendance sessions logged yet for this course. Click "Mark Attendance" on any lesson to record your first roll call.
-                            </div>
-                          ) : (
-                            <div className="overflow-x-auto rounded-xl border border-sand-200">
-                              <table className="w-full text-left text-sm min-w-[620px]">
-                                <thead className="bg-sand-100/70 text-ink-700 text-xs font-semibold uppercase tracking-wider border-b border-sand-200">
-                                  <tr>
-                                    <th className="py-2.5 px-3">Date</th>
-                                    <th className="py-2.5 px-3">Lesson / Topic</th>
-                                    <th className="py-2.5 px-3">Mode</th>
-                                    <th className="py-2.5 px-3">Present / Absent</th>
-                                    <th className="py-2.5 px-3">Rate</th>
-                                    <th className="py-2.5 px-3 text-right">Actions</th>
-                                  </tr>
-                                </thead>
-                                <tbody className="divide-y divide-sand-200 text-xs">
-                                  {thisCourseSessions.map((sess) => {
-                                    let pCount = 0;
-                                    let lCount = 0;
-                                    let aCount = 0;
-                                    if (sess.records) {
-                                      Object.values(sess.records).forEach((st) => {
-                                        if (st === 'present') pCount++;
-                                        else if (st === 'late') lCount++;
-                                        else if (st === 'absent') aCount++;
-                                      });
-                                    }
-                                    const totalLogged = pCount + lCount + aCount;
-                                    const rate = totalLogged > 0 ? Math.round(((pCount + lCount * 0.75) / totalLogged) * 100) : 0;
-
-                                    return (
-                                      <tr key={sess.id} className="hover:bg-sand-50/60 transition-colors">
-                                        <td className="py-2.5 px-3 font-semibold text-ink-900 whitespace-nowrap">
-                                          {sess.date}
-                                        </td>
-                                        <td className="py-2.5 px-3 text-ink-900 font-medium max-w-xs truncate">
-                                          {sess.topic}
-                                        </td>
-                                        <td className="py-2.5 px-3 uppercase text-[10px] font-bold text-ink-600 whitespace-nowrap">
-                                          {sess.deliveryMode || 'hybrid'}
-                                        </td>
-                                        <td className="py-2.5 px-3 text-ink-700 whitespace-nowrap">
-                                          <span className="font-semibold text-emerald-800">{pCount} Present</span>
-                                          {lCount > 0 && <span className="ml-1 text-amber-700 font-semibold">• {lCount} Late</span>}
-                                          {aCount > 0 && <span className="ml-1 text-rose-700 font-semibold">• {aCount} Absent</span>}
-                                        </td>
-                                        <td className="py-2.5 px-3 font-bold whitespace-nowrap">
-                                          <span className={rate >= 85 ? 'text-emerald-800' : 'text-amber-800'}>
-                                            {rate}%
-                                          </span>
-                                        </td>
-                                        <td className="py-2.5 px-3 text-right whitespace-nowrap">
-                                          <div className="flex items-center justify-end gap-1.5">
-                                            <button
-                                              type="button"
-                                              onClick={() => handleViewSessionAttendance(sess)}
-                                              className="px-2.5 py-1 rounded-md bg-sand-100 hover:bg-sand-200 text-ink-800 font-bold text-[11px] transition-colors cursor-pointer"
-                                            >
-                                              View / Edit
-                                            </button>
-                                            <button
-                                              type="button"
-                                              onClick={() => handleDeleteAttendanceSession(sess.id)}
-                                              className="p-1 rounded-md text-ink-400 hover:text-rose-700 hover:bg-rose-50 transition-colors cursor-pointer"
-                                              title="Delete session"
-                                            >
-                                              <Trash2 size={13} />
-                                            </button>
-                                          </div>
-                                        </td>
-                                      </tr>
-                                    );
-                                  })}
-                                </tbody>
-                              </table>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Lessons View Footer */}
-                    <div className="px-5 py-3.5 bg-sand-50/90 border-t border-sand-200 flex items-center justify-between shrink-0">
-                      <div className="text-xs text-ink-500">
-                        {attendanceToast ? (
-                          <span className="font-bold text-primary-900">• {attendanceToast}</span>
-                        ) : (
-                          'Select any lesson to mark attendance or click "View Attendance" to inspect student records.'
-                        )}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setIsAttendanceModalOpen(false)}
-                        className="px-5 py-2 rounded-xl bg-primary-950 hover:bg-primary-900 text-white text-xs font-bold cursor-pointer transition-all shadow-2xs"
-                      >
-                        Close
-                      </button>
-                    </div>
-                  </>
-                )}
-
-                {/* ========================================================= */}
-                {/* VIEW 2: DAILY ROLL CALL / ATTENDANCE REGISTER */}
-                {/* ========================================================= */}
-                {attendanceModalMode === 'rollcall' && (
-                  <>
-                    {/* Header */}
-                    <div className="px-5 py-3.5 bg-sand-50 border-b border-sand-200 flex items-center justify-between shrink-0">
-                      <div className="flex items-center gap-2.5">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setAttendanceModalMode('lessons');
-                            setEditingAttendanceSessionId(null);
-                          }}
-                          className="inline-flex items-center gap-1.5 text-xs font-bold text-ink-700 hover:text-ink-900 bg-sand-100 hover:bg-sand-200 border border-sand-300 px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer mr-1"
-                          title="Return to course lessons list"
-                        >
-                          <ArrowLeft size={13} />
-                          Back to Lessons
-                        </button>
-                        <div>
-                          <h3 className="text-sm font-bold text-ink-900">
-                            {editingAttendanceSessionId ? 'View / Edit Lesson Attendance' : 'Mark Lesson Attendance'}
-                          </h3>
-                          <p className="text-[11px] text-ink-500">
-                            {currentCourse?.title} • {attendanceTopic || 'Selected Lesson'}
-                          </p>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setIsAttendanceModalOpen(false)}
-                        className="p-1 rounded-lg text-ink-400 hover:text-ink-700 hover:bg-sand-200/60 transition-colors cursor-pointer"
-                      >
-                        <X size={18} />
-                      </button>
-                    </div>
-
-                {/* Session Configuration (Compact Row) */}
-                <div className="p-4 bg-sand-50/40 border-b border-sand-200 space-y-2.5 shrink-0">
-                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5">
-                    <div>
-                      <label className="text-[10px] font-bold uppercase tracking-wider text-ink-500 block mb-1">
-                        Course
-                      </label>
-                      <select
-                        value={attendanceCourseId}
-                        onChange={(e) => handleAttendanceCourseChange(e.target.value)}
-                        className="w-full px-2.5 py-1.5 text-xs border border-sand-300 rounded-lg bg-white font-semibold text-ink-900 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
-                      >
-                        {courses.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.title}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="text-[10px] font-bold uppercase tracking-wider text-ink-500 block mb-1">
-                        Batch / Intake
-                      </label>
-                      <select
-                        value={attendanceCohortId}
-                        onChange={(e) => setAttendanceCohortId(e.target.value)}
-                        className="w-full px-2.5 py-1.5 text-xs border border-sand-300 rounded-lg bg-white font-semibold text-ink-900 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
-                      >
-                        {Array.isArray(sbBatches) && sbBatches.filter((b) => b.status !== 'archived').map((b) => (
-                          <option key={b.id} value={b.id}>
-                            {b.name}
-                          </option>
-                        ))}
-                        {(!sbBatches || sbBatches.length === 0) && (
-                          <>
-                            <option value="foundations_sem1">Ilm Foundations • Fall 2026</option>
-                            <option value="cohort_2026">General Cohort 2026</option>
-                          </>
-                        )}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="text-[10px] font-bold uppercase tracking-wider text-ink-500 block mb-1">
-                        Date
-                      </label>
-                      <input
-                        type="date"
-                        value={attendanceDate}
-                        onChange={(e) => setAttendanceDate(e.target.value)}
-                        className="w-full px-2.5 py-1.5 text-xs border border-sand-300 rounded-lg bg-white font-semibold text-ink-900 focus:outline-none focus:ring-2 focus:ring-primary-500/20 cursor-pointer"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-[10px] font-bold uppercase tracking-wider text-ink-500 block mb-1">
-                        Delivery Mode
-                      </label>
-                      <select
-                        value={attendanceDeliveryMode}
-                        onChange={(e) => setAttendanceDeliveryMode(e.target.value)}
-                        className="w-full px-2.5 py-1.5 text-xs border border-sand-300 rounded-lg bg-white font-semibold text-ink-900 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
-                      >
-                        <option value="hybrid">Hybrid (Both)</option>
-                        <option value="onsite">Onsite (DHA)</option>
-                        <option value="online">Online (Meet)</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="text-[10px] font-bold uppercase tracking-wider text-ink-500">
-                        Lecture / Topic
-                      </label>
-                      {availableCourseLessons.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const next = !isCustomTopic;
-                            setIsCustomTopic(next);
-                            if (next) {
-                              setAttendanceTopic('');
-                            } else if (availableCourseLessons[0]) {
-                              setAttendanceTopic(availableCourseLessons[0].title);
-                            }
-                          }}
-                          className="text-[10px] text-primary-800 hover:underline font-semibold cursor-pointer"
-                        >
-                          {isCustomTopic ? '← Select from Course Lessons' : '+ Custom Topic'}
-                        </button>
-                      )}
-                    </div>
-
-                    {!isCustomTopic && availableCourseLessons.length > 0 ? (
-                      <select
-                        value={attendanceTopic}
-                        onChange={(e) => setAttendanceTopic(e.target.value)}
-                        className="w-full px-2.5 py-1.5 text-xs border border-sand-300 rounded-lg bg-white font-semibold text-ink-900 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
-                      >
-                        {availableCourseLessons.map((l, i) => (
-                          <option key={l.id || i} value={l.title}>
-                            {l.title}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <input
-                        type="text"
-                        value={attendanceTopic}
-                        onChange={(e) => setAttendanceTopic(e.target.value)}
-                        placeholder="e.g. Lesson 4: The Definite Noun or Exam Review"
-                        className="w-full px-2.5 py-1.5 text-xs border border-sand-300 rounded-lg bg-white font-semibold text-ink-900 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
-                      />
-                    )}
-                  </div>
-                </div>
-
-                {/* Sub Tabs */}
-                <div className="px-5 border-b border-sand-200 bg-white flex items-center justify-between shrink-0">
-                  <div className="flex items-center gap-4">
-                    <button
-                      type="button"
-                      onClick={() => setAttendanceActiveTab('register')}
-                      className={`py-2.5 text-xs font-bold border-b-2 transition-colors cursor-pointer ${
-                        attendanceActiveTab === 'register'
-                          ? 'border-primary-900 text-primary-950'
-                          : 'border-transparent text-ink-400 hover:text-ink-700'
-                      }`}
-                    >
-                      Roll Call ({totalEnrolled})
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setAttendanceActiveTab('upload')}
-                      className={`py-2.5 text-xs font-bold border-b-2 flex items-center gap-1.5 transition-colors cursor-pointer ${
-                        attendanceActiveTab === 'upload'
-                          ? 'border-primary-900 text-primary-950'
-                          : 'border-transparent text-ink-400 hover:text-ink-700'
-                      }`}
-                    >
-                      Upload Sheet
-                      {attendanceParseResult && (
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                      )}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Modal Body */}
-                <div className="flex-1 overflow-y-auto p-4 sm:p-5">
-                  {/* TAB 1: ROLL CALL */}
-                  {attendanceActiveTab === 'register' && (
-                    <div className="space-y-3">
-                      {/* Single Compact Toolbar Row */}
-                      <div className="flex flex-wrap items-center justify-between gap-2 pb-1">
-                        <div className="flex items-center gap-1 bg-sand-100 p-0.5 rounded-lg">
-                          <button
-                            type="button"
-                            onClick={() => setAttendanceFormatFilter('all')}
-                            className={`px-2 py-1 text-[11px] font-semibold rounded-md transition-all cursor-pointer ${
-                              attendanceFormatFilter === 'all'
-                                ? 'bg-white text-ink-900 shadow-xs font-bold'
-                                : 'text-ink-600 hover:text-ink-900'
-                            }`}
-                          >
-                            All ({totalEnrolled})
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setAttendanceFormatFilter('onsite')}
-                            className={`px-2 py-1 text-[11px] font-semibold rounded-md transition-all cursor-pointer ${
-                              attendanceFormatFilter === 'onsite'
-                                ? 'bg-white text-ink-900 shadow-xs font-bold'
-                                : 'text-ink-600 hover:text-ink-900'
-                            }`}
-                          >
-                            Onsite ({onsiteEnrolled})
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setAttendanceFormatFilter('online')}
-                            className={`px-2 py-1 text-[11px] font-semibold rounded-md transition-all cursor-pointer ${
-                              attendanceFormatFilter === 'online'
-                                ? 'bg-white text-ink-900 shadow-xs font-bold'
-                                : 'text-ink-600 hover:text-ink-900'
-                            }`}
-                          >
-                            Online ({onlineEnrolled})
-                          </button>
-                        </div>
-
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => handleMarkAllAttendance('present', 'all')}
-                            className="text-[11px] font-bold text-primary-900 hover:text-primary-950 px-2.5 py-1 rounded-lg bg-primary-50/80 hover:bg-primary-100 border border-primary-200/70 transition-colors cursor-pointer"
-                          >
-                            Mark All Present
-                          </button>
-                          <span className="text-sand-300">•</span>
-                          <button
-                            type="button"
-                            onClick={() => handleMarkAllAttendance('absent', 'all')}
-                            className="text-[11px] font-bold text-rose-700 hover:text-rose-900 px-2.5 py-1 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
-                          >
-                            Mark All Absent
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Roster List */}
-                      {totalEnrolled === 0 ? (
-                        <div className="p-6 text-center text-xs text-ink-500 bg-sand-50 rounded-xl">
-                          No students enrolled in this course.
-                        </div>
-                      ) : (
-                        <div className="divide-y divide-sand-100 rounded-xl border border-sand-200 overflow-hidden">
-                          {filteredStudents.map((std) => {
-                            const status = attendanceRecords[std.id] || 'present';
-                            const initial = (std.name || 'S').charAt(0).toUpperCase();
-
-                            return (
-                              <div
-                                key={std.id}
-                                className="p-3 flex items-center justify-between gap-3 hover:bg-sand-50/50 transition-colors"
-                              >
-                                <div className="flex items-center gap-2.5 min-w-0">
-                                  <div className="w-7 h-7 rounded-full bg-sand-200 text-ink-800 font-bold flex items-center justify-center text-[11px] shrink-0">
-                                    {initial}
-                                  </div>
-                                  <div className="min-w-0">
-                                    <div className="flex items-center gap-1.5">
-                                      <span className="text-xs font-bold text-ink-900 truncate">{std.name}</span>
-                                      <span className="px-1.5 py-0.2 rounded text-[9px] font-semibold bg-sand-100 text-ink-600 uppercase">
-                                        {std.format || 'online'}
-                                      </span>
-                                    </div>
-                                    <div className="text-[11px] text-ink-400 truncate">{std.email}</div>
-                                  </div>
-                                </div>
-
-                                <div className="flex items-center gap-1.5 shrink-0">
-                                  <button
-                                    type="button"
-                                    onClick={() => handleSetStudentAttendance(std.id, 'present')}
-                                    className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
-                                      status === 'present'
-                                        ? 'bg-primary-900 text-white font-bold shadow-xs'
-                                        : 'bg-sand-100 text-ink-600 hover:bg-sand-200'
-                                    }`}
-                                  >
-                                    Present
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleSetStudentAttendance(std.id, 'late')}
-                                    className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
-                                      status === 'late'
-                                        ? 'bg-gold-500 text-white font-bold shadow-xs'
-                                        : 'bg-sand-100 text-ink-600 hover:bg-sand-200'
-                                    }`}
-                                  >
-                                    Late
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleSetStudentAttendance(std.id, 'absent')}
-                                    className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
-                                      status === 'absent'
-                                        ? 'bg-rose-600 text-white font-bold shadow-xs'
-                                        : 'bg-sand-100 text-ink-600 hover:bg-sand-200'
-                                    }`}
-                                  >
-                                    Absent
-                                  </button>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* TAB 2: UPLOAD SHEET */}
-                  {attendanceActiveTab === 'upload' && (
-                    <div className="space-y-3.5 text-xs">
-                      <div className="p-3 bg-sand-50 rounded-xl border border-sand-200 text-ink-600">
-                        Upload or paste Google Meet CSV attendance. Attendees will automatically match by email/name.
-                      </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <label className="p-4 rounded-xl border-2 border-dashed border-sand-300 hover:border-sand-400 flex flex-col items-center justify-center text-center cursor-pointer space-y-1.5 transition-colors">
-                          <UploadCloud size={20} className="text-ink-400" />
-                          <span className="font-semibold text-ink-800">Upload CSV file</span>
-                          <span className="text-[10px] text-ink-400">Google Meet or Roll-call CSV</span>
-                          <input
-                            type="file"
-                            accept=".csv,.tsv,.txt"
-                            onChange={handleAttendanceFileUpload}
-                            className="hidden"
-                          />
-                        </label>
-
-                        <div className="space-y-1.5">
-                          <textarea
-                            rows={4}
-                            value={attendanceSheetText}
-                            onChange={(e) => setAttendanceSheetText(e.target.value)}
-                            placeholder="Or paste attendee emails or CSV rows here..."
-                            className="w-full p-2.5 text-xs font-mono border border-sand-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20"
-                          />
-                          <button
-                            type="button"
-                            onClick={handleParseAttendanceSheet}
-                            disabled={!attendanceSheetText.trim()}
-                            className="w-full py-1.5 px-3 text-xs font-bold rounded-lg bg-sand-200 hover:bg-sand-300 text-ink-800 transition-colors disabled:opacity-50 cursor-pointer"
-                          >
-                            Parse Pasted Text
-                          </button>
-                        </div>
-                      </div>
-
-                      {attendanceParseResult && (
-                        <div className="p-3.5 bg-sand-50 rounded-xl border border-sand-200 space-y-3">
-                          <div className="flex items-center justify-between">
-                            <span className="font-bold text-xs text-ink-900">
-                              Matched: {attendanceParseResult.matched.length} of {totalEnrolled} enrolled
-                            </span>
-                            <div className="flex items-center gap-1.5">
-                              <button
-                                type="button"
-                                onClick={() => handleApplyParsedAttendance('safe_hybrid')}
-                                className="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition-all cursor-pointer"
-                              >
-                                Sync Online (Keep Onsite)
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleApplyParsedAttendance('all')}
-                                className="px-2.5 py-1 rounded-lg bg-sand-200 hover:bg-sand-300 text-ink-800 font-semibold text-xs transition-colors cursor-pointer"
-                              >
-                                Full Override
-                              </button>
-                            </div>
-                          </div>
-
-                          {/* Unmatched / External Attendees */}
-                          {attendanceParseResult.unmatchedRows?.length > 0 && (
-                            <div className="pt-2.5 border-t border-sand-200 space-y-2">
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-1.5">
-                                  <AlertCircle className="w-3.5 h-3.5 text-amber-700" />
-                                  <span className="text-xs font-bold text-amber-900">
-                                    {attendanceParseResult.unmatchedRows.length} Unmatched {attendanceParseResult.unmatchedRows.length === 1 ? 'Attendee' : 'Attendees'} (Not in Course Roster)
-                                  </span>
-                                </div>
-                                <span className="text-[11px] text-ink-500">
-                                  Ask in class to identify students who joined with alternate emails
-                                </span>
-                              </div>
-                              <div className="max-h-36 overflow-y-auto space-y-1 pr-1">
-                                {attendanceParseResult.unmatchedRows.map((unmatched, uIdx) => (
-                                  <div
-                                    key={uIdx}
-                                    className="flex items-center justify-between px-2.5 py-1.5 bg-white border border-sand-200 rounded-lg text-xs"
-                                  >
-                                    <div className="flex items-center gap-2 min-w-0">
-                                      <div className="w-5 h-5 rounded-full bg-sand-100 text-ink-600 font-bold text-[10px] flex items-center justify-center shrink-0">
-                                        {(unmatched.detectedName?.[0] || unmatched.detectedEmail?.[0] || '?').toUpperCase()}
-                                      </div>
-                                      <div className="truncate">
-                                        <span className="font-semibold text-ink-900">
-                                          {unmatched.detectedName || 'Unknown Name'}
-                                        </span>
-                                        {unmatched.detectedEmail && (
-                                          <span className="ml-1.5 text-ink-500 font-mono text-[11px]">
-                                            &lt;{unmatched.detectedEmail}&gt;
-                                          </span>
-                                        )}
-                                      </div>
-                                    </div>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setAttendanceActiveTab('register');
-                                        setAttendanceToast(`Check roster for: ${unmatched.detectedName || unmatched.detectedEmail}`);
-                                        setTimeout(() => setAttendanceToast(''), 4000);
-                                      }}
-                                      className="ml-2 px-2 py-0.5 text-[11px] font-semibold text-primary-900 bg-sand-100 hover:bg-sand-200 rounded transition-colors shrink-0 cursor-pointer"
-                                    >
-                                      Mark in Roll Call &rarr;
-                                    </button>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* Footer */}
-                <div className="px-5 py-3 bg-sand-50 border-t border-sand-200 flex items-center justify-between shrink-0">
-                  <div className="text-xs text-ink-600 font-medium">
-                    {presentCount} of {totalEnrolled} Present ({currentRatePct}%)
-                    {attendanceToast && (
-                      <span className="ml-2 font-bold text-emerald-800">
-                        • {attendanceToast}
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAttendanceModalMode('lessons');
-                        setEditingAttendanceSessionId(null);
-                      }}
-                      className="px-3.5 py-1.5 rounded-lg text-ink-600 hover:bg-sand-200/80 text-xs font-semibold cursor-pointer transition-colors"
-                    >
-                      Back to Lessons
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleSaveAttendance}
-                      className="px-5 py-2 rounded-xl bg-primary-900 hover:bg-primary-800 text-white text-xs font-bold shadow-xs hover:shadow transition-all cursor-pointer"
-                    >
-                      {editingAttendanceSessionId ? 'Save & Update Session' : 'Save Attendance'}
-                    </button>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      );
-    })()}
 
 
         {/* ADD / EDIT INSTRUCTOR MODAL */}
