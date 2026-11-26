@@ -4809,15 +4809,6 @@ export default function AdminDashboard() {
                       Record daily roll calls and track student attendance rates.
                     </p>
                   </div>
-
-                  <button
-                    type="button"
-                    onClick={() => handleOpenAttendanceModal()}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-primary-900 hover:bg-primary-800 text-white text-xs font-bold transition-all shadow-sm cursor-pointer whitespace-nowrap self-start sm:self-auto"
-                  >
-                    <ClipboardCheck size={14} />
-                    Take / Upload Attendance
-                  </button>
                 </div>
 
                 {/* Minimal Year, Program & Course Filter Bar */}
