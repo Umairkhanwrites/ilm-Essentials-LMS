@@ -5345,16 +5345,21 @@ export default function AdminDashboard() {
                 {/* Cohort / Batch Filter */}
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-semibold text-ink-500">Cohort:</span>
-                  <select
+                  <MinimalDropdown
                     value={accountProgramFilter}
-                    onChange={(e) => setAccountProgramFilter(e.target.value)}
-                    className="h-9 px-3 py-1.5 text-xs font-semibold rounded-xl border border-sand-200 bg-sand-50/70 hover:bg-sand-100/70 text-ink-800 shadow-2xs focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-sand-300 cursor-pointer"
-                  >
-                    <option value="all">All Cohorts & Programs</option>
-                    <option value="Ilm Foundations">Ilm Foundations (Batch 1)</option>
-                    <option value="Ilm Intensives">Ilm Intensives (Weekend)</option>
-                    <option value="Ilm Essentials">Ilm Essentials (Evening)</option>
-                  </select>
+                    onChange={setAccountProgramFilter}
+                    options={[
+                      { value: 'all', label: 'All Cohorts & Programs' },
+                      { value: 'Ilm Foundations', label: 'Ilm Foundations (Batch 1)' },
+                      { value: 'Ilm Intensives', label: 'Ilm Intensives (Weekend)' },
+                      { value: 'Ilm Essentials', label: 'Ilm Essentials (Evening)' },
+                    ]}
+                    placeholder="All Cohorts & Programs"
+                    className="w-48 shrink-0"
+                    menuWidth="w-56"
+                    align="right"
+                    title="Filter by Cohort / Program"
+                  />
                 </div>
               </div>
 
@@ -5733,7 +5738,7 @@ export default function AdminDashboard() {
                         const baseFee = fee.baseFee || fee.totalAmount || 0;
                         const hasDiscount = (Number(fee.discountAmount) || 0) > 0 || fee.discountType === 'waiver';
                         const hasInstallments = isSemester && fee.paymentPlan?.startsWith('installments') && Array.isArray(fee.installments) && fee.installments.length > 0;
-                        const paidInstallmentsCount = hasInstallments ? fee.installments.filter(i => i.status === 'Paid').length : 0;
+                        const paidInstallmentsCount = hasInstallments ? fee.installments.filter(i => i.status === 'Paid' || i.status === 'APPROVED').length : 0;
                         const percentPaid = fee.totalAmount > 0 ? Math.min(100, Math.round(((fee.paidAmount || 0) / fee.totalAmount) * 100)) : 100;
                         const isOverdue = fee.status === 'Overdue';
                         const isRowActive = selectedDrawerFeeId === fee.id && isBillingDrawerOpen;
@@ -5970,7 +5975,7 @@ export default function AdminDashboard() {
                                       <span>{group.studentName}</span>
                                       <span className="inline-flex items-center gap-1 text-[10px] font-bold text-primary-900 bg-primary-100/80 px-2 py-0.5 rounded-full border border-primary-200">
                                         <Layers size={9} />
-                                        {group.invoices.length} Active Courses
+                                        {group.invoices.length} Active {group.invoices.length === 1 ? 'Course' : 'Courses'}
                                       </span>
                                     </div>
                                     <div className="text-xs text-ink-500">{group.studentEmail}</div>
@@ -5998,14 +6003,14 @@ export default function AdminDashboard() {
                                   PKR {group.totalBilled.toLocaleString()}
                                 </div>
                                 <span className="text-[10px] text-ink-400">
-                                  Total ({group.invoices.length} invoices)
+                                  Total ({group.invoices.length} {group.invoices.length === 1 ? 'invoice' : 'invoices'})
                                 </span>
                               </td>
 
                               {/* Aggregated Payment Plan */}
                               <td className="py-3.5 px-3 text-xs">
                                 <span className="inline-flex items-center gap-1 text-[11px] font-bold text-ink-700 bg-sand-100 px-2 py-0.5 rounded-md">
-                                  {group.invoices.length} Invoices
+                                  {group.invoices.length} {group.invoices.length === 1 ? 'Invoice' : 'Invoices'}
                                 </span>
                               </td>
 
@@ -6117,7 +6122,7 @@ export default function AdminDashboard() {
                                     <td className="py-2.5 pl-9 pr-3">
                                       <div className="flex items-center gap-1.5 text-ink-600">
                                         <span className="text-sand-400">↳</span>
-                                        <span className="text-[#0B3324] font-bold">
+                                        <span className="text-[#0B3324] font-bold whitespace-nowrap">
                                           {inv.invoiceNo}
                                         </span>
                                         <span className="text-ink-400">&bull;</span>
@@ -8992,7 +8997,15 @@ export default function AdminDashboard() {
                   </div>
                   <div>
                     <span className="text-ink-400 block text-[10px] uppercase font-bold">Status</span>
-                    <span className="inline-block mt-0.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                    <span
+                      className={`inline-block mt-0.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
+                        inspectingInst.status === 'APPROVED'
+                          ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                          : inspectingInst.status === 'REJECTED'
+                          ? 'bg-rose-50 text-rose-800 border-rose-200'
+                          : 'bg-amber-100 text-amber-900 border-amber-300'
+                      }`}
+                    >
                       {inspectingInst.status}
                     </span>
                   </div>
@@ -9031,27 +9044,29 @@ export default function AdminDashboard() {
                           </p>
                         </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => handleToggleStudentVideo(inspectingInst.studentId, inspectingInst.studentName, isRestricted)}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-2xs cursor-pointer inline-flex items-center gap-1.5 ${
-                          isRestricted
-                            ? 'bg-emerald-700 hover:bg-emerald-800 text-white'
-                            : 'bg-white hover:bg-red-50 text-red-700 border border-red-200'
-                        }`}
-                      >
-                        {isRestricted ? (
-                          <>
-                            <Unlock size={12} />
-                            <span>Restore Access Now</span>
-                          </>
-                        ) : (
-                          <>
-                            <Lock size={12} />
-                            <span>Restrict Video</span>
-                          </>
-                        )}
-                      </button>
+                      {(inspectingInst.status !== 'APPROVED' || isRestricted) && (
+                        <button
+                          type="button"
+                          onClick={() => handleToggleStudentVideo(inspectingInst.studentId, inspectingInst.studentName, isRestricted)}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-2xs cursor-pointer inline-flex items-center gap-1.5 ${
+                            isRestricted
+                              ? 'bg-emerald-700 hover:bg-emerald-800 text-white'
+                              : 'bg-white hover:bg-red-50 text-red-700 border border-red-200'
+                          }`}
+                        >
+                          {isRestricted ? (
+                            <>
+                              <Unlock size={12} />
+                              <span>Restore Access Now</span>
+                            </>
+                          ) : (
+                            <>
+                              <Lock size={12} />
+                              <span>Restrict Video</span>
+                            </>
+                          )}
+                        </button>
+                      )}
                     </div>
                   );
                 })()}
@@ -9152,26 +9167,33 @@ export default function AdminDashboard() {
                   Close
                 </button>
 
-                <div className="flex items-center gap-2.5">
-                  {!isRejectingMode && (
+                {inspectingInst.status === 'APPROVED' ? (
+                  <span className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-bold">
+                    <CheckCircle2 size={14} className="text-emerald-600" />
+                    <span>Verified &amp; Approved</span>
+                  </span>
+                ) : (
+                  <div className="flex items-center gap-2.5">
+                    {!isRejectingMode && (
+                      <button
+                        type="button"
+                        onClick={() => setIsRejectingMode(true)}
+                        className="px-4 py-2 rounded-xl text-xs font-bold bg-white text-rose-700 border border-rose-200 hover:bg-rose-50 transition-colors cursor-pointer"
+                      >
+                        Reject Payment Proof
+                      </button>
+                    )}
+
                     <button
                       type="button"
-                      onClick={() => setIsRejectingMode(true)}
-                      className="px-4 py-2 rounded-xl text-xs font-bold bg-white text-rose-700 border border-rose-200 hover:bg-rose-50 transition-colors cursor-pointer"
+                      onClick={() => handleApproveInstallmentAction(inspectingInst)}
+                      className="inline-flex items-center gap-1.5 px-5 py-2 rounded-xl bg-[#0B3324] hover:bg-[#072419] text-white text-xs font-bold transition-all shadow-xs cursor-pointer"
                     >
-                      Reject Payment Proof
+                      <CheckCircle2 size={15} className="text-emerald-300" />
+                      <span>Approve Payment &amp; Verify</span>
                     </button>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={() => handleApproveInstallmentAction(inspectingInst)}
-                    className="inline-flex items-center gap-1.5 px-5 py-2 rounded-xl bg-[#0B3324] hover:bg-[#072419] text-white text-xs font-bold transition-all shadow-xs cursor-pointer"
-                  >
-                    <CheckCircle2 size={15} className="text-emerald-300" />
-                    <span>Approve Payment &amp; Verify</span>
-                  </button>
-                </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>

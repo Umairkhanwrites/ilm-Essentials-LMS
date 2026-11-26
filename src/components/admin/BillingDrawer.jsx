@@ -271,7 +271,7 @@ export default function BillingDrawer({
     let unpaidIdx = 0;
     setInstallments((prev) =>
       prev.map((inst) => {
-        if (inst.status === 'Paid') return inst;
+        if (inst.status === 'Paid' || inst.status === 'APPROVED') return inst;
         const amt = unpaidIdx === unpaidRows.length - 1 ? part + rem : part;
         unpaidIdx += 1;
         return { ...inst, amount: amt };
@@ -300,9 +300,29 @@ export default function BillingDrawer({
   // ==========================================
   const nextPendingInstallment = useMemo(() => {
     return Array.isArray(feeRecord.installments)
-      ? feeRecord.installments.find((i) => i.status !== 'Paid')
+      ? feeRecord.installments.find((i) => i.status !== 'Paid' && i.status !== 'APPROVED')
       : null;
   }, [feeRecord.installments]);
+
+  const effectivePaymentHistory = useMemo(() => {
+    if (Array.isArray(feeRecord.paymentHistory) && feeRecord.paymentHistory.length > 0) {
+      return feeRecord.paymentHistory;
+    }
+    if (!Array.isArray(feeRecord.installments)) return [];
+    return feeRecord.installments
+      .filter((i) => i.status === 'APPROVED' || i.status === 'Paid')
+      .map((i, idx) => ({
+        id: i.id || `inst-audit-${idx}`,
+        transactionRef: i.transactionRef || i.challanNo || `CHALLAN-${idx + 1}`,
+        amount: i.amount,
+        method: i.method || 'Bank Transfer (Verified)',
+        date: i.approvedAt ? String(i.approvedAt).slice(0, 10) : i.dueDate,
+        notes: i.approvedBy
+          ? `Verified & Approved by ${i.approvedBy}`
+          : `${i.title || 'Tuition Installment'} — Cleared`,
+        isDerivedFromInstallment: true,
+      }));
+  }, [feeRecord.paymentHistory, feeRecord.installments]);
 
   const [paymentAmount, setPaymentAmount] = useState('');
   const [selectedInstallmentId, setSelectedInstallmentId] = useState('');
@@ -515,29 +535,51 @@ export default function BillingDrawer({
                   <h2 className="text-base sm:text-lg font-heading font-bold text-ink-900 tracking-tight">
                     {feeRecord.studentName}
                   </h2>
-                  <span className="text-[11px] text-ink-700 bg-white border border-sand-200 px-2 py-0.5 rounded-md font-semibold shadow-2xs">
-                    {feeRecord.invoiceNo}
-                  </span>
-                  <span
-                    className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider border ${
-                      feeRecord.status === 'Paid'
-                        ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                        : feeRecord.status === 'Partial'
-                        ? 'bg-amber-50 text-amber-800 border-amber-200'
-                        : feeRecord.status === 'Waived'
-                        ? 'bg-sand-100 text-ink-700 border-sand-300'
-                        : 'bg-rose-50 text-rose-800 border-rose-200'
-                    }`}
-                  >
-                    {feeRecord.status}
-                  </span>
+                  {activeTabMode === 'overview' ? (
+                    <>
+                      <span className="text-[11px] text-ink-700 bg-white border border-sand-200 px-2 py-0.5 rounded-md font-semibold shadow-2xs">
+                        {studentInvoices.length} Enrollments
+                      </span>
+                      <span
+                        className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider border ${
+                          combinedSummary.totalDue === 0
+                            ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                            : combinedSummary.totalPaid > 0
+                            ? 'bg-amber-50 text-amber-800 border-amber-200'
+                            : 'bg-rose-50 text-rose-800 border-rose-200'
+                        }`}
+                      >
+                        {combinedSummary.totalDue === 0 ? 'All Settled' : combinedSummary.totalPaid > 0 ? 'Partial' : 'Pending'}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="text-[11px] text-ink-700 bg-white border border-sand-200 px-2 py-0.5 rounded-md font-semibold shadow-2xs">
+                        {feeRecord.invoiceNo}
+                      </span>
+                      <span
+                        className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider border ${
+                          feeRecord.status === 'Paid'
+                            ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                            : feeRecord.status === 'Partial'
+                            ? 'bg-amber-50 text-amber-800 border-amber-200'
+                            : feeRecord.status === 'Waived'
+                            ? 'bg-sand-100 text-ink-700 border-sand-300'
+                            : 'bg-rose-50 text-rose-800 border-rose-200'
+                        }`}
+                      >
+                        {feeRecord.status}
+                      </span>
+                    </>
+                  )}
                 </div>
                 <div className="flex items-center gap-2 text-xs text-ink-500 mt-0.5">
                   <span>{feeRecord.studentEmail}</span>
                   <span>&bull;</span>
                   <span className="text-ink-700 font-medium">
-                    {feeRecord.program}
-                    {feeRecord.semester ? ` (${feeRecord.semester})` : ''}
+                    {activeTabMode === 'overview'
+                      ? 'Consolidated Financial Overview'
+                      : `${feeRecord.program}${feeRecord.semester ? ` (${feeRecord.semester})` : ''}`}
                   </span>
                 </div>
               </div>
@@ -1202,11 +1244,13 @@ export default function BillingDrawer({
                               className="w-full px-2.5 py-1.5 text-xs bg-white border border-sand-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-600/20"
                             >
                               <option value="">General Balance / Lump-Sum Payment</option>
-                              {feeRecord.installments.map((inst) => (
-                                <option key={inst.id} value={inst.id}>
-                                  {inst.title} — PKR {inst.amount?.toLocaleString()} ({inst.status})
-                                </option>
-                              ))}
+                              {feeRecord.installments
+                                .filter((inst) => inst.status !== 'Paid' && inst.status !== 'APPROVED')
+                                .map((inst) => (
+                                  <option key={inst.id} value={inst.id}>
+                                    {inst.title} — PKR {inst.amount?.toLocaleString()} ({inst.status})
+                                  </option>
+                                ))}
                             </select>
                           </div>
                         )}
@@ -1365,7 +1409,7 @@ export default function BillingDrawer({
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                       {feeRecord.installments.map((inst, idx) => {
-                        const isPaid = inst.status === 'Paid';
+                        const isPaid = inst.status === 'Paid' || inst.status === 'APPROVED';
                         return (
                           <div
                             key={inst.id || idx}
@@ -1410,13 +1454,13 @@ export default function BillingDrawer({
                       </h3>
                     </div>
                     <span className="text-[10px] font-bold text-ink-500 bg-sand-100 px-2 py-0.5 rounded-full">
-                      {(feeRecord.paymentHistory || []).length} Records
+                      {effectivePaymentHistory.length} {effectivePaymentHistory.length === 1 ? 'Record' : 'Records'}
                     </span>
                   </div>
 
-                  {Array.isArray(feeRecord.paymentHistory) && feeRecord.paymentHistory.length > 0 ? (
+                  {effectivePaymentHistory.length > 0 ? (
                     <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-                      {feeRecord.paymentHistory.map((item, idx) => (
+                      {effectivePaymentHistory.map((item, idx) => (
                         <div
                           key={item.id || idx}
                           className="p-3 bg-sand-50/70 border border-sand-200/80 rounded-xl text-xs space-y-1 hover:border-sand-300 transition-colors"
@@ -1617,7 +1661,7 @@ export default function BillingDrawer({
 
                         <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
                           {installments.map((inst, idx) => {
-                            const isPaid = inst.status === 'Paid';
+                            const isPaid = inst.status === 'Paid' || inst.status === 'APPROVED';
                             return (
                               <div
                                 key={inst.id || idx}
