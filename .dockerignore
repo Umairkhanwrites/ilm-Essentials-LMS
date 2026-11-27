@@ -3,4 +3,9 @@ dist
 .git
 .github
 *.log
+*.local
+.env
+.env.*
+!.env.example
+deploy.tar
 .DS_Store

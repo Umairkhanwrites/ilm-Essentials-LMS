@@ -12,6 +12,17 @@ RUN npm install
 # Copy application source code
 COPY . .
 
+# Build-time environment variables (passed by CapRover as Docker --build-arg)
+ARG VITE_SUPABASE_URL
+ARG VITE_SUPABASE_ANON_KEY
+ARG VITE_FIREBASE_API_KEY
+ARG VITE_FIREBASE_AUTH_DOMAIN
+ARG VITE_FIREBASE_PROJECT_ID
+ARG VITE_FIREBASE_STORAGE_BUCKET
+ARG VITE_FIREBASE_MESSAGING_SENDER_ID
+ARG VITE_FIREBASE_APP_ID
+ARG VITE_FIREBASE_MEASUREMENT_ID
+
 # Compile production bundle
 RUN npm run build
 
